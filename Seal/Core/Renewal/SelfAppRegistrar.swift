@@ -42,14 +42,18 @@ actor SelfAppRegistrar {
            existing.version == metadata.version,
            existing.buildNumber == metadata.buildNumber,
            try await fileStore.exists(relativePath: existing.ipaRelativePath) {
-            // accountID 为 nil 时修复，确保能出现在续签队列中
-            if existing.accountID == nil {
+            // accountID 为 nil 或 teamID 不匹配时修复，只在 teamID 匹配时才设置
+            let currentAccount = accounts.first { $0.id == existing.accountID }
+            let teamMismatch = currentAccount != nil
+                && metadata.signingTeamIdentifier?.isEmpty == false
+                && currentAccount?.teamID.caseInsensitiveCompare(metadata.signingTeamIdentifier!) != .orderedSame
+            if existing.accountID == nil || teamMismatch {
                 let resolvedID = SelfAppAccountBinding.resolvedAccountID(
                     teamIdentifier: metadata.signingTeamIdentifier,
                     accounts: accounts,
                     fallbackAccountID: existing.accountID
-                ) ?? accounts.first?.id
-                if let resolvedID {
+                )
+                if let resolvedID, resolvedID != existing.accountID {
                     var updated = existing
                     updated.accountID = resolvedID
                     try await appStore.save(updated)
@@ -129,12 +133,12 @@ actor SelfAppRegistrar {
             let attributes = try FileManager.default.attributesOfItem(atPath: ipaURL.path)
             let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
 
-            // 7. 解析账户绑定，确保不为 nil（用第一个可用账户兜底）
+            // 7. 解析账户绑定，只在 teamID 匹配时设置，避免续签时 Team 不匹配
             let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
                 teamIdentifier: metadata.signingTeamIdentifier,
                 accounts: accounts,
                 fallbackAccountID: existing?.accountID
-            ) ?? accounts.first?.id
+            )
 
             // 8. 更新记录（复用 ID，不删除重建）
             let record = AppRecord(
