@@ -94,7 +94,7 @@ enum ApplePortalSigningFailure {
                 title: "签名失败",
                 reason: "Apple 返回：无法创建签名证书",
                 recovery: "重试",
-                code: "SEAL-CERT-204"
+                code: "SEAL-CERT-204a"
             )
         }
 
@@ -118,7 +118,7 @@ enum ApplePortalSigningFailure {
                 title: "账号需要重新验证",
                 reason: "Apple 返回：认证状态无效",
                 recovery: "重新验证 Apple ID",
-                code: "SEAL-AUTH-102"
+                code: "SEAL-AUTH-102c"
             )
         }
 
@@ -272,7 +272,7 @@ actor ApplePortalSigningService {
                     title: "Team 不匹配",
                     reason: "当前 Apple ID 中没有找到已保存的 Team。Seal 不会静默切换到其他 Team。",
                     recovery: "选择 Team",
-                    code: "SEAL-AUTH-112"
+                    code: "SEAL-AUTH-112d"
                 )
             }
             let deviceName = await MainActor.run { UIDevice.current.name }
@@ -357,7 +357,7 @@ actor ApplePortalSigningService {
                     title: "描述文件校验失败",
                     reason: "签名完成后未找到主应用的 embedded.mobileprovision：\(prepared.mappedMainBundleID)。",
                     recovery: "重新获取描述文件",
-                    code: "SEAL-PROFILE-317"
+                    code: "SEAL-PROFILE-317a"
                 )
             }
 
@@ -395,14 +395,14 @@ actor ApplePortalSigningService {
                 title: "账号需要验证",
                 reason: "Apple ID 会话已失效",
                 recovery: "重新验证账号",
-                code: "SEAL-AUTH-102"
+                code: "SEAL-AUTH-102d"
             )
         } catch ALTAppleAPIError.authenticationHandshakeFailed {
             throw Self.failure(
                 title: "账号需要验证",
                 reason: "Apple ID 会话已失效",
                 recovery: "重新验证账号",
-                code: "SEAL-AUTH-102"
+                code: "SEAL-AUTH-102e"
             )
         } catch let failure as ImportFailure {
             throw failure
@@ -540,7 +540,7 @@ actor ApplePortalSigningService {
                     title: "证书创建结果不一致",
                     reason: "Apple 已返回新证书，但重新同步后无法确认该证书。",
                     recovery: "重新同步证书",
-                    code: "SEAL-CERT-209"
+                    code: "SEAL-CERT-209a"
                 )
             }
             certificate.privateKey = requested.privateKey
@@ -549,7 +549,7 @@ actor ApplePortalSigningService {
                     title: "无法保存新证书",
                     reason: "Apple 已创建证书，但本机无法将证书与私钥合成 P12。",
                     recovery: "重试签名",
-                    code: "SEAL-CERT-202"
+                    code: "SEAL-CERT-202a"
                 )
             }
 
@@ -573,7 +573,7 @@ actor ApplePortalSigningService {
                     title: "签名失败",
                     reason: "Apple 返回：无法创建签名证书",
                     recovery: "重试",
-                    code: "SEAL-CERT-215"
+                    code: "SEAL-CERT-215c"
                 )
             }
             if let failure = error as? ImportFailure { throw failure }
@@ -656,7 +656,7 @@ actor ApplePortalSigningService {
             title: "签名失败",
             reason: "Apple 返回：无法创建签名证书",
             recovery: "重试",
-            code: "SEAL-CERT-204"
+            code: "SEAL-CERT-204b"
         )
     }
 
@@ -788,7 +788,7 @@ actor ApplePortalSigningService {
                 title: "无法签名",
                 reason: "应用结构无效",
                 recovery: "检查 IPA",
-                code: "SEAL-SIGN-404"
+                code: "SEAL-SIGN-404a"
             )
         }
         var applications = [mainApplication.bundleIdentifier: mainApplication]
@@ -932,7 +932,7 @@ actor ApplePortalSigningService {
                         title: "签名失败",
                         reason: "Apple 返回：扩展无法生成描述文件",
                         recovery: "移除扩展后重试",
-                        code: "SEAL-EXT-401"
+                        code: "SEAL-EXT-401a"
                     )
                 }
                 try signingWorkspace.removeExtension(

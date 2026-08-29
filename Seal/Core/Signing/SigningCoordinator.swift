@@ -57,7 +57,7 @@ actor SigningCoordinator {
             throw Self.failure(
                 reason: "本机 Keychain 中缺少当前 Apple ID 的登录凭据。",
                 recovery: "重新验证 Apple ID",
-                code: "SEAL-AUTH-105"
+                code: "SEAL-AUTH-105a"
             )
         }
         try await validateAccountSession(
@@ -332,7 +332,7 @@ actor SigningCoordinator {
             throw Self.failure(
                 reason: "当前设备不在此签名包使用的设备记录中。",
                 recovery: "重新签名",
-                code: "SEAL-INSTALL-714"
+                code: "SEAL-INSTALL-714a"
             )
         }
 

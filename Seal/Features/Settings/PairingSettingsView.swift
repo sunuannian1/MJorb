@@ -117,7 +117,7 @@ struct PairingSettingsView: View {
 
             Button(viewModel.pairingRecord == nil ? "检查配对状态" : "重新检查") {
                 Task {
-                    _ = await viewModel.importPairingAssistantInboxIfPresent()
+                    await viewModel.testConnection()
                 }
             }
             .sealOutlineAction(cornerRadius: 12)

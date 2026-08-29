@@ -24,7 +24,7 @@ struct AppContainer {
                 throw AppStoreError.invalidConfiguration
             }
             let sealDirectory = applicationSupport.appending(
-                path: "Seal",
+                path: AppConfiguration.Paths.applicationSupportSubdirectory,
                 directoryHint: .isDirectory
             )
             try fileManager.createDirectory(
@@ -36,18 +36,18 @@ struct AppContainer {
             let appStore = try Self.makeAppStore(in: sealDirectory)
             let fileStore = try AppFileStore.live()
             let accountRepository = ProtectedAccountRepository(
-                fileURL: sealDirectory.appending(path: "Accounts.json")
+                fileURL: sealDirectory.appending(path: AppConfiguration.Paths.accountsFile)
             )
             let keychain = KeychainVault()
             let signingPreferenceStore = SigningPreferenceStore()
             let pairingStore = PairingStore(
-                fileURL: sealDirectory.appending(path: "Pairing.plist")
+                fileURL: sealDirectory.appending(path: AppConfiguration.Paths.pairingFile)
             )
             let anisetteProvider = AnisetteV3Client()
             let installChannel = MinimuxerInstallChannel(
                 pairingStore: pairingStore,
                 logDirectory: sealDirectory.appending(
-                    path: "Logs/Minimuxer",
+                    path: AppConfiguration.Paths.minimuxerLogsSubdirectory,
                     directoryHint: .isDirectory
                 )
             )
@@ -68,13 +68,13 @@ struct AppContainer {
                 )
             )
             let refreshQueueStore = RefreshQueueStore(
-                fileURL: sealDirectory.appending(path: "RefreshQueue.json")
+                fileURL: sealDirectory.appending(path: AppConfiguration.Paths.refreshQueueFile)
             )
             let logStore = SealLogStore(
-                fileURL: sealDirectory.appending(path: "Logs/Seal.json")
+                fileURL: sealDirectory.appending(path: AppConfiguration.Paths.sealLogFile)
             )
             let signingHistoryStore = SigningHistoryStore(
-                fileURL: sealDirectory.appending(path: "SigningHistory.json")
+                fileURL: sealDirectory.appending(path: AppConfiguration.Paths.signingHistoryFile)
             )
             let notificationScheduler = ExpiryNotificationScheduler()
             let notificationPreferences = NotificationPreferences()

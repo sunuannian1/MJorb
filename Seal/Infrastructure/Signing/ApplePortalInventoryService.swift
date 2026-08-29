@@ -103,7 +103,7 @@ actor ApplePortalInventoryService {
                 title: "Apple 同步失败",
                 reason: "Apple 返回的 Team 列表中没有当前账号保存的 Team。",
                 recovery: "选择 Team",
-                code: "SEAL-AUTH-112"
+                code: "SEAL-AUTH-112c"
             )
         }
 

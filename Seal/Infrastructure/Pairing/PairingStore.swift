@@ -450,7 +450,7 @@ actor PairingStore {
             title: "设备配对不匹配",
             reason: "当前设备配对信息与连接的 iPhone 不匹配。",
             recovery: "重新配对当前 iPhone",
-            code: "SEAL-PAIR-206"
+            code: "SEAL-PAIR-206a"
         )
     }
 }

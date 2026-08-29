@@ -329,6 +329,15 @@ final class AppsViewModel: ObservableObject {
 
             let fetched = try await appStore.fetchAll()
             guard generation == loadGeneration else { return }
+
+            // 首次加载时自动清理孤儿文件（不阻塞 UI）
+            if hasLoaded == false, let fileStore {
+                let validAppIDs = Set(fetched.map { $0.id })
+                Task.detached(priority: .background) {
+                    try? await fileStore.clearOrphanedAppFiles(validAppIDs: validAppIDs)
+                }
+            }
+
             var fetchedAccounts = try await accountRepository?.fetchAll() ?? []
             guard generation == loadGeneration else { return }
             fetchedAccounts = try await repairLegacyAccountStatuses(fetchedAccounts)
@@ -524,7 +533,7 @@ final class AppsViewModel: ObservableObject {
                 surfaceHistoryWarning(
                     title: "签名历史回填未完成",
                     reason: "部分已有应用的历史记录无法保存。",
-                    code: "SEAL-HISTORY-004"
+                    code: "SEAL-HISTORY-004a"
                 )
                 return
             }
@@ -639,7 +648,7 @@ final class AppsViewModel: ObservableObject {
                 title: "缺少签名账号",
                 reason: accounts.isEmpty ? "尚未添加 Apple ID" : "Apple ID 需要重新验证",
                 recovery: "前往设置",
-                code: "SEAL-AUTH-104"
+                code: "SEAL-AUTH-104a"
             )
             return
         }
@@ -651,7 +660,7 @@ final class AppsViewModel: ObservableObject {
                 title: "续签记录不完整",
                 reason: "未记录上次签名此 App 的 Apple ID。",
                 recovery: "重新导入 IPA 签名并安装",
-                code: "SEAL-AUTH-110"
+                code: "SEAL-AUTH-110a"
             )
             return
         }
@@ -674,7 +683,7 @@ final class AppsViewModel: ObservableObject {
                 title: "Apple ID 不可用",
                 reason: isRenewal ? "上次签名此 App 的 Apple ID 不可用。" : "请选择一个已验证的 Apple ID",
                 recovery: "前往设置",
-                code: "SEAL-AUTH-104"
+                code: "SEAL-AUTH-104b"
             )
             return
         }
@@ -701,7 +710,7 @@ final class AppsViewModel: ObservableObject {
                     title: "Apple ID 不可用",
                     reason: "上次签名此 App 的 Apple ID 不可用。",
                     recovery: "前往设置",
-                    code: "SEAL-AUTH-104"
+                    code: "SEAL-AUTH-104c"
                 )
                 return
             }
@@ -771,7 +780,7 @@ final class AppsViewModel: ObservableObject {
                 title: "缺少签名账号",
                 reason: accounts.isEmpty ? "尚未添加 Apple ID" : "Apple ID 需要重新验证",
                 recovery: "前往设置",
-                code: "SEAL-AUTH-104"
+                code: "SEAL-AUTH-104d"
             )
             return
         }
@@ -817,7 +826,7 @@ final class AppsViewModel: ObservableObject {
                 title: "Bundle ID 无效",
                 reason: validationError,
                 recovery: "修改 Bundle ID",
-                code: "SEAL-BUNDLE-001"
+                code: "SEAL-BUNDLE-001a"
             )
             return false
         }
@@ -1095,7 +1104,7 @@ final class AppsViewModel: ObservableObject {
                     title: "无法续签应用",
                     reason: "续签队列执行失败",
                     recovery: "重试",
-                    code: "SEAL-RENEW-500"
+                    code: "SEAL-RENEW-500a"
                 )
             )
         }

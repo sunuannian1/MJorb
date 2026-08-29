@@ -123,7 +123,7 @@ actor ApplePortalCertificateService {
                     title: "签名失败",
                     reason: "Apple 返回：无法创建签名证书",
                     recovery: "重试",
-                    code: "SEAL-CERT-215"
+                    code: "SEAL-CERT-215b"
                 )
             }
             if let failure = error as? ImportFailure { throw failure }
@@ -176,7 +176,7 @@ actor ApplePortalCertificateService {
                 title: "证书不存在",
                 reason: "Apple 返回：证书撤销失败",
                 recovery: "重新同步证书",
-                code: "SEAL-CERT-210"
+                code: "SEAL-CERT-210a"
             )
         }
         try await revoke(certificate, team: context.team, session: context.session)
@@ -201,7 +201,7 @@ actor ApplePortalCertificateService {
                 title: "账号 Team 不一致",
                 reason: "Apple 当前返回的 Team 中没有已保存的 Team。",
                 recovery: "选择 Team",
-                code: "SEAL-AUTH-112"
+                code: "SEAL-AUTH-112b"
             )
         }
         return (team, session)

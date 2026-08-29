@@ -1,30 +1,37 @@
 import SwiftUI
 
 struct OpenSourceLicensesView: View {
+    private static func makeURL(_ string: String) -> URL {
+        guard let url = URL(string: string) else {
+            fatalError("编译期固定 URL 无效: \(string)")
+        }
+        return url
+    }
+
     private let dependencies: [OpenSourceDependency] = [
         OpenSourceDependency(
             name: "AltSign",
             purpose: "IPA 签名、证书与描述文件处理",
             license: "AGPL-3.0",
-            url: URL(string: "https://github.com/SideStore/AltSign")!
+            url: Self.makeURL("https://github.com/SideStore/AltSign")
         ),
         OpenSourceDependency(
             name: "Minimuxer",
             purpose: "LocalDevVPN / SideStore 本机服务",
             license: "AGPL-3.0",
-            url: URL(string: "https://github.com/SideStore/minimuxer")!
+            url: Self.makeURL("https://github.com/SideStore/minimuxer")
         ),
         OpenSourceDependency(
             name: "ZIPFoundation",
             purpose: "IPA 解包、读取和重新打包",
             license: "MIT",
-            url: URL(string: "https://github.com/weichsel/ZIPFoundation")!
+            url: Self.makeURL("https://github.com/weichsel/ZIPFoundation")
         ),
         OpenSourceDependency(
             name: "DeviceSupport",
             purpose: "设备支持文件与连接能力",
             license: "开源许可见上游仓库",
-            url: URL(string: "https://github.com/SideStore/DeviceSupport")!
+            url: Self.makeURL("https://github.com/SideStore/DeviceSupport")
         )
     ]
 

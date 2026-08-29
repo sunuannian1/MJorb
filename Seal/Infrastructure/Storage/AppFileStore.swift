@@ -353,7 +353,7 @@ actor AppFileStore {
                 title: "无法保存 IPA",
                 reason: "待提交文件缺失",
                 recovery: "重新导入 IPA",
-                code: "SEAL-IPA-211"
+                code: "SEAL-IPA-211a"
             )
         }
 

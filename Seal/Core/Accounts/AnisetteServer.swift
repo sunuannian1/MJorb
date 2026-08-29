@@ -7,10 +7,17 @@ struct AnisetteServer: Identifiable, Equatable, Sendable {
 }
 
 enum AnisetteServerCatalog {
+    private static func makeURL(_ string: String) -> URL {
+        guard let url = URL(string: string) else {
+            fatalError("编译期固定 URL 无效: \(string)")
+        }
+        return url
+    }
+
     static let official: [AnisetteServer] = [
         AnisetteServer(
             id: "sidestore-app",
-            url: URL(string: "https://ani.sidestore.app")!,
+            url: makeURL("https://ani.sidestore.app"),
             displayName: "ani.sidestore.app"
         )
     ]

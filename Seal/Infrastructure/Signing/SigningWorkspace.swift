@@ -167,7 +167,7 @@ struct SigningWorkspace: Sendable {
             guard overflow == false, sum <= limits.maximumExpandedSize else {
                 throw Self.signingFailure(
                     reason: "解压内容超过安全上限",
-                    code: "SEAL-SIGN-402"
+                    code: "SEAL-SIGN-402a"
                 )
             }
             expandedSize = sum
@@ -211,7 +211,7 @@ struct SigningWorkspace: Sendable {
               identifier.isEmpty == false else {
             throw Self.signingFailure(
                 reason: "应用标识无效",
-                code: "SEAL-SIGN-404"
+                code: "SEAL-SIGN-404b"
             )
         }
         return identifier
@@ -232,7 +232,7 @@ struct SigningWorkspace: Sendable {
         guard var info = value as? [String: Any] else {
             throw Self.signingFailure(
                 reason: "应用信息无效",
-                code: "SEAL-SIGN-404"
+                code: "SEAL-SIGN-404c"
             )
         }
         info["CFBundleIdentifier"] = identifier
@@ -327,7 +327,7 @@ struct SigningWorkspace: Sendable {
 
     private func renderedSquareIcon(_ image: UIImage, pixels: CGFloat) throws -> Data {
         guard let source = image.cgImage else {
-            throw Self.signingFailure(reason: "自定义 App 图标无法处理", code: "SEAL-CUSTOM-004")
+            throw Self.signingFailure(reason: "自定义 App 图标无法处理", code: "SEAL-CUSTOM-004a")
         }
         let side = min(source.width, source.height)
         let sourceRect = CGRect(
@@ -337,7 +337,7 @@ struct SigningWorkspace: Sendable {
             height: side
         )
         guard let cgImage = source.cropping(to: sourceRect) else {
-            throw Self.signingFailure(reason: "自定义 App 图标无法处理", code: "SEAL-CUSTOM-004")
+            throw Self.signingFailure(reason: "自定义 App 图标无法处理", code: "SEAL-CUSTOM-004b")
         }
         let cropped = UIImage(cgImage: cgImage, scale: 1, orientation: image.imageOrientation)
         let format = UIGraphicsImageRendererFormat()
@@ -348,7 +348,7 @@ struct SigningWorkspace: Sendable {
             cropped.draw(in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
         }
         guard let png = output.pngData() else {
-            throw Self.signingFailure(reason: "自定义 App 图标无法编码", code: "SEAL-CUSTOM-004")
+            throw Self.signingFailure(reason: "自定义 App 图标无法编码", code: "SEAL-CUSTOM-004c")
         }
         return png
     }
@@ -365,7 +365,7 @@ struct SigningWorkspace: Sendable {
             format: &format
         )
         guard var info = value as? [String: Any] else {
-            throw Self.signingFailure(reason: "应用信息无效", code: "SEAL-SIGN-404")
+            throw Self.signingFailure(reason: "应用信息无效", code: "SEAL-SIGN-404d")
         }
         mutation(&info)
         let updated = try PropertyListSerialization.data(

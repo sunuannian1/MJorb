@@ -213,7 +213,7 @@ actor MinimuxerInstallChannel: InstallChannel {
             title: "安装后验证失败",
             reason: "iOS 安装服务未返回已安装的 Bundle ID。",
             recovery: "重试",
-            code: "SEAL-INSTALL-707"
+            code: "SEAL-INSTALL-707a"
         )
         #endif
     }
@@ -330,7 +330,7 @@ actor MinimuxerInstallChannel: InstallChannel {
         title: "设备未配对",
         reason: "当前设备还没有完成配对。",
         recovery: "连接设备",
-        code: "SEAL-PAIR-203"
+        code: "SEAL-PAIR-203b"
     )
 
     private static let vpnTunnelUnavailableFailure = ImportFailure(
@@ -351,6 +351,6 @@ actor MinimuxerInstallChannel: InstallChannel {
         title: "无法安装到手机",
         reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
         recovery: "重试",
-        code: "SEAL-INSTALL-706"
+        code: "SEAL-INSTALL-706b"
     )
 }

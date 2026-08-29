@@ -20,14 +20,14 @@ enum AppleAuthenticationFailure {
                 title: "无法添加账号",
                 reason: "Apple ID 验证失败。请确认网络可用后重试。",
                 recovery: "重试",
-                code: "SEAL-AUTH-107"
+                code: "SEAL-AUTH-107a"
             )
         case .teamLookup:
             return ImportFailure(
                 title: "无法添加账号",
                 reason: "验证码已接受，但 Apple 没有返回可用的开发团队。",
                 recovery: "重试",
-                code: "SEAL-AUTH-105"
+                code: "SEAL-AUTH-105f"
             )
         }
     }
@@ -139,7 +139,7 @@ final class AppleAccountClient {
                 title: "无法添加账号",
                 reason: "Apple ID 或密码无效",
                 recovery: "重试",
-                code: "SEAL-AUTH-102"
+                code: "SEAL-AUTH-102a"
             )
         } catch ALTAppleAPIError.invalidAnisetteData {
             throw ALTAppleAPIError(.invalidAnisetteData)
@@ -175,7 +175,7 @@ final class AppleAccountClient {
                     title: "Team 不可用",
                     reason: "当前 Apple ID 已无法访问之前保存的 Team。",
                     recovery: "选择 Team",
-                    code: "SEAL-AUTH-112"
+                    code: "SEAL-AUTH-112a"
                 )
             }
         } catch is CancellationError {
@@ -185,7 +185,7 @@ final class AppleAccountClient {
                 title: "Apple ID 需要重新验证",
                 reason: "Apple 已明确拒绝当前登录凭据。",
                 recovery: "重新验证 Apple ID",
-                code: "SEAL-AUTH-102"
+                code: "SEAL-AUTH-102b"
             )
         } catch let failure as ImportFailure {
             throw failure
@@ -200,7 +200,7 @@ final class AppleAccountClient {
                 title: "无法验证 Apple ID",
                 reason: "Apple 验证返回了无法分类的错误，账号状态未改变。",
                 recovery: "稍后重试；如持续失败再重新验证 Apple ID",
-                code: "SEAL-VERIFY-500"
+                code: "SEAL-VERIFY-500a"
             )
         }
     }

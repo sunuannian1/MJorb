@@ -81,7 +81,7 @@ struct IPAParserService: Sendable {
                 title: "无法读取 IPA",
                 reason: "应用信息不完整",
                 recovery: "选择其他 IPA",
-                code: "SEAL-IPA-102"
+                code: "SEAL-IPA-102a"
             )
         }
 
@@ -159,7 +159,7 @@ struct IPAParserService: Sendable {
                 title: "无法读取 IPA",
                 reason: "应用信息已损坏",
                 recovery: "选择其他 IPA",
-                code: "SEAL-IPA-102"
+                code: "SEAL-IPA-102b"
             )
         }
         return dictionary
@@ -267,7 +267,7 @@ struct IPAParserService: Sendable {
                     title: "无法读取 IPA",
                     reason: "扩展信息已损坏",
                     recovery: "选择其他 IPA",
-                    code: "SEAL-IPA-102"
+                    code: "SEAL-IPA-102c"
                 )
             }
             let name = displayName(from: info)

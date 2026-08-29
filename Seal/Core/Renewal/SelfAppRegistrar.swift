@@ -29,6 +29,18 @@ actor SelfAppRegistrar {
         if let existing, existing.hasPendingSelfUpdateSource {
             return
         }
+        // 增量优化：如果已注册记录与当前应用版本/构建号完全一致，跳过重新打包
+        if let existing,
+           existing.version == metadata.version,
+           existing.buildNumber == metadata.buildNumber,
+           existing.originalBundleIdentifier == SelfAppBundleIdentity.originalBundleIdentifier(
+               currentBundleIdentifier: metadata.bundleIdentifier,
+               declaredOriginalBundleIdentifier: metadata.originalBundleIdentifier,
+               existingOriginalBundleIdentifier: existing.originalBundleIdentifier
+           ),
+           existing.ipaRelativePath != nil {
+            return
+        }
         let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
             teamIdentifier: metadata.signingTeamIdentifier,
             accounts: accounts,

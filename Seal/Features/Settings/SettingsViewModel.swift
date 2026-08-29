@@ -346,7 +346,7 @@ final class SettingsViewModel: ObservableObject {
                 title: "证书不可用",
                 reason: "Seal 本地没有此证书对应的私钥，未更改当前签名证书。",
                 recovery: "知道了",
-                code: "SEAL-CERT-206"
+                code: "SEAL-CERT-206a"
             )
             return
         }
@@ -390,7 +390,7 @@ final class SettingsViewModel: ObservableObject {
                     title: "无法创建证书",
                     reason: "本机没有当前 Apple ID 的登录凭据。",
                     recovery: "重新验证 Apple ID",
-                    code: "SEAL-AUTH-105"
+                    code: "SEAL-AUTH-105b"
                 )
             }
 
@@ -447,7 +447,7 @@ final class SettingsViewModel: ObservableObject {
                     title: "无法撤销证书",
                     reason: "本机没有当前 Apple ID 的登录凭据。",
                     recovery: "重新验证 Apple ID",
-                    code: "SEAL-AUTH-105"
+                    code: "SEAL-AUTH-105c"
                 )
             }
 
@@ -516,7 +516,7 @@ final class SettingsViewModel: ObservableObject {
                     title: "无法更换证书",
                     reason: "本机没有当前 Apple ID 的登录凭据。",
                     recovery: "重新验证 Apple ID",
-                    code: "SEAL-AUTH-105"
+                    code: "SEAL-AUTH-105d"
                 )
             }
 
@@ -633,7 +633,7 @@ final class SettingsViewModel: ObservableObject {
                     title: "证书补偿未完成",
                     reason: "证书创建后的补偿未完整完成（\(rollbackFailures.joined(separator: "、"))）。",
                     recovery: "重新同步证书并检查 Apple ID 状态",
-                    code: "SEAL-CERT-215"
+                    code: "SEAL-CERT-215a"
                 )
             }
             if let failure = originalError as? ImportFailure { throw failure }
@@ -641,7 +641,7 @@ final class SettingsViewModel: ObservableObject {
                 title: "签名失败",
                 reason: "Apple 返回：无法创建签名证书",
                 recovery: "重试",
-                code: "SEAL-CERT-208"
+                code: "SEAL-CERT-208a"
             )
         }
     }
@@ -837,7 +837,7 @@ final class SettingsViewModel: ObservableObject {
                     title: "Apple 侧同步失败",
                     reason: "本机没有此 Apple ID 的登录凭据。",
                     recovery: "重新验证 Apple ID",
-                    code: "SEAL-INVENTORY-100"
+                    code: "SEAL-INVENTORY-100a"
                 )
             }
             let fetched = try await applePortalInventoryService.fetchInventory(
@@ -882,7 +882,7 @@ final class SettingsViewModel: ObservableObject {
                 title: "Apple 侧同步失败",
                 reason: "Apple 返回：证书状态同步失败",
                 recovery: "重新同步",
-                code: "SEAL-INVENTORY-900"
+                code: "SEAL-INVENTORY-900a"
             )
             certificateInventoryFailures[account.id] = failure
             certificateHealthStatuses[account.id] = await localCertificateHealthStatus(
@@ -1155,7 +1155,7 @@ final class SettingsViewModel: ObservableObject {
                         title: "原 Team 不可用",
                         reason: "重新验证后没有找到原 Team（\(TeamNameDisplayFormatter.string(from: existingAccount.teamName)) / \(existingAccount.teamID)）。Seal 不会静默切换到其他 Team。",
                         recovery: "重新验证 Apple ID",
-                        code: "SEAL-AUTH-109"
+                        code: "SEAL-AUTH-109a"
                     )
                 }
                 return try await persistAuthenticatedAccount(
@@ -1231,7 +1231,7 @@ final class SettingsViewModel: ObservableObject {
                 title: "无法保存 Team",
                 reason: "账号信息保存失败，请重试。",
                 recovery: "重试",
-                code: "SEAL-AUTH-110"
+                code: "SEAL-AUTH-110b"
             )
             return false
         }
@@ -1438,7 +1438,7 @@ final class SettingsViewModel: ObservableObject {
                 category: .pairing,
                 level: .error,
                 message: "\(Self.pairingAssistantSource)写入的配对信息读取失败",
-                code: "SEAL-PAIR-207"
+                code: "SEAL-PAIR-207a"
             )
             logs = (try? await logStore?.entries()) ?? logs
             refreshLogExportText()
@@ -1492,7 +1492,7 @@ final class SettingsViewModel: ObservableObject {
                 category: .pairing,
                 level: .error,
                 message: "手动导入配对文件读取失败",
-                code: "SEAL-PAIR-208"
+                code: "SEAL-PAIR-208a"
             )
             logs = (try? await logStore?.entries()) ?? logs
             refreshLogExportText()
@@ -1512,7 +1512,7 @@ final class SettingsViewModel: ObservableObject {
                     title: "缺少签名账号",
                     reason: "尚未添加 Apple ID",
                     recovery: "添加账号",
-                    code: "SEAL-AUTH-104"
+                    code: "SEAL-AUTH-104e"
                 )
             )
             return
@@ -1546,7 +1546,7 @@ final class SettingsViewModel: ObservableObject {
                     title: "账号需要验证",
                     reason: "本机没有当前 Apple ID 的登录凭据。",
                     recovery: "重新验证 Apple ID",
-                    code: "SEAL-AUTH-105"
+                    code: "SEAL-AUTH-105e"
                 )
             }
 
@@ -1635,7 +1635,7 @@ final class SettingsViewModel: ObservableObject {
                     title: "设备未配对",
                     reason: "检测连接前需要先完成当前设备配对",
                     recovery: "连接设备",
-                    code: "SEAL-PAIR-203"
+                    code: "SEAL-PAIR-203a"
                 )
             )
             return
@@ -1727,7 +1727,7 @@ final class SettingsViewModel: ObservableObject {
                             title: "配对验证失败",
                             reason: "无法保存当前设备的配对验证结果。",
                             recovery: "重新配对设备",
-                            code: "SEAL-PAIR-207"
+                            code: "SEAL-PAIR-207b"
                         ),
                         diagnostics: diagnostics,
                         logMessage: "设备配对校验失败"
@@ -1830,7 +1830,7 @@ final class SettingsViewModel: ObservableObject {
                     title: "配对状态保存失败",
                     reason: "LocalDevVPN 检测失败后，配对状态未能写入本机存储。",
                     recovery: "重新配对设备后再检测",
-                    code: "SEAL-PAIR-208"
+                    code: "SEAL-PAIR-208b"
                 )
             }
         }
@@ -1886,7 +1886,7 @@ final class SettingsViewModel: ObservableObject {
                 title: "无法设置提醒",
                 reason: "通知调度失败",
                 recovery: "重试",
-                code: "SEAL-NOTIFY-002"
+                code: "SEAL-NOTIFY-002a"
             )
             notificationStatus = await notificationScheduler.status(
                 sealEnabled: notificationPreferences.isEnabled,
@@ -1915,7 +1915,7 @@ final class SettingsViewModel: ObservableObject {
                 title: "无法设置提醒",
                 reason: "通知配置失败",
                 recovery: "重试",
-                code: "SEAL-NOTIFY-002"
+                code: "SEAL-NOTIFY-002b"
             )
         }
     }
@@ -1962,7 +1962,7 @@ final class SettingsViewModel: ObservableObject {
                 title: "无法清理缓存",
                 reason: "临时文件仍在使用",
                 recovery: "稍后重试",
-                code: "SEAL-STORAGE-001"
+                code: "SEAL-STORAGE-001a"
             )
         }
     }
@@ -2100,7 +2100,7 @@ final class SettingsViewModel: ObservableObject {
         title: "LocalDevVPN 未就绪",
         reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
         recovery: "一键检测",
-        code: "SEAL-INSTALL-706"
+        code: "SEAL-INSTALL-706a"
     )
 
 
