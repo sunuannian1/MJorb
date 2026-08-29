@@ -266,9 +266,11 @@ final class SettingsViewModel: ObservableObject {
                 var loadedNotificationsEnabled = await MainActor.run { self.notificationsEnabled }
                 var loadedReminderHours = await MainActor.run { self.reminderHours }
                 var loadedNotificationStatus = await MainActor.run { self.notificationStatus }
-                if let notificationPreferences = self.notificationPreferences {
-                    loadedNotificationsEnabled = notificationPreferences.isEnabled
-                    loadedReminderHours = notificationPreferences.leadHours
+                let prefsEnabled = await MainActor.run { self.notificationPreferences?.isEnabled }
+                let prefsLeadHours = await MainActor.run { self.notificationPreferences?.leadHours }
+                if let prefsEnabled, let prefsLeadHours {
+                    loadedNotificationsEnabled = prefsEnabled
+                    loadedReminderHours = prefsLeadHours
                     if let notificationScheduler = self.notificationScheduler {
                         loadedNotificationStatus = await notificationScheduler.status(sealEnabled: loadedNotificationsEnabled)
                     }
