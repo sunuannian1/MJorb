@@ -117,12 +117,12 @@ actor SelfAppRegistrar {
             let attributes = try FileManager.default.attributesOfItem(atPath: ipaURL.path)
             let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
 
-            // 7. 解析账户绑定（和以前逻辑一致，不额外加限制）
+            // 7. 解析账户绑定，确保 Seal 始终有 accountID 以进入续签队列
             let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
                 teamIdentifier: metadata.signingTeamIdentifier,
                 accounts: accounts,
                 fallbackAccountID: existing?.accountID
-            )
+            ) ?? accounts.first?.id
 
             // 8. 更新记录（复用 ID，不删除重建）
             let record = AppRecord(

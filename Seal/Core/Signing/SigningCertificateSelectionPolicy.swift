@@ -5,6 +5,8 @@ enum SigningCertificateSelectionPolicy {
         for app: AppRecord,
         account: AppleAccountRecord
     ) throws {
+        // Seal 自续签放宽限制：不强制匹配原 Apple ID 和 Team，可用任意可用账户续签
+        guard app.isSeal == false else { return }
         guard app.state == .installed || app.isSeal else { return }
         guard let boundAccountID = app.accountID else {
             throw ImportFailure(
