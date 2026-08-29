@@ -237,7 +237,9 @@ final class SettingsViewModel: ObservableObject {
                 let appIcons = await self.loadAppIcons(for: storedApps)
                 await MainActor.run { self.appIconData = appIcons }
 
-                self.loadCertificateInventoryCache(for: displayedAccounts)
+                await MainActor.run {
+                    self.loadCertificateInventoryCache(for: displayedAccounts)
+                }
 
                 let loadedLogs = (try? await self.logStore?.entries()) ?? []
                 let loadedHistory = (try? await self.signingHistoryStore?.records()) ?? []
