@@ -37,11 +37,24 @@ actor SelfAppRegistrar {
             currentBundleIdentifier: metadata.bundleIdentifier
         )
 
-        // 版本一致且文件存在 → 直接跳过，只清理重复记录
+        // 版本一致且文件存在 → 检查是否需要修复 accountID
         if let existing,
            existing.version == metadata.version,
            existing.buildNumber == metadata.buildNumber,
            try await fileStore.exists(relativePath: existing.ipaRelativePath) {
+            // accountID 为 nil 时修复，确保能出现在续签队列中
+            if existing.accountID == nil {
+                let resolvedID = SelfAppAccountBinding.resolvedAccountID(
+                    teamIdentifier: metadata.signingTeamIdentifier,
+                    accounts: accounts,
+                    fallbackAccountID: existing.accountID
+                ) ?? accounts.first?.id
+                if let resolvedID {
+                    var updated = existing
+                    updated.accountID = resolvedID
+                    try await appStore.save(updated)
+                }
+            }
             try await cleanupDuplicateSealRecords(records: records, keepID: existing.id)
             return
         }
@@ -116,12 +129,12 @@ actor SelfAppRegistrar {
             let attributes = try FileManager.default.attributesOfItem(atPath: ipaURL.path)
             let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
 
-            // 7. 解析账户绑定
+            // 7. 解析账户绑定，确保不为 nil（用第一个可用账户兜底）
             let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
                 teamIdentifier: metadata.signingTeamIdentifier,
                 accounts: accounts,
                 fallbackAccountID: existing?.accountID
-            )
+            ) ?? accounts.first?.id
 
             // 8. 更新记录（复用 ID，不删除重建）
             let record = AppRecord(
