@@ -33,10 +33,11 @@ enum SelfAppAccountBinding {
         guard normalizedTeamIdentifier(teamIdentifier) != nil else {
             return fallbackAccountID
         }
+        // 匹配到则用匹配的，匹配不到回退到 fallback，确保 Seal 始终有 accountID
         return matchedAccountID(
             teamIdentifier: teamIdentifier,
             accounts: accounts
-        )
+        ) ?? fallbackAccountID
     }
 
     private static func normalizedTeamIdentifier(_ value: String?) -> String? {
