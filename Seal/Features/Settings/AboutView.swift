@@ -1,0 +1,116 @@
+import SwiftUI
+import UIKit
+
+struct AboutView: View {
+    private let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0.0"
+    private let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "1"
+    private let bundleID = Bundle.main.bundleIdentifier ?? "com.mjorb.seal"
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 20) {
+                headerCard
+                versionCard
+            }
+            .padding(20)
+        }
+        .navigationTitle("关于 Seal")
+        .navigationBarTitleDisplayMode(.inline)
+        .sealScreenBackground()
+    }
+
+    private var headerCard: some View {
+        VStack(spacing: 10) {
+            appIcon
+            Text("Seal")
+                .font(.title.weight(.semibold))
+            Text("个人 IPA 签名与续签工具")
+                .font(.subheadline)
+                .foregroundStyle(Color.sealTextSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .padding(.horizontal, 20)
+        .background(Color.sealSurface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.sealHairline.opacity(0.58), lineWidth: 0.8)
+        }
+    }
+
+    @ViewBuilder
+    private var appIcon: some View {
+        if let image = Self.currentAppIcon() {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        } else {
+            Image(systemName: "app.fill")
+                .font(.system(size: 48, weight: .medium))
+                .foregroundStyle(Color.sealAccent)
+                .frame(width: 72, height: 72)
+                .background(Color.sealSurfaceElevated, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+
+    private var versionCard: some View {
+        VStack(spacing: 0) {
+            infoRow("版本", "\(version) (\(build))")
+            Divider()
+            infoRow("Bundle ID", bundleID)
+            Divider()
+            infoRow("当前系统", "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)")
+            Divider()
+            infoRow("最低支持", "iOS 16.0")
+            Divider()
+            NavigationLink { OpenSourceLicensesView() } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    Text("开源许可")
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: 12)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .font(.system(size: 16, weight: .regular))
+                .frame(minHeight: 54)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .background(Color.sealSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.sealHairline.opacity(0.58), lineWidth: 0.8)
+        }
+    }
+
+    private func infoRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(title)
+                .foregroundStyle(Color.sealTextSecondary)
+            Spacer(minLength: 12)
+            Text(value)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .minimumScaleFactor(0.72)
+                .textSelection(.enabled)
+                .foregroundStyle(.primary)
+        }
+        .font(.system(size: 16, weight: .regular))
+        .frame(minHeight: 54)
+    }
+
+    private static func currentAppIcon() -> UIImage? {
+        guard
+            let icons = Bundle.main.object(forInfoDictionaryKey: "CFBundleIcons") as? [String: Any],
+            let primaryIcon = icons["CFBundlePrimaryIcon"] as? [String: Any],
+            let files = primaryIcon["CFBundleIconFiles"] as? [String],
+            let iconName = files.last
+        else { return nil }
+        return UIImage(named: iconName)
+    }
+}

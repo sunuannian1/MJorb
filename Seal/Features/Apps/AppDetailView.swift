@@ -1,0 +1,213 @@
+import SwiftUI
+import UIKit
+
+struct AppDetailView: View {
+    let appID: UUID
+    @ObservedObject var viewModel: AppsViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Group {
+            if let app = viewModel.apps.first(where: { $0.id == appID }) {
+                SealDrawer(title: "应用详情") {
+                    VStack(alignment: .leading, spacing: 18) {
+                        header(app)
+                        infoCard(app)
+                    }
+                    .padding(.bottom, 8)
+                } footer: {
+                    if app.belongsInInstalledList {
+                        Button("立即续签") {
+                            dismiss()
+                            Task { await viewModel.beginRenewalDirectly(for: app) }
+                        }
+                        .sealPrimaryAction(cornerRadius: 14)
+                    } else {
+                        Button("关闭") { dismiss() }
+                            .sealOutlineAction(cornerRadius: 14)
+                    }
+                }
+            } else {
+                SealDrawer(title: "应用详情") {
+                    VStack(spacing: 12) {
+                        Image(systemName: "app.dashed")
+                            .font(.system(size: 40))
+                            .foregroundStyle(.secondary)
+                        Text("应用不存在")
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 180)
+                } footer: {
+                    Button("关闭") { dismiss() }
+                        .sealOutlineAction(cornerRadius: 14)
+                }
+            }
+        }
+        .alert(item: $viewModel.alertFailure) { failure in
+            Alert(
+                title: Text(failure.title),
+                message: Text(failure.userMessage),
+                dismissButton: .default(Text(failure.recovery))
+            )
+        }
+    }
+
+    private func header(_ app: AppRecord) -> some View {
+        HStack(spacing: 16) {
+            icon(app, size: 72)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(app.displayName)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Text("v\(app.version) · \(app.size.sealFormattedByteCount)")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.sealTextSecondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+        }
+    }
+
+    private func infoCard(_ app: AppRecord) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            detailRow("当前状态", app.belongsInInstalledList ? "已安装" : app.state.title)
+            Divider()
+            detailRow("签名账户", accountName(app))
+            Divider()
+            detailRow("签名证书", certificateName(app))
+            Divider()
+            detailRow("Team ID", app.signingTeamID ?? "未记录")
+            Divider()
+            identifierDetailRow("签名 Bundle ID", signedBundleIdentifier(app), highlightSeal: true)
+            Divider()
+            identifierDetailRow("原始 Bundle ID", app.originalBundleIdentifier, highlightSeal: false)
+            Divider()
+            detailRow("描述文件", profileStatus(app).title, valueColor: profileColor(app))
+            Divider()
+            detailRow("描述文件有效期至", expiryDateText(app), valueColor: profileColor(app))
+            Divider()
+            detailRow("扩展", app.extensions.isEmpty ? "无" : "\(app.extensions.count) 个")
+            if app.belongsInInstalledList {
+                Divider()
+                detailRow("签名记录", signingRecordSummary(app))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .glassSurface(cornerRadius: 24)
+    }
+
+    private func detailRow(_ title: String, _ value: String, valueColor: Color = Color.sealTextSecondary) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(title)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 12)
+            Text(value)
+                .foregroundStyle(valueColor)
+                .multilineTextAlignment(.trailing)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 15)
+    }
+
+    private func identifierDetailRow(
+        _ title: String,
+        _ value: String,
+        highlightSeal: Bool
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(title)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 12)
+            bundleIdentifierValue(value, highlightSeal: highlightSeal)
+                .font(.caption.monospaced())
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.vertical, 15)
+    }
+
+    private func bundleIdentifierValue(_ value: String, highlightSeal: Bool) -> Text {
+        var attributed = AttributedString(value)
+        attributed.foregroundColor = Color.sealTextSecondary
+        if highlightSeal, let range = attributed.range(of: ".seal", options: .backwards) {
+            attributed[range].foregroundColor = Color.sealAccent
+        }
+        return Text(attributed)
+    }
+
+    @ViewBuilder
+    private func icon(_ app: AppRecord, size: CGFloat) -> some View {
+        Group {
+            if let data = viewModel.iconData[app.id], let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Image(systemName: "app.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .padding(12)
+                    .foregroundStyle(Color.sealAccent)
+                    .background(Color.sealSurfaceElevated)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func accountName(_ app: AppRecord) -> String {
+        guard let account = viewModel.accounts.first(where: { $0.id == app.accountID }) else {
+            return "未记录"
+        }
+        return viewModel.fullEmail(for: account)
+    }
+
+    private func certificateName(_ app: AppRecord) -> String {
+        if let serial = app.certificateSerialNumber, serial.isEmpty == false {
+            return AppSigningPresentationHelpers.certificateName(serial: serial)
+        }
+        if let serial = app.signingTargets
+            .flatMap(\.certificateSerialNumbers)
+            .first(where: { $0.isEmpty == false }) {
+            return AppSigningPresentationHelpers.certificateName(serial: serial)
+        }
+        return app.belongsInInstalledList ? "未记录" : "签名时创建"
+    }
+
+    private func signedBundleIdentifier(_ app: AppRecord) -> String {
+        app.mappedBundleIdentifier
+            ?? app.preferredBundleIdentifier
+            ?? (app.belongsInInstalledList ? "未记录" : app.originalBundleIdentifier)
+    }
+
+    private func profileStatus(_ app: AppRecord) -> ProfileDisplayStatus {
+        AppSigningPresentationHelpers.profileStatus(for: app)
+    }
+
+    private func profileColor(_ app: AppRecord) -> Color {
+        switch profileStatus(app).tone {
+        case .success: .sealSuccess
+        case .warning: .sealWarning
+        case .danger: .sealDanger
+        case .neutral: .sealTextSecondary
+        }
+    }
+
+    private func expiryDateText(_ app: AppRecord) -> String {
+        guard let date = AppSigningPresentationHelpers.profileExpirationDate(for: app) else { return "未记录" }
+        return SealSettingsDateFormatter.string(from: date)
+    }
+
+    private func entitlementSummary(_ app: AppRecord) -> String {
+        if let status = app.entitlementValidationStatus, status.isEmpty == false { return status }
+        if let status = app.capabilityValidationStatus, status.isEmpty == false { return status }
+        return app.belongsInInstalledList ? "已通过" : "签名后校验"
+    }
+
+    private func signingRecordSummary(_ app: AppRecord) -> String {
+        guard let lastSignedAt = app.lastSignedAt else { return "未记录" }
+        return "最近成功 · \(SealSettingsDateFormatter.string(from: lastSignedAt))"
+    }
+}

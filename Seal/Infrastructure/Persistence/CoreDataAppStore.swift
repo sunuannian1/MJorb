@@ -1,0 +1,446 @@
+import CoreData
+import Foundation
+
+actor CoreDataAppStore: AppStore {
+    private let context: NSManagedObjectContext
+
+    init(inMemory: Bool) throws {
+        guard inMemory else { throw AppStoreError.invalidConfiguration }
+        context = try Self.makeContext(storeType: NSInMemoryStoreType, storeURL: nil)
+    }
+
+    init(storeURL: URL) throws {
+        context = try Self.makeContext(storeType: NSSQLiteStoreType, storeURL: storeURL)
+    }
+
+    func fetchAll() throws -> [AppRecord] {
+        try context.performAndWait {
+            let request = NSFetchRequest<NSManagedObject>(
+                entityName: CoreDataModel.appEntityName
+            )
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "importedAt", ascending: false),
+                NSSortDescriptor(key: "name", ascending: true)
+            ]
+            return try context.fetch(request).map(Self.decode)
+        }
+    }
+
+    func save(_ record: AppRecord) throws {
+        try context.performAndWait {
+            do {
+                let app = try Self.fetchApp(id: record.id, context: context)
+                    ?? NSEntityDescription.insertNewObject(
+                        forEntityName: CoreDataModel.appEntityName,
+                        into: context
+                    )
+                Self.write(record, to: app, context: context)
+
+                if context.hasChanges {
+                    try context.save()
+                }
+            } catch {
+                context.rollback()
+                throw error
+            }
+        }
+    }
+
+    func replaceImportedApp(_ record: AppRecord) throws -> [AppRecord] {
+        try context.performAndWait {
+            do {
+                let request = NSFetchRequest<NSManagedObject>(
+                    entityName: CoreDataModel.appEntityName
+                )
+                // Importing an IPA must never replace a real installed record.
+                // Keep installed / self records separate even when the original Bundle ID matches.
+                request.predicate = NSPredicate(
+                    format: "originalBundleIdentifier == %@ AND stateRaw IN %@ AND signedIPARelativePath == nil AND isSeal == NO",
+                    record.originalBundleIdentifier,
+                    Array(AppState.replaceablePendingImportStates).map(\.rawValue)
+                )
+                let existing = try context.fetch(request)
+                let replaced = try existing.map(Self.decode)
+                existing.forEach(context.delete)
+
+                let app = NSEntityDescription.insertNewObject(
+                    forEntityName: CoreDataModel.appEntityName,
+                    into: context
+                )
+                Self.write(record, to: app, context: context)
+
+                try context.save()
+                return replaced
+            } catch {
+                context.rollback()
+                throw error
+            }
+        }
+    }
+
+    func delete(id: UUID) throws {
+        try context.performAndWait {
+            do {
+                if let app = try Self.fetchApp(id: id, context: context) {
+                    context.delete(app)
+                    try context.save()
+                }
+            } catch {
+                context.rollback()
+                throw error
+            }
+        }
+    }
+
+    private static func makeContext(
+        storeType: String,
+        storeURL: URL?
+    ) throws -> NSManagedObjectContext {
+        if storeType == NSSQLiteStoreType, let storeURL {
+            try migrateLegacyStoreIfNeeded(at: storeURL)
+        }
+        let coordinator = NSPersistentStoreCoordinator(
+            managedObjectModel: CoreDataModel.make()
+        )
+        let options: [AnyHashable: Any] = [
+            NSMigratePersistentStoresAutomaticallyOption: true,
+            NSInferMappingModelAutomaticallyOption: true,
+            NSPersistentStoreFileProtectionKey:
+                FileProtectionType.completeUntilFirstUserAuthentication
+        ]
+        try coordinator.addPersistentStore(
+            ofType: storeType,
+            configurationName: nil,
+            at: storeURL,
+            options: options
+        )
+
+        let context = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
+        context.persistentStoreCoordinator = coordinator
+        context.mergePolicy = NSMergePolicy(
+            merge: .mergeByPropertyObjectTrumpMergePolicyType
+        )
+        context.undoManager = nil
+        return context
+    }
+
+    private static func migrateLegacyStoreIfNeeded(at storeURL: URL) throws {
+        guard FileManager.default.fileExists(atPath: storeURL.path) else { return }
+
+        let metadata = try NSPersistentStoreCoordinator.metadataForPersistentStore(
+            ofType: NSSQLiteStoreType,
+            at: storeURL,
+            options: nil
+        )
+        let currentModel = CoreDataModel.make()
+        if currentModel.isConfiguration(
+            withName: nil,
+            compatibleWithStoreMetadata: metadata
+        ) {
+            return
+        }
+
+        let candidateLegacyModels = [
+            CoreDataModel.makeLegacyV2(),
+            CoreDataModel.makeLegacyV1()
+        ]
+        guard let legacyModel = candidateLegacyModels.first(where: {
+            $0.isConfiguration(withName: nil, compatibleWithStoreMetadata: metadata)
+        }) else {
+            throw AppStoreError.invalidConfiguration
+        }
+
+        let mapping = try NSMappingModel.inferredMappingModel(
+            forSourceModel: legacyModel,
+            destinationModel: currentModel
+        )
+        let migrationID = UUID().uuidString
+        let temporaryURL = storeURL.deletingLastPathComponent().appending(
+            path: "Seal-Migration-\(migrationID).sqlite"
+        )
+        let backupURL = storeURL.deletingLastPathComponent().appending(
+            path: "Seal-Migration-Backup-\(migrationID).sqlite"
+        )
+        defer {
+            removeSQLiteStoreFiles(at: temporaryURL)
+            removeSQLiteStoreFiles(at: backupURL)
+        }
+        try copySQLiteStoreFiles(from: storeURL, to: backupURL)
+
+        let migrationManager = NSMigrationManager(
+            sourceModel: legacyModel,
+            destinationModel: currentModel
+        )
+        try migrationManager.migrateStore(
+            from: storeURL,
+            sourceType: NSSQLiteStoreType,
+            options: nil,
+            with: mapping,
+            toDestinationURL: temporaryURL,
+            destinationType: NSSQLiteStoreType,
+            destinationOptions: [
+                NSPersistentStoreFileProtectionKey:
+                    FileProtectionType.completeUntilFirstUserAuthentication
+            ]
+        )
+
+        let replacementCoordinator = NSPersistentStoreCoordinator(
+            managedObjectModel: currentModel
+        )
+        do {
+            try replacementCoordinator.replacePersistentStore(
+                at: storeURL,
+                destinationOptions: nil,
+                withPersistentStoreFrom: temporaryURL,
+                sourceOptions: nil,
+                ofType: NSSQLiteStoreType
+            )
+        } catch {
+            let replacementError = error
+            do {
+                try restoreSQLiteStoreFiles(from: backupURL, to: storeURL)
+            } catch {
+                throw AppStoreError.invalidConfiguration
+            }
+            throw replacementError
+        }
+    }
+
+    private static func copySQLiteStoreFiles(from source: URL, to destination: URL) throws {
+        let fileManager = FileManager.default
+        for suffix in ["", "-wal", "-shm"] {
+            let sourceFile = URL(fileURLWithPath: source.path + suffix)
+            guard fileManager.fileExists(atPath: sourceFile.path) else { continue }
+            let destinationFile = URL(fileURLWithPath: destination.path + suffix)
+            if fileManager.fileExists(atPath: destinationFile.path) {
+                try fileManager.removeItem(at: destinationFile)
+            }
+            try fileManager.copyItem(at: sourceFile, to: destinationFile)
+        }
+    }
+
+    private static func restoreSQLiteStoreFiles(from backup: URL, to destination: URL) throws {
+        let fileManager = FileManager.default
+        for suffix in ["", "-wal", "-shm"] {
+            let destinationFile = URL(fileURLWithPath: destination.path + suffix)
+            if fileManager.fileExists(atPath: destinationFile.path) {
+                try fileManager.removeItem(at: destinationFile)
+            }
+        }
+        try copySQLiteStoreFiles(from: backup, to: destination)
+    }
+
+    private static func removeSQLiteStoreFiles(at url: URL) {
+        let fileManager = FileManager.default
+        for suffix in ["", "-wal", "-shm"] {
+            let candidate = URL(fileURLWithPath: url.path + suffix)
+            try? fileManager.removeItem(at: candidate)
+        }
+    }
+
+    private static func fetchApp(
+        id: UUID,
+        context: NSManagedObjectContext
+    ) throws -> NSManagedObject? {
+        let request = NSFetchRequest<NSManagedObject>(
+            entityName: CoreDataModel.appEntityName
+        )
+        request.predicate = NSPredicate(format: "id == %@", id as NSUUID)
+        request.fetchLimit = 1
+        return try context.fetch(request).first
+    }
+
+    private static func apply(_ record: AppRecord, to object: NSManagedObject) {
+        object.setValue(record.id, forKey: "id")
+        object.setValue(record.originalBundleIdentifier, forKey: "originalBundleIdentifier")
+        object.setValue(record.mappedBundleIdentifier, forKey: "mappedBundleIdentifier")
+        object.setValue(record.name, forKey: "name")
+        object.setValue(record.version, forKey: "version")
+        object.setValue(record.buildNumber, forKey: "buildNumber")
+        object.setValue(record.size, forKey: "size")
+        object.setValue(record.iconRelativePath, forKey: "iconRelativePath")
+        object.setValue(record.state.rawValue, forKey: "stateRaw")
+        object.setValue(record.expiryDate, forKey: "expiryDate")
+        object.setValue(record.accountID, forKey: "accountID")
+        object.setValue(record.signingTeamID, forKey: "signingTeamID")
+        object.setValue(record.certificateSerialNumber, forKey: "certificateSerialNumber")
+        object.setValue(record.signedDeviceIdentifier, forKey: "signedDeviceIdentifier")
+        object.setValue(record.provisioningProfileUUID, forKey: "provisioningProfileUUID")
+        object.setValue(record.provisioningProfileName, forKey: "provisioningProfileName")
+        object.setValue(record.provisioningProfileCreationDate, forKey: "provisioningProfileCreationDate")
+        object.setValue(record.provisioningProfileExpirationDate, forKey: "provisioningProfileExpirationDate")
+        object.setValue(record.entitlementValidationStatus, forKey: "entitlementValidationStatus")
+        object.setValue(record.capabilityValidationStatus, forKey: "capabilityValidationStatus")
+        object.setValue(record.lastSignedAt, forKey: "lastSignedAt")
+        object.setValue(record.lastInstalledAt, forKey: "lastInstalledAt")
+        object.setValue(
+            try? JSONEncoder().encode(record.removedExtensionBundleIdentifiers),
+            forKey: "removedExtensionBundleIdentifiersData"
+        )
+        object.setValue(
+            try? JSONEncoder().encode(record.signingTargets),
+            forKey: "signingTargetsData"
+        )
+        object.setValue(record.ipaRelativePath, forKey: "ipaRelativePath")
+        object.setValue(record.signedIPARelativePath, forKey: "signedIPARelativePath")
+        object.setValue(record.signedIPASHA256, forKey: "signedIPASHA256")
+        object.setValue(record.signedArtifactStatus?.rawValue, forKey: "signedArtifactStatusRaw")
+        object.setValue(record.preferredBundleIdentifier, forKey: "preferredBundleIdentifier")
+        object.setValue(record.preferredDisplayName, forKey: "preferredDisplayName")
+        object.setValue(record.preferredIconRelativePath, forKey: "preferredIconRelativePath")
+        object.setValue(record.lastInstallFailureCode, forKey: "lastInstallFailureCode")
+        object.setValue(record.lastInstallFailureReason, forKey: "lastInstallFailureReason")
+        object.setValue(record.pendingFileTransactionID, forKey: "pendingFileTransactionID")
+        object.setValue(record.hasPendingSelfUpdateSource, forKey: "hasPendingSelfUpdateSource")
+        object.setValue(record.isSeal, forKey: "isSeal")
+        object.setValue(record.isPinned, forKey: "isPinned")
+        object.setValue(record.importedAt, forKey: "importedAt")
+    }
+
+    private static func write(
+        _ record: AppRecord,
+        to app: NSManagedObject,
+        context: NSManagedObjectContext
+    ) {
+        apply(record, to: app)
+        let oldExtensions = (app.value(forKey: "extensions") as? NSSet)?
+            .allObjects as? [NSManagedObject] ?? []
+        oldExtensions.forEach(context.delete)
+
+        for appExtension in record.extensions {
+            let object = NSEntityDescription.insertNewObject(
+                forEntityName: CoreDataModel.extensionEntityName,
+                into: context
+            )
+            apply(appExtension, to: object)
+            object.setValue(app, forKey: "app")
+        }
+    }
+
+    private static func apply(
+        _ record: AppExtensionRecord,
+        to object: NSManagedObject
+    ) {
+        object.setValue(record.id, forKey: "id")
+        object.setValue(record.name, forKey: "name")
+        object.setValue(record.originalBundleIdentifier, forKey: "originalBundleIdentifier")
+        object.setValue(record.mappedBundleIdentifier, forKey: "mappedBundleIdentifier")
+        object.setValue(record.kind.rawValue, forKey: "kindRaw")
+        object.setValue(record.provisioningProfileUUID, forKey: "provisioningProfileUUID")
+        object.setValue(record.provisioningProfileName, forKey: "provisioningProfileName")
+        object.setValue(record.provisioningProfileExpirationDate, forKey: "provisioningProfileExpirationDate")
+        object.setValue(record.certificateSerialNumber, forKey: "certificateSerialNumber")
+    }
+
+    private static func decode(_ object: NSManagedObject) throws -> AppRecord {
+        guard let id = object.value(forKey: "id") as? UUID,
+              let originalBundleIdentifier = object.value(
+                forKey: "originalBundleIdentifier"
+              ) as? String,
+              let name = object.value(forKey: "name") as? String,
+              let version = object.value(forKey: "version") as? String,
+              let buildNumber = object.value(forKey: "buildNumber") as? String,
+              let stateRaw = object.value(forKey: "stateRaw") as? String,
+              let state = AppState(rawValue: stateRaw),
+              let ipaRelativePath = object.value(forKey: "ipaRelativePath") as? String,
+              let importedAt = object.value(forKey: "importedAt") as? Date else {
+            throw AppStoreError.corruptRecord
+        }
+
+        let extensionObjects = (object.value(forKey: "extensions") as? NSSet)?
+            .allObjects as? [NSManagedObject] ?? []
+        let appExtensions = try extensionObjects
+            .map(Self.decodeExtension)
+            .sorted { first, second in
+                if first.name == second.name {
+                    return first.id.uuidString < second.id.uuidString
+                }
+                return first.name < second.name
+            }
+
+        return AppRecord(
+            id: id,
+            originalBundleIdentifier: originalBundleIdentifier,
+            mappedBundleIdentifier: object.value(forKey: "mappedBundleIdentifier") as? String,
+            name: name,
+            version: version,
+            buildNumber: buildNumber,
+            size: (object.value(forKey: "size") as? NSNumber)?.int64Value ?? 0,
+            iconRelativePath: object.value(forKey: "iconRelativePath") as? String,
+            state: state,
+            expiryDate: object.value(forKey: "expiryDate") as? Date,
+            accountID: object.value(forKey: "accountID") as? UUID,
+            signingTeamID: object.value(forKey: "signingTeamID") as? String,
+            certificateSerialNumber: object.value(forKey: "certificateSerialNumber") as? String,
+            signedDeviceIdentifier: object.value(forKey: "signedDeviceIdentifier") as? String,
+            provisioningProfileUUID: object.value(forKey: "provisioningProfileUUID") as? String,
+            provisioningProfileName: object.value(forKey: "provisioningProfileName") as? String,
+            provisioningProfileCreationDate: object.value(forKey: "provisioningProfileCreationDate") as? Date,
+            provisioningProfileExpirationDate: object.value(forKey: "provisioningProfileExpirationDate") as? Date,
+            entitlementValidationStatus: object.value(forKey: "entitlementValidationStatus") as? String,
+            capabilityValidationStatus: object.value(forKey: "capabilityValidationStatus") as? String,
+            lastSignedAt: object.value(forKey: "lastSignedAt") as? Date,
+            lastInstalledAt: object.value(forKey: "lastInstalledAt") as? Date,
+            removedExtensionBundleIdentifiers: Self.decodeStringArray(
+                object.value(forKey: "removedExtensionBundleIdentifiersData") as? Data
+            ),
+            signingTargets: Self.decodeSigningTargets(
+                object.value(forKey: "signingTargetsData") as? Data
+            ),
+            ipaRelativePath: ipaRelativePath,
+            signedIPARelativePath: object.value(forKey: "signedIPARelativePath") as? String,
+            signedIPASHA256: object.value(forKey: "signedIPASHA256") as? String,
+            signedArtifactStatus: (object.value(forKey: "signedArtifactStatusRaw") as? String)
+                .flatMap(SignedArtifactStatus.init(rawValue:)),
+            preferredBundleIdentifier: object.value(forKey: "preferredBundleIdentifier") as? String,
+            preferredDisplayName: object.value(forKey: "preferredDisplayName") as? String,
+            preferredIconRelativePath: object.value(forKey: "preferredIconRelativePath") as? String,
+            lastInstallFailureCode: object.value(forKey: "lastInstallFailureCode") as? String,
+            lastInstallFailureReason: object.value(forKey: "lastInstallFailureReason") as? String,
+            pendingFileTransactionID: object.value(forKey: "pendingFileTransactionID") as? UUID,
+            hasPendingSelfUpdateSource: (object.value(
+                forKey: "hasPendingSelfUpdateSource"
+            ) as? NSNumber)?.boolValue ?? false,
+            isSeal: (object.value(forKey: "isSeal") as? NSNumber)?.boolValue ?? false,
+            isPinned: (object.value(forKey: "isPinned") as? NSNumber)?.boolValue ?? false,
+            importedAt: importedAt,
+            extensions: appExtensions
+        )
+    }
+
+    private static func decodeExtension(
+        _ object: NSManagedObject
+    ) throws -> AppExtensionRecord {
+        guard let id = object.value(forKey: "id") as? UUID,
+              let name = object.value(forKey: "name") as? String,
+              let originalBundleIdentifier = object.value(
+                forKey: "originalBundleIdentifier"
+              ) as? String,
+              let kindRaw = object.value(forKey: "kindRaw") as? String,
+              let kind = AppExtensionKind(rawValue: kindRaw) else {
+            throw AppStoreError.corruptRecord
+        }
+
+        return AppExtensionRecord(
+            id: id,
+            name: name,
+            originalBundleIdentifier: originalBundleIdentifier,
+            mappedBundleIdentifier: object.value(forKey: "mappedBundleIdentifier") as? String,
+            kind: kind,
+            provisioningProfileUUID: object.value(forKey: "provisioningProfileUUID") as? String,
+            provisioningProfileName: object.value(forKey: "provisioningProfileName") as? String,
+            provisioningProfileExpirationDate: object.value(forKey: "provisioningProfileExpirationDate") as? Date,
+            certificateSerialNumber: object.value(forKey: "certificateSerialNumber") as? String
+        )
+    }
+
+    private static func decodeStringArray(_ data: Data?) -> [String] {
+        guard let data else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    private static func decodeSigningTargets(_ data: Data?) -> [SigningTargetRecord] {
+        guard let data else { return [] }
+        return (try? JSONDecoder().decode([SigningTargetRecord].self, from: data)) ?? []
+    }
+}

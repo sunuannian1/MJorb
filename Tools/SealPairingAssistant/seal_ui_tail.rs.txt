@@ -1,0 +1,498 @@
+        self.ensure_seal_textures(ctx);
+        let seal_icon_texture = self.seal_icon_texture.clone();
+        let phone_texture = self.phone_texture.clone();
+
+        let mut pending_selection: Option<(String, UsbmuxdDevice)> = None;
+        if let Some(devices) = self.devices.as_ref()
+            && !devices.is_empty()
+            && (self.selected_device.is_empty() || !devices.contains_key(&self.selected_device))
+            && let Some((name, dev)) = devices.iter().next()
+        {
+            pending_selection = Some((name.clone(), dev.clone()));
+        }
+
+        let preview_device_name = pending_selection
+            .as_ref()
+            .map(|(name, _)| name.clone())
+            .unwrap_or_else(|| self.selected_device.clone());
+        let selected_device = self
+            .devices
+            .as_ref()
+            .and_then(|devices| devices.get(&preview_device_name))
+            .cloned();
+
+        let value_for = |key: &str| -> Option<String> {
+            self.device_info.as_ref().and_then(|info| {
+                info.iter()
+                    .find(|(item_key, _)| item_key == key)
+                    .map(|(_, value)| value.clone())
+            })
+        };
+
+        let device_name = value_for("device_name")
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                if preview_device_name.is_empty() {
+                    None
+                } else {
+                    Some(preview_device_name.clone())
+                }
+            })
+            .unwrap_or_else(|| "未连接 iPhone".to_string());
+        let ios_version = value_for("ios_version").unwrap_or_else(|| "—".to_string());
+        let udid = value_for("udid").unwrap_or_else(|| {
+            selected_device
+                .as_ref()
+                .map(|dev| dev.udid.clone())
+                .unwrap_or_else(|| "—".to_string())
+        });
+
+        let mut readiness_issues: Vec<String> = Vec::new();
+        if matches!(self.wireless_enabled, Some(Err(_))) {
+            readiness_issues.push("无线调试未启用".to_string());
+        }
+        match &self.dev_mode_enabled {
+            Some(Ok(false)) => readiness_issues.push("开发者模式未启用".to_string()),
+            Some(Err(_)) => readiness_issues.push("开发者模式检测失败".to_string()),
+            _ => {}
+        }
+        if matches!(self.ddi_mounted, Some(Err(_))) {
+            readiness_issues.push("开发者磁盘映像未挂载".to_string());
+        }
+
+        let seal_install_result = self.install_res.get("Seal");
+        let seal_installing = matches!(seal_install_result, Some(None));
+        let seal_installed = matches!(seal_install_result, Some(Some(Ok(_))));
+        let seal_failed = matches!(seal_install_result, Some(Some(Err(_))));
+        let is_processing = self.pending_seal_install || seal_installing;
+        let has_device = selected_device.is_some();
+        let can_primary_action = has_device && !is_processing;
+
+        let text_primary = Color32::from_rgb(18, 27, 44);
+        let text_secondary = Color32::from_rgb(112, 123, 140);
+        let divider = Color32::from_rgba_unmultiplied(205, 216, 229, 150);
+        let seal_blue = Color32::from_rgb(0, 122, 255);
+        let seal_green = Color32::from_rgb(31, 185, 84);
+        let seal_red = Color32::from_rgb(220, 72, 72);
+
+        let status_text = if !has_device {
+            "未连接 iPhone".to_string()
+        } else if self.pending_seal_install {
+            self.pairing_file_message
+                .clone()
+                .unwrap_or_else(|| "正在处理…".to_string())
+        } else if seal_installing {
+            "正在写入 Seal…".to_string()
+        } else if seal_installed {
+            "已写入 Seal".to_string()
+        } else if seal_failed {
+            "写入失败".to_string()
+        } else if !readiness_issues.is_empty() {
+            format!("需要处理 {} 项", readiness_issues.len())
+        } else if self.wireless_enabled.is_none()
+            || self.dev_mode_enabled.is_none()
+            || self.ddi_mounted.is_none()
+        {
+            if ios_version == "—" {
+                "正在检测…".to_string()
+            } else {
+                format!("iOS {ios_version} · 正在检测")
+            }
+        } else if ios_version == "—" {
+            "已就绪".to_string()
+        } else {
+            format!("iOS {ios_version} · 已就绪")
+        };
+
+        let status_color = if seal_installed {
+            seal_green
+        } else if seal_failed || !readiness_issues.is_empty() || !has_device {
+            seal_red
+        } else if is_processing {
+            seal_blue
+        } else {
+            text_secondary
+        };
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(Color32::TRANSPARENT))
+            .show(ctx, |ui| {
+                let full_rect = ui.max_rect();
+                let window_radius = 26.0;
+                let title_h = 90.0;
+
+                ui.painter().rect_filled(
+                    full_rect,
+                    window_radius,
+                    Color32::from_rgba_unmultiplied(239, 245, 252, 238),
+                );
+                ui.painter().rect_stroke(
+                    full_rect.shrink(0.5),
+                    window_radius,
+                    egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(191, 207, 226, 170)),
+                    egui::StrokeKind::Inside,
+                );
+
+                ui.painter().circle_filled(
+                    full_rect.left_bottom() + egui::vec2(48.0, -84.0),
+                    315.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 76),
+                );
+                ui.painter().circle_filled(
+                    full_rect.right_top() + egui::vec2(-72.0, 38.0),
+                    365.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 86),
+                );
+                ui.painter().circle_filled(
+                    full_rect.center() + egui::vec2(300.0, 110.0),
+                    300.0,
+                    Color32::from_rgba_unmultiplied(207, 230, 255, 54),
+                );
+
+                let drag_rect = egui::Rect::from_min_max(
+                    full_rect.min,
+                    egui::pos2(full_rect.right() - 172.0, full_rect.top() + title_h),
+                );
+                let drag_response = ui.interact(
+                    drag_rect,
+                    ui.id().with("seal-titlebar-drag"),
+                    egui::Sense::click_and_drag(),
+                );
+                if drag_response.drag_started() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+
+                let title_icon_rect = egui::Rect::from_min_size(
+                    full_rect.left_top() + egui::vec2(36.0, 30.0),
+                    egui::vec2(38.0, 38.0),
+                );
+                if let Some(texture) = &seal_icon_texture {
+                    ui.put(title_icon_rect, egui::Image::new((texture.id(), title_icon_rect.size())));
+                } else {
+                    ui.painter().rect_filled(title_icon_rect, 10.0, Color32::from_rgb(18, 22, 34));
+                    ui.painter().text(
+                        title_icon_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "S",
+                        egui::FontId::new(18.0, egui::FontFamily::Proportional),
+                        seal_blue,
+                    );
+                }
+                ui.painter().text(
+                    egui::pos2(title_icon_rect.right() + 18.0, title_icon_rect.center().y + 1.0),
+                    egui::Align2::LEFT_CENTER,
+                    t!("app_title"),
+                    egui::FontId::new(25.0, egui::FontFamily::Proportional),
+                    text_primary,
+                );
+
+                let control_y = full_rect.top() + 24.0;
+                let control_size = egui::vec2(44.0, 38.0);
+                let close_rect = egui::Rect::from_min_size(
+                    egui::pos2(full_rect.right() - 58.0, control_y),
+                    control_size,
+                );
+                let max_rect = close_rect.translate(egui::vec2(-52.0, 0.0));
+                let min_rect = close_rect.translate(egui::vec2(-104.0, 0.0));
+                if ui
+                    .put(
+                        min_rect,
+                        egui::Button::new(RichText::new("—").size(22.0).color(text_primary)).frame(false),
+                    )
+                    .clicked()
+                {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                }
+                if ui
+                    .put(
+                        max_rect,
+                        egui::Button::new(RichText::new("□").size(20.0).color(text_primary)).frame(false),
+                    )
+                    .clicked()
+                {
+                    let maximized = ctx.input(|input| input.viewport().maximized.unwrap_or(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                }
+                if ui
+                    .put(
+                        close_rect,
+                        egui::Button::new(RichText::new("×").size(27.0).color(text_primary)).frame(false),
+                    )
+                    .clicked()
+                {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+
+                let card_width = (full_rect.width() * 0.82).clamp(810.0, 980.0);
+                let card_height = (full_rect.height() * 0.74).clamp(575.0, 690.0);
+                let card_rect = egui::Rect::from_center_size(
+                    egui::pos2(full_rect.center().x, full_rect.top() + title_h + 332.0),
+                    egui::vec2(card_width, card_height),
+                );
+
+                ui.painter().rect_filled(
+                    card_rect.translate(egui::vec2(0.0, 18.0)).expand(2.0),
+                    34.0,
+                    Color32::from_rgba_unmultiplied(86, 132, 190, 20),
+                );
+                ui.painter().rect_filled(
+                    card_rect,
+                    32.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 224),
+                );
+                ui.painter().rect_stroke(
+                    card_rect,
+                    32.0,
+                    egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(207, 220, 235, 190)),
+                    egui::StrokeKind::Inside,
+                );
+                ui.painter().circle_filled(
+                    card_rect.center_top() + egui::vec2(0.0, 214.0),
+                    118.0,
+                    Color32::from_rgba_unmultiplied(238, 247, 255, 222),
+                );
+                ui.painter().circle_stroke(
+                    card_rect.center_top() + egui::vec2(0.0, 214.0),
+                    117.0,
+                    egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 220)),
+                );
+
+                let asset_center = card_rect.center_top() + egui::vec2(0.0, 204.0);
+                if let Some(texture) = &phone_texture {
+                    let phone_rect = egui::Rect::from_center_size(
+                        asset_center + egui::vec2(-8.0, -2.0),
+                        egui::vec2(118.0, 230.0),
+                    );
+                    ui.put(phone_rect, egui::Image::new((texture.id(), phone_rect.size())));
+                } else {
+                    let phone_rect = egui::Rect::from_center_size(
+                        asset_center + egui::vec2(-8.0, -2.0),
+                        egui::vec2(84.0, 158.0),
+                    );
+                    ui.painter().rect_filled(phone_rect, 18.0, Color32::from_rgb(22, 29, 43));
+                }
+
+                if let Some(texture) = &seal_icon_texture {
+                    let badge_rect = egui::Rect::from_center_size(
+                        asset_center + egui::vec2(70.0, 85.0),
+                        egui::vec2(60.0, 60.0),
+                    );
+                    ui.painter().circle_filled(
+                        badge_rect.center() + egui::vec2(0.0, 2.0),
+                        35.0,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 218),
+                    );
+                    ui.put(badge_rect, egui::Image::new((texture.id(), badge_rect.size())));
+                }
+
+                ui.painter().text(
+                    card_rect.center_top() + egui::vec2(0.0, 386.0),
+                    egui::Align2::CENTER_CENTER,
+                    &device_name,
+                    egui::FontId::new(50.0, egui::FontFamily::Proportional),
+                    text_primary,
+                );
+
+                let status_center = card_rect.center_top() + egui::vec2(0.0, 442.0);
+                if status_text.starts_with("iOS ") && status_text.ends_with("已就绪") {
+                    ui.painter().text(
+                        status_center + egui::vec2(-70.0, 0.0),
+                        egui::Align2::RIGHT_CENTER,
+                        format!("iOS {ios_version}"),
+                        egui::FontId::new(22.0, egui::FontFamily::Proportional),
+                        text_secondary,
+                    );
+                    ui.painter().circle_filled(status_center + egui::vec2(0.0, 0.0), 4.0, seal_green);
+                    ui.painter().text(
+                        status_center + egui::vec2(26.0, 0.0),
+                        egui::Align2::LEFT_CENTER,
+                        "已就绪",
+                        egui::FontId::new(22.0, egui::FontFamily::Proportional),
+                        seal_green,
+                    );
+                } else {
+                    ui.painter().text(
+                        status_center,
+                        egui::Align2::CENTER_CENTER,
+                        &status_text,
+                        egui::FontId::new(21.0, egui::FontFamily::Proportional),
+                        status_color,
+                    );
+                }
+
+                if !readiness_issues.is_empty() {
+                    let issue_rect = egui::Rect::from_center_size(
+                        card_rect.center_top() + egui::vec2(0.0, 482.0),
+                        egui::vec2(420.0, 34.0 + 24.0 * readiness_issues.len() as f32),
+                    );
+                    ui.painter().rect_filled(
+                        issue_rect,
+                        16.0,
+                        Color32::from_rgba_unmultiplied(255, 247, 247, 190),
+                    );
+                    ui.painter().rect_stroke(
+                        issue_rect,
+                        16.0,
+                        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 211, 211, 185)),
+                        egui::StrokeKind::Inside,
+                    );
+                    let mut issue_y = issue_rect.top() + 24.0;
+                    for issue in &readiness_issues {
+                        ui.painter().text(
+                            egui::pos2(issue_rect.center().x, issue_y),
+                            egui::Align2::CENTER_CENTER,
+                            issue,
+                            egui::FontId::new(15.0, egui::FontFamily::Proportional),
+                            seal_red,
+                        );
+                        issue_y += 24.0;
+                    }
+                }
+
+                let button_text = if is_processing {
+                    "正在处理…"
+                } else if !has_device {
+                    "连接 iPhone 后继续"
+                } else if !readiness_issues.is_empty() {
+                    "重新检测"
+                } else if seal_installed || seal_failed {
+                    "重新生成"
+                } else {
+                    "生成并写入 Seal"
+                };
+                let button_fill = if can_primary_action {
+                    seal_blue
+                } else {
+                    Color32::from_rgb(160, 178, 198)
+                };
+                let button_rect = egui::Rect::from_center_size(
+                    card_rect.center_top() + egui::vec2(0.0, 522.0),
+                    egui::vec2(520.0, 70.0),
+                );
+                if can_primary_action {
+                    ui.painter().rect_filled(
+                        button_rect.translate(egui::vec2(0.0, 9.0)),
+                        22.0,
+                        Color32::from_rgba_unmultiplied(0, 122, 255, 42),
+                    );
+                }
+                let display_button_text = if button_text == "生成并写入 Seal" {
+                    "✦  生成并写入 Seal"
+                } else {
+                    button_text
+                };
+                let primary_response = ui.put(
+                    button_rect,
+                    egui::Button::new(
+                        RichText::new(display_button_text)
+                            .size(25.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(button_fill)
+                    .stroke(egui::Stroke::new(0.0, Color32::TRANSPARENT))
+                    .corner_radius(22),
+                );
+                if can_primary_action
+                    && primary_response.clicked()
+                    && let Some(dev) = selected_device.clone()
+                {
+                    if !readiness_issues.is_empty() {
+                        self.refresh_device_state(dev);
+                    } else {
+                        self.reset_pairing_state();
+                        self.pending_seal_install = true;
+                        self.pairing_file_message = Some("正在生成配对文件…".to_string());
+                        self.idevice_sender
+                            .send(IdeviceCommands::InstalledApps((
+                                dev.clone(),
+                                self.supported_app_names(),
+                            )))
+                            .unwrap();
+                        self.idevice_sender
+                            .send(IdeviceCommands::GeneratePairingFile((
+                                dev,
+                                self.pairing_mode,
+                            )))
+                            .unwrap();
+                    }
+                }
+
+                if let Some(message) = &self.pairing_file_message
+                    && !is_processing
+                    && !seal_installed
+                    && !seal_failed
+                {
+                    ui.painter().text(
+                        button_rect.center_bottom() + egui::vec2(0.0, 24.0),
+                        egui::Align2::CENTER_CENTER,
+                        message,
+                        egui::FontId::new(14.0, egui::FontFamily::Proportional),
+                        text_secondary,
+                    );
+                }
+
+                if seal_failed {
+                    ui.painter().text(
+                        button_rect.center_bottom() + egui::vec2(0.0, 24.0),
+                        egui::Align2::CENTER_CENTER,
+                        "写入失败，请重新连接 iPhone 后再试。",
+                        egui::FontId::new(14.0, egui::FontFamily::Proportional),
+                        seal_red,
+                    );
+                }
+
+                let line_width = card_width.min(610.0);
+                let line_y = card_rect.top() + 642.0;
+                let line_start = card_rect.center().x - line_width / 2.0;
+                ui.painter().line_segment(
+                    [egui::pos2(line_start, line_y), egui::pos2(line_start + line_width, line_y)],
+                    egui::Stroke::new(1.0, divider),
+                );
+
+                let udid_y = line_y + 44.0;
+                ui.painter().text(
+                    egui::pos2(line_start + 8.0, udid_y),
+                    egui::Align2::LEFT_CENTER,
+                    "UDID",
+                    egui::FontId::new(18.0, egui::FontFamily::Proportional),
+                    text_secondary,
+                );
+                ui.painter().text(
+                    egui::pos2(line_start + 120.0, udid_y),
+                    egui::Align2::LEFT_CENTER,
+                    &udid,
+                    egui::FontId::new(18.0, egui::FontFamily::Monospace),
+                    text_primary,
+                );
+                let copy_rect = egui::Rect::from_min_size(
+                    egui::pos2(line_start + line_width - 132.0, udid_y - 20.0),
+                    egui::vec2(116.0, 40.0),
+                );
+                if udid != "—"
+                    && ui
+                        .put(
+                            copy_rect,
+                            egui::Button::new(
+                                RichText::new("▢  复制")
+                                    .size(18.0)
+                                    .strong()
+                                    .color(seal_blue),
+                            )
+                            .frame(false),
+                        )
+                        .clicked()
+                {
+                    ui.ctx().copy_text(udid.clone());
+                }
+            });
+
+        if let Some((dev_name, dev)) = pending_selection.take() {
+            self.select_device(dev_name, dev);
+        }
+    }
+
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
+}
