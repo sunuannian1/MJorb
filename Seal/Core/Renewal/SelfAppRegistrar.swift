@@ -39,14 +39,28 @@ actor SelfAppRegistrar {
                existingOriginalBundleIdentifier: existing.originalBundleIdentifier
            ),
            existing.ipaRelativePath != nil {
+            // 即使跳过打包，也要清理其他重复的 Seal 记录（防止历史残留）
+            let duplicates = records.filter { $0.isSeal && $0.id != existing.id }
+            for duplicate in duplicates {
+                try? await fileStore.removeApp(appID: duplicate.id)
+                try? await appStore.delete(id: duplicate.id)
+            }
             return
         }
+
+        // 需要重新注册：先清理所有旧的 Seal 记录（包括文件），避免用户看到多个 Seal 闪烁
+        let oldSealRecords = records.filter { $0.isSeal }
+        for old in oldSealRecords {
+            try? await fileStore.removeApp(appID: old.id)
+            try? await appStore.delete(id: old.id)
+        }
+
         let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
             teamIdentifier: metadata.signingTeamIdentifier,
             accounts: accounts,
             fallbackAccountID: existing?.accountID
         )
-        let id = existing?.id ?? UUID()
+        let id = UUID() // 始终用新 ID，避免旧文件残留
         let workspace = try await fileStore.signingWorkspace(appID: UUID())
         defer { try? FileManager.default.removeItem(at: workspace) }
         let payload = workspace.appending(path: "Payload", directoryHint: .isDirectory)
