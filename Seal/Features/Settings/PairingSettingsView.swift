@@ -27,7 +27,7 @@ struct PairingSettingsView: View {
             isPresented: $isFileImporterPresented,
             allowedContentTypes: [
                 UTType(filenameExtension: "mobiledevicepairing") ?? .data,
-                .plist,
+                .propertyList,
                 .json,
                 .data,
                 .item
