@@ -46,11 +46,16 @@ actor PairingStore {
             throw Self.invalidFailure
         }
 
-        // 同时支持 plist（iOS 17- Lockdown）和 JSON（iOS 17+ RemotePairing）
+        // 同时支持 plist（iOS 17- Lockdown）和 JSON（iOS 17+ RemotePairing）解析
         let dictionary = try Self.parseDictionary(from: data)
         let inspection = try Self.inspect(dictionary)
 
-        // 保存原始字节，不做格式转换 —— minimuxer 需要配对文件的原始格式
+        // 统一转成 XML plist 保存，确保 minimuxer 能识别配对文件格式
+        let normalized = try PropertyListSerialization.data(
+            fromPropertyList: dictionary,
+            format: .xml,
+            options: 0
+        )
         let hadExistingPairing = FileManager.default.fileExists(atPath: fileURL.path)
         try backupCurrentIfNeeded()
         let directory = fileURL.deletingLastPathComponent()
@@ -59,7 +64,7 @@ actor PairingStore {
             withIntermediateDirectories: true
         )
         do {
-            try data.write(to: fileURL, options: .atomic)
+            try normalized.write(to: fileURL, options: .atomic)
             try fileProtector.protect(fileURL)
             try saveMetadata(
                 ValidationMetadata(
@@ -309,14 +314,15 @@ actor PairingStore {
     private static func inspect(
         _ dictionary: [String: Any]
     ) throws -> (udid: String?, isRemote: Bool) {
-        let udid = firstString(
+        let udid = firstStringRecursive(
             in: dictionary,
             keys: [
                 "UDID", "udid", "UniqueDeviceID", "device_identifier",
-                "DeviceIdentifier", "unique_device_id", "deviceId"
+                "DeviceIdentifier", "unique_device_id", "deviceId",
+                "DeviceID", "device_id", "UniqueDeviceIdentifier"
             ]
         )
-        let hasRemotePrivateKey = containsDataOrString(
+        let hasRemotePrivateKey = containsDataOrStringRecursive(
             in: dictionary,
             keys: ["private_key", "privateKey", "PrivateKey", "Private Key"]
         )
@@ -330,14 +336,14 @@ actor PairingStore {
 
     /// 检测配对文件类型。
     static func detectFileKind(_ dictionary: [String: Any]) -> PairingFileKind {
-        let hasRemotePrivateKey = containsDataOrString(
+        let hasRemotePrivateKey = containsDataOrStringRecursive(
             in: dictionary,
             keys: ["private_key", "privateKey", "PrivateKey", "Private Key"]
         )
         if hasRemotePrivateKey {
             return .remote
         }
-        let hasUDID = firstString(
+        let hasUDID = firstStringRecursive(
             in: dictionary,
             keys: ["UDID", "udid", "UniqueDeviceID", "device_identifier"]
         )?.isEmpty == false
@@ -345,6 +351,64 @@ actor PairingStore {
             return .lockdown
         }
         return .unknown
+    }
+
+    private static func firstStringRecursive(
+        in dictionary: [String: Any],
+        keys: [String]
+    ) -> String? {
+        // 先在当前层级查找
+        if let value = firstString(in: dictionary, keys: keys) {
+            return value
+        }
+        // 递归搜索嵌套字典（最多 3 层，避免无限递归）
+        return firstStringRecursive(in: dictionary, keys: keys, depth: 0)
+    }
+
+    private static func firstStringRecursive(
+        in dictionary: [String: Any],
+        keys: [String],
+        depth: Int
+    ) -> String? {
+        guard depth < 3 else { return nil }
+        for (_, value) in dictionary {
+            guard let nested = value as? [String: Any] else { continue }
+            if let found = firstString(in: nested, keys: keys) {
+                return found
+            }
+            if let found = firstStringRecursive(in: nested, keys: keys, depth: depth + 1) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private static func containsDataOrStringRecursive(
+        in dictionary: [String: Any],
+        keys: [String]
+    ) -> Bool {
+        if containsDataOrString(in: dictionary, keys: keys) {
+            return true
+        }
+        return containsDataOrStringRecursive(in: dictionary, keys: keys, depth: 0)
+    }
+
+    private static func containsDataOrStringRecursive(
+        in dictionary: [String: Any],
+        keys: [String],
+        depth: Int
+    ) -> Bool {
+        guard depth < 3 else { return false }
+        for (_, value) in dictionary {
+            guard let nested = value as? [String: Any] else { continue }
+            if containsDataOrString(in: nested, keys: keys) {
+                return true
+            }
+            if containsDataOrStringRecursive(in: nested, keys: keys, depth: depth + 1) {
+                return true
+            }
+        }
+        return false
     }
 
     private static func firstString(

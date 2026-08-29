@@ -105,7 +105,8 @@ actor SelfAppRegistrar {
             try await Self.removeDuplicateSealRecords(
                 records,
                 keeping: id,
-                appStore: appStore
+                appStore: appStore,
+                fileStore: fileStore
             )
         } catch {
             let originalError = error
@@ -125,9 +126,12 @@ actor SelfAppRegistrar {
     private static func removeDuplicateSealRecords(
         _ records: [AppRecord],
         keeping keptID: UUID,
-        appStore: any AppStore
+        appStore: any AppStore,
+        fileStore: AppFileStore
     ) async throws {
         for record in records where record.id != keptID && record.isSeal {
+            // 先删除文件，再删除数据库记录，避免产生孤儿文件
+            try? await fileStore.removeApp(appID: record.id)
             try await appStore.delete(id: record.id)
         }
     }
