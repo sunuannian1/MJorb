@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import ZIPFoundation
 
 actor SelfAppRegistrar {
@@ -8,7 +8,7 @@ actor SelfAppRegistrar {
     private let fileStore: AppFileStore
 
     // 固定 ID，确保 Seal 记录和文件夹路径始终一致，不会出现多个文件夹
-    private let fixedSealID = UUID(uuidString: "SEAL0000-0000-0000-0000-000000000001")!
+    private let fixedSealID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
     // 防重入：确保同时只有一个注册流程在执行
     private var isRegistering = false
@@ -173,3 +173,4 @@ actor SelfAppRegistrar {
         }
     }
 }
+
