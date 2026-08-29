@@ -5,6 +5,8 @@ actor MinimuxerInstallChannel: InstallChannel {
     private let pairingStore: PairingStore
     private let logDirectory: URL
     private let onDemandActivator: any VPNOnDemandActivating
+    private var cachedDeviceIdentifier: String?
+    private var lastSuccessfulStart: Date?
 
     init(
         pairingStore: PairingStore,
@@ -17,11 +19,20 @@ actor MinimuxerInstallChannel: InstallChannel {
     }
 
     func start() async throws -> String {
+        // 优化：如果最近 60 秒内成功启动过且设备仍就绪，直接返回缓存的 UDID
+        if let cached = cachedDeviceIdentifier,
+           let lastStart = lastSuccessfulStart,
+           Date().timeIntervalSince(lastStart) < 60,
+           await isReady() {
+            return cached
+        }
         let diagnostics = await diagnose()
         if let failure = diagnostics.failure { throw failure }
         guard let deviceIdentifier = diagnostics.deviceIdentifier else {
             throw Self.channelNotReadyFailure
         }
+        cachedDeviceIdentifier = deviceIdentifier
+        lastSuccessfulStart = Date()
         return deviceIdentifier
     }
 
