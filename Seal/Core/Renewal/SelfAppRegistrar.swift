@@ -37,12 +37,18 @@ actor SelfAppRegistrar {
             currentBundleIdentifier: metadata.bundleIdentifier
         )
 
-        // 版本一致且文件存在 → 直接跳过，只清理重复记录
+        // 版本一致且文件存在 → 检查 accountID，确保能进续签队列
         if let existing,
            existing.version == metadata.version,
            existing.buildNumber == metadata.buildNumber,
            existing.ipaRelativePath.isEmpty == false,
            try await fileStore.exists(relativePath: existing.ipaRelativePath) {
+            // accountID 为 nil 时自动设置为第一个可用账户，确保能续签
+            if existing.accountID == nil, let firstAccount = accounts.first {
+                var updated = existing
+                updated.accountID = firstAccount.id
+                try await appStore.save(updated)
+            }
             try await cleanupDuplicateSealRecords(records: records, keepID: existing.id)
             return
         }
