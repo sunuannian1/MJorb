@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import ZIPFoundation
 
 actor SelfAppRegistrar {
@@ -37,34 +37,12 @@ actor SelfAppRegistrar {
             currentBundleIdentifier: metadata.bundleIdentifier
         )
 
-        // 版本一致且文件存在 → 检查是否需要修复 accountID
+        // 版本一致且文件存在 → 直接跳过，只清理重复记录
         if let existing,
            existing.version == metadata.version,
            existing.buildNumber == metadata.buildNumber,
+           existing.ipaRelativePath.isEmpty == false,
            try await fileStore.exists(relativePath: existing.ipaRelativePath) {
-            // accountID 为 nil 或 teamID 不匹配时修复，确保 Seal 始终能自续签
-            let currentAccount = accounts.first { $0.id == existing.accountID }
-            let teamMismatch = currentAccount != nil
-                && existing.signingTeamID?.isEmpty == false
-                && currentAccount?.teamID.caseInsensitiveCompare(existing.signingTeamID!) != .orderedSame
-            if existing.accountID == nil || teamMismatch {
-                var resolvedID = SelfAppAccountBinding.resolvedAccountID(
-                    teamIdentifier: metadata.signingTeamIdentifier,
-                    accounts: accounts,
-                    fallbackAccountID: existing.accountID
-                )
-                var effectiveTeamID = metadata.signingTeamIdentifier ?? existing.signingTeamID
-                if resolvedID == nil, let firstAccount = accounts.first {
-                    resolvedID = firstAccount.id
-                    effectiveTeamID = firstAccount.teamID
-                }
-                if let resolvedID, resolvedID != existing.accountID || teamMismatch {
-                    var updated = existing
-                    updated.accountID = resolvedID
-                    updated.signingTeamID = effectiveTeamID
-                    try await appStore.save(updated)
-                }
-            }
             try await cleanupDuplicateSealRecords(records: records, keepID: existing.id)
             return
         }
@@ -139,18 +117,12 @@ actor SelfAppRegistrar {
             let attributes = try FileManager.default.attributesOfItem(atPath: ipaURL.path)
             let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
 
-            // 7. 解析账户绑定，确保 Seal 始终有匹配的账户和 teamID 以支持自续签
-            var resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
+            // 7. 解析账户绑定（和以前逻辑一致，不额外加限制）
+            let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
                 teamIdentifier: metadata.signingTeamIdentifier,
                 accounts: accounts,
                 fallbackAccountID: existing?.accountID
             )
-            var effectiveTeamID = metadata.signingTeamIdentifier ?? existing?.signingTeamID
-            // 如果匹配不到账户，用第一个可用账户，并用该账户的 teamID，确保能自续签
-            if resolvedAccountID == nil, let firstAccount = accounts.first {
-                resolvedAccountID = firstAccount.id
-                effectiveTeamID = firstAccount.teamID
-            }
 
             // 8. 更新记录（复用 ID，不删除重建）
             let record = AppRecord(
@@ -169,7 +141,7 @@ actor SelfAppRegistrar {
                 state: .installed,
                 expiryDate: metadata.expirationDate,
                 accountID: resolvedAccountID,
-                signingTeamID: effectiveTeamID,
+                signingTeamID: metadata.signingTeamIdentifier ?? existing?.signingTeamID,
                 certificateSerialNumber: existing?.certificateSerialNumber,
                 provisioningProfileExpirationDate: metadata.expirationDate,
                 ipaRelativePath: files.ipaRelativePath,
@@ -202,4 +174,3 @@ actor SelfAppRegistrar {
         }
     }
 }
-
