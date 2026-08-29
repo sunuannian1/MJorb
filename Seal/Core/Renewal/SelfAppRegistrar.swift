@@ -41,8 +41,7 @@ actor SelfAppRegistrar {
         if let existing,
            existing.version == metadata.version,
            existing.buildNumber == metadata.buildNumber,
-           let ipaPath = existing.ipaRelativePath,
-           try await fileStore.exists(relativePath: ipaPath) {
+           try await fileStore.exists(relativePath: existing.ipaRelativePath) {
             try await cleanupDuplicateSealRecords(records: records, keepID: existing.id)
             return
         }
@@ -89,10 +88,10 @@ actor SelfAppRegistrar {
 
         do {
             // 3. 图标：优先用新提取的，失败则复用旧图标
-            let iconData = metadata.iconData
-                ?? existing?.iconRelativePath.flatMap { path in
-                    try? await fileStore.read(relativePath: path)
-                }
+            var iconData = metadata.iconData
+            if iconData == nil, let oldIconPath = existing?.iconRelativePath {
+                iconData = try? await fileStore.read(relativePath: oldIconPath)
+            }
 
             // 4. 提交新文件（用同一个 ID，覆盖旧文件，不是先删后建）
             let files = try await fileStore.commit(
