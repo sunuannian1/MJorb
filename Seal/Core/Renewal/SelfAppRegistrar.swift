@@ -7,6 +7,12 @@ actor SelfAppRegistrar {
     private let accountRepository: any AccountRepository
     private let fileStore: AppFileStore
 
+    // 固定 ID，确保 Seal 记录和文件夹路径始终一致，不会出现多个文件夹
+    private let fixedSealID = UUID(uuidString: "SEAL0000-0000-0000-0000-000000000001")!
+
+    // 防重入：确保同时只有一个注册流程在执行
+    private var isRegistering = false
+
     init(
         metadata: SelfAppMetadata,
         appStore: any AppStore,
@@ -20,49 +26,46 @@ actor SelfAppRegistrar {
     }
 
     func ensureRegistered() async throws {
+        guard isRegistering == false else { return }
+        isRegistering = true
+        defer { isRegistering = false }
+
         let records = try await appStore.fetchAll()
         let accounts = try await accountRepository.fetchAll()
         let existing = SelfAppRecordSelection.preferredExistingSealRecord(
             in: records,
             currentBundleIdentifier: metadata.bundleIdentifier
         )
-        if let existing, existing.hasPendingSelfUpdateSource {
-            return
-        }
-        // 增量优化：如果已注册记录与当前应用版本/构建号完全一致，跳过重新打包
+
+        // 版本一致且文件存在 → 直接跳过，只清理重复记录
         if let existing,
            existing.version == metadata.version,
            existing.buildNumber == metadata.buildNumber,
-           existing.originalBundleIdentifier == SelfAppBundleIdentity.originalBundleIdentifier(
-               currentBundleIdentifier: metadata.bundleIdentifier,
-               declaredOriginalBundleIdentifier: metadata.originalBundleIdentifier,
-               existingOriginalBundleIdentifier: existing.originalBundleIdentifier
-           ),
-           existing.ipaRelativePath != nil {
-            // 即使跳过打包，也要清理其他重复的 Seal 记录（防止历史残留）
-            let duplicates = records.filter { $0.isSeal && $0.id != existing.id }
-            for duplicate in duplicates {
-                try? await fileStore.removeApp(appID: duplicate.id)
-                try? await appStore.delete(id: duplicate.id)
-            }
+           let ipaPath = existing.ipaRelativePath,
+           try await fileStore.exists(relativePath: ipaPath) {
+            try await cleanupDuplicateSealRecords(records: records, keepID: existing.id)
             return
         }
 
-        // 需要重新注册：先清理所有旧的 Seal 记录（包括文件），避免用户看到多个 Seal 闪烁
-        let oldSealRecords = records.filter { $0.isSeal }
-        for old in oldSealRecords {
-            try? await fileStore.removeApp(appID: old.id)
-            try? await appStore.delete(id: old.id)
-        }
+        // 版本变更或文件缺失 → 原子更新
+        let id = existing?.id ?? fixedSealID
+        try await atomicallyUpdateSealRecord(id: id, existing: existing, accounts: accounts)
 
-        let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
-            teamIdentifier: metadata.signingTeamIdentifier,
-            accounts: accounts,
-            fallbackAccountID: existing?.accountID
-        )
-        let id = UUID() // 始终用新 ID，避免旧文件残留
+        // 清理历史残留的重复记录
+        try await cleanupDuplicateSealRecords(records: records, keepID: id)
+    }
+
+    // MARK: - 原子更新：先暂存，再提交覆盖，失败回滚
+
+    private func atomicallyUpdateSealRecord(
+        id: UUID,
+        existing: AppRecord?,
+        accounts: [AppleAccountRecord]
+    ) async throws {
+        // 1. 打包新 IPA 到临时工作区（不碰旧文件）
         let workspace = try await fileStore.signingWorkspace(appID: UUID())
         defer { try? FileManager.default.removeItem(at: workspace) }
+
         let payload = workspace.appending(path: "Payload", directoryHint: .isDirectory)
         let appURL = payload.appending(
             path: "\(metadata.name).app",
@@ -80,15 +83,25 @@ actor SelfAppRegistrar {
             shouldKeepParent: true,
             compressionMethod: .deflate
         )
-        let attributes = try FileManager.default.attributesOfItem(atPath: ipaURL.path)
-        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+
+        // 2. 暂存新文件
         let staged = try await fileStore.stage(sourceURL: ipaURL)
+
         do {
+            // 3. 图标：优先用新提取的，失败则复用旧图标
+            let iconData = metadata.iconData
+                ?? existing?.iconRelativePath.flatMap { path in
+                    try? await fileStore.read(relativePath: path)
+                }
+
+            // 4. 提交新文件（用同一个 ID，覆盖旧文件，不是先删后建）
             let files = try await fileStore.commit(
                 staged: staged,
                 appID: id,
-                iconData: metadata.iconData
+                iconData: iconData
             )
+
+            // 5. 取消暂存
             do {
                 try await fileStore.cancel(staged)
             } catch {
@@ -100,6 +113,18 @@ actor SelfAppRegistrar {
                 )
             }
 
+            // 6. 计算文件大小
+            let attributes = try FileManager.default.attributesOfItem(atPath: ipaURL.path)
+            let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+
+            // 7. 解析账户绑定
+            let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
+                teamIdentifier: metadata.signingTeamIdentifier,
+                accounts: accounts,
+                fallbackAccountID: existing?.accountID
+            )
+
+            // 8. 更新记录（复用 ID，不删除重建）
             let record = AppRecord(
                 id: id,
                 originalBundleIdentifier: SelfAppBundleIdentity.originalBundleIdentifier(
@@ -112,7 +137,7 @@ actor SelfAppRegistrar {
                 version: metadata.version,
                 buildNumber: metadata.buildNumber,
                 size: size,
-                iconRelativePath: files.iconRelativePath,
+                iconRelativePath: files.iconRelativePath ?? existing?.iconRelativePath,
                 state: .installed,
                 expiryDate: metadata.expirationDate,
                 accountID: resolvedAccountID,
@@ -128,38 +153,24 @@ actor SelfAppRegistrar {
                 extensions: existing?.extensions ?? []
             )
             try await appStore.save(record)
-            try await Self.removeDuplicateSealRecords(
-                records,
-                keeping: id,
-                appStore: appStore,
-                fileStore: fileStore
-            )
+
         } catch {
-            let originalError = error
-            do {
-                try await fileStore.cancel(staged)
-            } catch {
-                throw ImportFailure(
-                    title: "Seal 自身注册恢复未完成",
-                    reason: "注册流程失败，且暂存文件未能清理。",
-                    recovery: "重新打开 Seal 后检查存储",
-                    code: "SEAL-STORAGE-SELF-002"
-                )
-            }
-            throw originalError
-        }
-    }
-    private static func removeDuplicateSealRecords(
-        _ records: [AppRecord],
-        keeping keptID: UUID,
-        appStore: any AppStore,
-        fileStore: AppFileStore
-    ) async throws {
-        for record in records where record.id != keptID && record.isSeal {
-            // 先删除文件，再删除数据库记录，避免产生孤儿文件
-            try? await fileStore.removeApp(appID: record.id)
-            try await appStore.delete(id: record.id)
+            // 9. 失败回滚：取消暂存，旧文件不受影响
+            try? await fileStore.cancel(staged)
+            throw error
         }
     }
 
+    // MARK: - 清理重复的 Seal 记录
+
+    private func cleanupDuplicateSealRecords(
+        records: [AppRecord],
+        keepID: UUID
+    ) async throws {
+        for record in records where record.isSeal && record.id != keepID {
+            // 先删除文件，再删除数据库记录，避免产生孤儿文件
+            try? await fileStore.removeApp(appID: record.id)
+            try? await appStore.delete(id: record.id)
+        }
+    }
 }

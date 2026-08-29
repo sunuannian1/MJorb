@@ -26,6 +26,8 @@ actor AppRecordRecovery {
                 continue
             }
             guard let parsed = try? parser.parse(url: stored.url) else { continue }
+            // Seal 由 SelfAppRegistrar 专门管理，通用恢复逻辑跳过，避免产生重复记录
+            guard parsed.name != "Seal" else { continue }
             guard existing.contains(where: {
                 $0.isSeal && Self.matchesSealBundleIdentifier(parsed.bundleIdentifier, record: $0)
             }) == false else {
