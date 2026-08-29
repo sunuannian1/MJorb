@@ -116,8 +116,15 @@ actor MinimuxerInstallChannel: InstallChannel {
             } catch {
                 return fail(.minimuxer, Self.connectionFailure(error))
             }
-            await waitForNetworkRefresh(rounds: 40, delay: .milliseconds(500))
-            guard let udid = try await readyDeviceIdentifier() else {
+            // 优化：轮询检查设备，成功即退出，最多等待 20 秒
+            var resolvedUDID: String?
+            for _ in 0..<40 {
+                NetworkObserver.shared.refreshEndpoint()
+                resolvedUDID = try await readyDeviceIdentifier()
+                if resolvedUDID != nil { break }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            guard let udid = resolvedUDID else {
                 if tunnelReachable == false {
                     return fail(.vpnTunnel, Self.vpnTunnelUnavailableFailure)
                 }
