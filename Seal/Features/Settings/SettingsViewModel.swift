@@ -185,9 +185,6 @@ final class SettingsViewModel: ObservableObject {
             let displayedAccounts = try await refreshedAccountDisplayNames(repairedAccounts)
             guard generation == loadGeneration else { return }
 
-            _ = await importPairingAssistantInboxIfPresent()
-            guard generation == loadGeneration else { return }
-
             let loadedPairing: PairingRecord?
             do {
                 loadedPairing = try await pairingStore.current()
@@ -198,14 +195,6 @@ final class SettingsViewModel: ObservableObject {
                     validationStatus: .fileUnreadable
                 )
             }
-            guard generation == loadGeneration else { return }
-
-            let loadedEmails = await loadFullAccountEmails(for: displayedAccounts)
-            guard generation == loadGeneration else { return }
-
-            let storedApps = (try? await appStore?.fetchAll()) ?? []
-            guard generation == loadGeneration else { return }
-            let loadedAppIcons = await loadAppIcons(for: storedApps)
             guard generation == loadGeneration else { return }
 
             let preferredAccountID: UUID?
@@ -226,65 +215,79 @@ final class SettingsViewModel: ObservableObject {
                 resolvedAccountID = selectableAccounts.first?.id
                 if preferredAccountID == nil {
                     await signingPreferenceStore?.setActiveAccountID(resolvedAccountID)
-                    guard generation == loadGeneration else { return }
                 }
             }
 
-            let loadedLogs = (try? await logStore?.entries()) ?? []
-            let loadedHistory = (try? await signingHistoryStore?.records()) ?? []
-            guard generation == loadGeneration else { return }
-            let loadedHistoryIcons = await loadSigningHistoryIcons(for: loadedHistory)
-            guard generation == loadGeneration else { return }
-
-            var loadedServers: [AnisetteServer] = anisetteServers
-            var loadedSelectedServerID: String? = selectedAnisetteServerID
-            if let anisetteEnvironment {
-                async let availableServers = anisetteEnvironment.availableServers()
-                async let selectedServerID = anisetteEnvironment.selectedServerID()
-                loadedServers = await availableServers
-                loadedSelectedServerID = (await selectedServerID) ?? loadedServers.first?.id
-                guard generation == loadGeneration else { return }
-            }
-
-            var loadedNotificationsEnabled = notificationsEnabled
-            var loadedReminderHours = reminderHours
-            var loadedNotificationStatus = notificationStatus
-            if let notificationPreferences {
-                loadedNotificationsEnabled = notificationPreferences.isEnabled
-                loadedReminderHours = notificationPreferences.leadHours
-                if let notificationScheduler {
-                    loadedNotificationStatus = await notificationScheduler.status(
-                        sealEnabled: loadedNotificationsEnabled
-                    )
-                }
-                guard generation == loadGeneration else { return }
-            }
-
-            let loadedStorageUsage: SettingsStorageUsage
-            if let fileStore {
-                loadedStorageUsage = (try? await fileStore.storageUsage()) ?? .empty
-            } else {
-                loadedStorageUsage = .empty
-            }
-            guard generation == loadGeneration else { return }
-
+            // 快速显示核心数据
             accounts = displayedAccounts
             pairingRecord = loadedPairing
-            fullAccountEmails = loadedEmails
-            loadCertificateInventoryCache(for: displayedAccounts)
-            appIconData = loadedAppIcons
             activeAccountID = resolvedAccountID
-            logs = loadedLogs
-            signingHistory = loadedHistory
-            signingHistoryIconData = loadedHistoryIcons
-            anisetteServers = loadedServers
-            selectedAnisetteServerID = loadedSelectedServerID
-            notificationsEnabled = loadedNotificationsEnabled
-            reminderHours = loadedReminderHours
-            notificationStatus = loadedNotificationStatus
-            storageUsage = loadedStorageUsage
-            refreshLogExportText()
             hasLoaded = true
+
+            // 后台加载非关键数据
+            Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self else { return }
+
+                _ = await self.importPairingAssistantInboxIfPresent()
+
+                let emails = await self.loadFullAccountEmails(for: displayedAccounts)
+                await MainActor.run { self.fullAccountEmails = emails }
+
+                let storedApps = (try? await self.appStore?.fetchAll()) ?? []
+                let appIcons = await self.loadAppIcons(for: storedApps)
+                await MainActor.run { self.appIconData = appIcons }
+
+                self.loadCertificateInventoryCache(for: displayedAccounts)
+
+                let loadedLogs = (try? await self.logStore?.entries()) ?? []
+                let loadedHistory = (try? await self.signingHistoryStore?.records()) ?? []
+                let historyIcons = await self.loadSigningHistoryIcons(for: loadedHistory)
+                await MainActor.run {
+                    self.logs = loadedLogs
+                    self.signingHistory = loadedHistory
+                    self.signingHistoryIconData = historyIcons
+                }
+
+                var loadedServers: [AnisetteServer] = await MainActor.run { self.anisetteServers }
+                var loadedSelectedServerID: String? = await MainActor.run { self.selectedAnisetteServerID }
+                if let anisetteEnvironment = self.anisetteEnvironment {
+                    async let availableServers = anisetteEnvironment.availableServers()
+                    async let selectedServerID = anisetteEnvironment.selectedServerID()
+                    loadedServers = await availableServers
+                    loadedSelectedServerID = (await selectedServerID) ?? loadedServers.first?.id
+                }
+                await MainActor.run {
+                    self.anisetteServers = loadedServers
+                    self.selectedAnisetteServerID = loadedSelectedServerID
+                }
+
+                var loadedNotificationsEnabled = await MainActor.run { self.notificationsEnabled }
+                var loadedReminderHours = await MainActor.run { self.reminderHours }
+                var loadedNotificationStatus = await MainActor.run { self.notificationStatus }
+                if let notificationPreferences = self.notificationPreferences {
+                    loadedNotificationsEnabled = notificationPreferences.isEnabled
+                    loadedReminderHours = notificationPreferences.leadHours
+                    if let notificationScheduler = self.notificationScheduler {
+                        loadedNotificationStatus = await notificationScheduler.status(sealEnabled: loadedNotificationsEnabled)
+                    }
+                }
+                await MainActor.run {
+                    self.notificationsEnabled = loadedNotificationsEnabled
+                    self.reminderHours = loadedReminderHours
+                    self.notificationStatus = loadedNotificationStatus
+                }
+
+                let loadedStorageUsage: SettingsStorageUsage
+                if let fileStore = self.fileStore {
+                    loadedStorageUsage = (try? await fileStore.storageUsage()) ?? .empty
+                } else {
+                    loadedStorageUsage = .empty
+                }
+                await MainActor.run {
+                    self.storageUsage = loadedStorageUsage
+                    self.refreshLogExportText()
+                }
+            }
         } catch {
             guard generation == loadGeneration else { return }
             alertFailure = Self.failure(

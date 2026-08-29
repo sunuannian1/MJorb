@@ -84,8 +84,10 @@ struct RootTabView: View {
         lastLaunchCheckAt = Date()
         defer { launchCheckInProgress = false }
 
-        await settingsViewModel.performLightweightLaunchCheck()
-        await appsViewModel.performLightweightLaunchCheck()
+        // 并行执行两个 ViewModel 的启动检查，避免串行等待
+        async let settingsCheck: Void = settingsViewModel.performLightweightLaunchCheck()
+        async let appsCheck: Void = appsViewModel.performLightweightLaunchCheck()
+        _ = await (settingsCheck, appsCheck)
     }
 
 }
