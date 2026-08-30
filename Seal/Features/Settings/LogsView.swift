@@ -9,6 +9,10 @@ struct LogsView: View {
         nil, .account, .pairing, .signing, .installation, .renewal, .system
     ]
 
+    private var categoryIDs: [String] {
+        categories.map { $0?.rawValue ?? "all" }
+    }
+
     private var filteredLogs: [SealLogEntry] {
         guard let category = selectedCategory else {
             return viewModel.logs
@@ -21,7 +25,7 @@ struct LogsView: View {
             Section {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(categories, id: \.?.rawValue ?? "all") { category in
+                        ForEach(Array(categories.enumerated()), id: \.offset) { index, category in
                             Button {
                                 selectedCategory = category
                             } label: {
