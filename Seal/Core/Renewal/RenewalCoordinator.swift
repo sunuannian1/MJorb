@@ -40,7 +40,12 @@ actor RenewalCoordinator {
         progress: @Sendable (BatchRefreshEvent) async -> Void
     ) async throws -> BatchRefreshResult {
         let apps = try await appStore.fetchAll()
-        let fallbackAccountID = await defaultAccountIDProvider?()
+        let fallbackAccountID: UUID?
+        if let provider = defaultAccountIDProvider {
+            fallbackAccountID = await provider()
+        } else {
+            fallbackAccountID = nil
+        }
         let queue = planner.makeQueue(apps: apps, fallbackAccountID: fallbackAccountID)
         let queuedApps = queue.compactMap { item in apps.first(where: { $0.id == item.appID }) }
         await progress(.prepared(apps: queuedApps))
