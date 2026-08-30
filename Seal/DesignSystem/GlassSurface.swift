@@ -14,19 +14,9 @@ struct GlassSurfaceModifier: ViewModifier {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .stroke(.secondary.opacity(0.18), lineWidth: 0.5)
                 }
-        } else if #available(iOS 26.0, *) {
-            content
-                .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.sealHairline.opacity(0.72), lineWidth: 0.7)
-                }
         } else {
             content
-                .background(
-                    Color.sealSurface,
-                    in: RoundedRectangle(cornerRadius: cornerRadius)
-                )
+                .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
                 .overlay {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .stroke(Color.sealHairline.opacity(0.72), lineWidth: 0.7)
