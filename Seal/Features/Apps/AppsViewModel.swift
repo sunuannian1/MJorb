@@ -1018,6 +1018,7 @@ final class AppsViewModel: ObservableObject {
 
     func dismissBatchRefresh() {
         guard let batchRefreshSession else { return }
+        Task { try? await logStore?.append(category: .renewal, level: .info, message: "[BatchDebug] dismissBatchRefresh called, status=\(batchRefreshSession.status)", code: "SEAL-BATCH-DEBUG-6") }
         switch batchRefreshSession.status {
         case .preparing, .running, .preparingSealUpdate:
             return
@@ -1178,7 +1179,10 @@ final class AppsViewModel: ObservableObject {
     }
 
     private func persistPendingBatchResultForSealUpdate() {
-        guard let session = batchRefreshSession else { return }
+        guard let session = batchRefreshSession else {
+            Task { try? await logStore?.append(category: .renewal, level: .warning, message: "[BatchDebug] persist skipped: batchRefreshSession is nil", code: "SEAL-BATCH-DEBUG-1") }
+            return
+        }
         let itemPayload = session.items.map { item -> [String: Any] in
             [
                 "id": item.id.uuidString,
@@ -1187,19 +1191,28 @@ final class AppsViewModel: ObservableObject {
                 "state": item.isSeal ? "completed" : item.state.storageValue
             ]
         }
+        let succeeded = max(session.succeeded + 1, itemPayload.filter { ($0["state"] as? String) == "completed" }.count)
         let payload: [String: Any] = [
-            "succeeded": max(session.succeeded + 1, itemPayload.filter { ($0["state"] as? String) == "completed" }.count),
+            "succeeded": succeeded,
             "failed": session.failed,
             "total": session.total,
             "timestamp": Date().timeIntervalSince1970,
             "items": itemPayload
         ]
         UserDefaults.standard.set(payload, forKey: Self.pendingBatchResultKey)
+        UserDefaults.standard.synchronize()
+        Task { try? await logStore?.append(category: .renewal, level: .info, message: "[BatchDebug] persisted: total=\(session.total) succeeded=\(succeeded) failed=\(session.failed) items=\(itemPayload.count)", code: "SEAL-BATCH-DEBUG-2") }
     }
 
     private func restorePendingBatchResultIfNeeded() {
-        guard batchRefreshSession == nil, batchRefreshTask == nil else { return }
-        guard let payload = UserDefaults.standard.dictionary(forKey: Self.pendingBatchResultKey) else { return }
+        guard batchRefreshSession == nil, batchRefreshTask == nil else {
+            Task { try? await logStore?.append(category: .renewal, level: .warning, message: "[BatchDebug] restore skipped: session=\(batchRefreshSession != nil) task=\(batchRefreshTask != nil)", code: "SEAL-BATCH-DEBUG-3") }
+            return
+        }
+        guard let payload = UserDefaults.standard.dictionary(forKey: Self.pendingBatchResultKey) else {
+            Task { try? await logStore?.append(category: .renewal, level: .info, message: "[BatchDebug] restore skipped: no pending data in UserDefaults", code: "SEAL-BATCH-DEBUG-4") }
+            return
+        }
         let succeeded = payload["succeeded"] as? Int ?? 0
         let failed = payload["failed"] as? Int ?? 0
         let total = payload["total"] as? Int ?? max(succeeded + failed, 0)
@@ -1218,6 +1231,7 @@ final class AppsViewModel: ObservableObject {
             }
         }
         batchRefreshSession = restored
+        Task { try? await logStore?.append(category: .renewal, level: .info, message: "[BatchDebug] restored: total=\(total) succeeded=\(succeeded) failed=\(failed) items=\(restored.items.count) status=completed", code: "SEAL-BATCH-DEBUG-5") }
     }
 
     private func clearPendingBatchResult() {
