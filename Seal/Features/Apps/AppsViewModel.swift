@@ -667,8 +667,7 @@ final class AppsViewModel: ObservableObject {
         let isRenewal = app.belongsInInstalledList
         // 宽松策略：续签时优先用应用记录的账号，没有则用传入的账号
         let resolvedAccountID = (isRenewal ? app.accountID : nil) ?? accountID
-        guard let resolvedAccountID,
-              let account = verifiedAccounts.first(where: { $0.id == resolvedAccountID }) else {
+        guard let account = verifiedAccounts.first(where: { $0.id == resolvedAccountID }) else {
             alertFailure = ImportFailure(
                 title: "Apple ID 不可用",
                 reason: isRenewal ? "请选择一个已验证的 Apple ID 进行续签。" : "请选择一个已验证的 Apple ID",
