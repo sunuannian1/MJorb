@@ -231,7 +231,7 @@ actor RenewalCoordinator {
                     )
                 }
                 failed += 1
-                await log(.error, "「\(app.name)」自动重试 \(maxAttempts) 次后仍失败：\(failure.reason)", code: failure.code)
+                await log(.error, "「\(appName)」自动重试 \(maxAttempts) 次后仍失败：\(failure.reason)", code: failure.code)
                 await emitFailure(progress: progress, offset: offset, total: queue.count, item: item, failure: failure)
             }
         }

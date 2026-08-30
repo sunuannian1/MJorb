@@ -95,10 +95,27 @@ actor SigningCoordinator {
         do {
             try Task.checkCancellation()
             let deviceIdentifier: String
+            // 宽松策略：通道暂时不可用时不中止签名，先用配对缓存的 UDID 完成签名，
+            // 签名完成后再尝试启动通道安装（签名耗时通常足够 VPN/Minimuxer 恢复）
+            var channelReady = false
             if installAfterSigning {
                 try await updateState(appID: appID, stage: .waitingForChannel)
                 await progress(.waitingForChannel)
-                deviceIdentifier = try await installChannel.start()
+                do {
+                    deviceIdentifier = try await installChannel.start()
+                    channelReady = true
+                } catch {
+                    if let cached = await installChannel.storedDeviceIdentifier(),
+                       cached.isEmpty == false {
+                        deviceIdentifier = cached
+                    } else {
+                        throw Self.failure(
+                            reason: "签名前需要先完成一次设备配对，以便按 Apple 官方设备列表生成描述文件。",
+                            recovery: "先完成设备配对后重试",
+                            code: "SEAL-PAIR-211"
+                        )
+                    }
+                }
             } else if let storedDeviceIdentifier = await installChannel.storedDeviceIdentifier(),
                       storedDeviceIdentifier.isEmpty == false {
                 deviceIdentifier = storedDeviceIdentifier
@@ -183,6 +200,11 @@ actor SigningCoordinator {
             didPersistNewSignedArtifact = true
 
             guard installAfterSigning else { return app }
+
+            // 签名时通道若未就绪，安装前再试一次启动（签名期间通道可能已恢复）
+            if channelReady == false {
+                try? await installChannel.start()
+            }
 
             let installed = try await installSignedIPA(
                 app: app,
