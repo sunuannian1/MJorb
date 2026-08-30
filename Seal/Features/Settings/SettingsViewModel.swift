@@ -10,6 +10,7 @@ enum SettingsRoute: Hashable {
     case pairing
     case localDevVPN
     case storage
+    case logs
 }
 
 @MainActor
