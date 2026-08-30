@@ -20,24 +20,28 @@ actor RenewalCoordinator {
     private let signingCoordinator: SigningCoordinator
     private let queueStore: RefreshQueueStore
     private let planner: RefreshPlanner
+    private let defaultAccountIDProvider: (@Sendable () async -> UUID?)?
 
     init(
         appStore: any AppStore,
         signingCoordinator: SigningCoordinator,
         queueStore: RefreshQueueStore,
-        planner: RefreshPlanner = RefreshPlanner()
+        planner: RefreshPlanner = RefreshPlanner(),
+        defaultAccountIDProvider: (@Sendable () async -> UUID?)? = nil
     ) {
         self.appStore = appStore
         self.signingCoordinator = signingCoordinator
         self.queueStore = queueStore
         self.planner = planner
+        self.defaultAccountIDProvider = defaultAccountIDProvider
     }
 
     func refreshAll(
         progress: @Sendable (BatchRefreshEvent) async -> Void
     ) async throws -> BatchRefreshResult {
         let apps = try await appStore.fetchAll()
-        let queue = planner.makeQueue(apps: apps)
+        let fallbackAccountID = await defaultAccountIDProvider?()
+        let queue = planner.makeQueue(apps: apps, fallbackAccountID: fallbackAccountID)
         let queuedApps = queue.compactMap { item in apps.first(where: { $0.id == item.appID }) }
         await progress(.prepared(apps: queuedApps))
         try await queueStore.replace(with: queue)

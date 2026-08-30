@@ -3,15 +3,17 @@ import Foundation
 struct RefreshPlanner: Sendable {
     func makeQueue(
         apps: [AppRecord],
+        fallbackAccountID: UUID? = nil,
         now: Date = Date()
     ) -> [RefreshQueueItem] {
         apps
-            .filter { $0.belongsInInstalledList && $0.accountID != nil }
+            .filter { $0.belongsInInstalledList && ($0.accountID != nil || fallbackAccountID != nil) }
             .sorted { lhs, rhs in
                 priority(for: lhs, now: now) < priority(for: rhs, now: now)
             }
             .compactMap { app in
-                guard let accountID = app.accountID else { return nil }
+                let accountID = app.accountID ?? fallbackAccountID
+                guard let accountID else { return nil }
                 return RefreshQueueItem(appID: app.id, accountID: accountID)
             }
     }

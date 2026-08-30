@@ -259,11 +259,19 @@ final class AppsViewModel: ObservableObject {
             presentOperation(for: app)
             return
         }
-        guard let accountID = app.accountID else {
+        // 宽松策略：应用没有记录签名账号时，自动使用当前活跃的 Apple ID，而不是拒绝续签
+        let accountID: UUID
+        if let recordedAccountID = app.accountID {
+            accountID = recordedAccountID
+        } else if let activeID = activeAccountID, accounts.contains(where: { $0.id == activeID && AccountAvailabilityPolicy.isSelectable($0) }) {
+            accountID = activeID
+        } else if let fallbackID = accounts.first(where: { AccountAvailabilityPolicy.isSelectable($0) })?.id {
+            accountID = fallbackID
+        } else {
             alertFailure = ImportFailure(
                 title: "缺少签名账号",
-                reason: "这个应用没有记录上次签名使用的 Apple ID，无法续签。",
-                recovery: "重新导入 IPA 签名安装；Seal 自身请在「我的」中添加 Apple ID",
+                reason: "尚未添加可用的 Apple ID，无法续签。",
+                recovery: "在「我的」中添加 Apple ID",
                 code: "SEAL-AUTH-104"
             )
             return
@@ -645,17 +653,7 @@ final class AppsViewModel: ObservableObject {
         }
 
         let isInstalledRecord = app.belongsInInstalledList
-        let boundAccountID = isInstalledRecord ? app.accountID : nil
-        if isInstalledRecord, boundAccountID == nil {
-            alertFailure = ImportFailure(
-                title: "缺少签名账号记录",
-                reason: "这个应用没有记录上次签名使用的 Apple ID，无法自动续签。",
-                recovery: "重新导入 IPA 并签名安装；Seal 自身请在「我的」中添加对应 Apple ID",
-                code: "SEAL-AUTH-110a"
-            )
-            return
-        }
-
+        // 宽松策略：已安装应用没有记录签名账号时，不拒绝，让用户选择账号进行续签
         continueSigningRequest(for: app, availableAccounts: availableAccounts)
     }
 
@@ -667,12 +665,13 @@ final class AppsViewModel: ObservableObject {
     ) async {
         guard signingTask == nil, batchRefreshTask == nil else { return }
         let isRenewal = app.belongsInInstalledList
-        let resolvedAccountID = isRenewal ? app.accountID : accountID
+        // 宽松策略：续签时优先用应用记录的账号，没有则用传入的账号
+        let resolvedAccountID = (isRenewal ? app.accountID : nil) ?? accountID
         guard let resolvedAccountID,
               let account = verifiedAccounts.first(where: { $0.id == resolvedAccountID }) else {
             alertFailure = ImportFailure(
                 title: "Apple ID 不可用",
-                reason: isRenewal ? "上次签名此 App 的 Apple ID 不可用。" : "请选择一个已验证的 Apple ID",
+                reason: isRenewal ? "请选择一个已验证的 Apple ID 进行续签。" : "请选择一个已验证的 Apple ID",
                 recovery: "前往设置",
                 code: "SEAL-AUTH-104b"
             )

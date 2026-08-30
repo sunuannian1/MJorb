@@ -1,0 +1,796 @@
+﻿2026-08-29T17:03:44.9202710Z ##[group]Run device_lib="Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a"
+2026-08-29T17:03:44.9203450Z [36;1mdevice_lib="Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a"[0m
+2026-08-29T17:03:44.9204080Z [36;1msimulator_lib="Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64-simulator/librust_bridge.a"[0m
+2026-08-29T17:03:44.9204640Z [36;1mrequired_symbol="_rust_bridge_idevice_lookup_app"[0m
+2026-08-29T17:03:44.9204900Z [36;1m[0m
+2026-08-29T17:03:44.9205070Z [36;1mtest -f "$device_lib"[0m
+2026-08-29T17:03:44.9205320Z [36;1mtest -f "$simulator_lib"[0m
+2026-08-29T17:03:44.9205590Z [36;1m[0m
+2026-08-29T17:03:44.9205770Z [36;1mif [[ "" == "true" ]]; then[0m
+2026-08-29T17:03:44.9206030Z [36;1m  echo "RustBridge rebuild was requested."[0m
+2026-08-29T17:03:44.9206460Z [36;1melif xcrun nm -gU "$device_lib" | grep -q "$required_symbol"; then[0m
+2026-08-29T17:03:44.9206960Z [36;1m  echo "Vendored RustBridge already exports $required_symbol; using cached binary."[0m
+2026-08-29T17:03:44.9207390Z [36;1m  exit 0[0m
+2026-08-29T17:03:44.9207540Z [36;1melse[0m
+2026-08-29T17:03:44.9207910Z [36;1m  echo "Vendored RustBridge is missing $required_symbol; rebuilding before packaging."[0m
+2026-08-29T17:03:44.9213170Z [36;1mfi[0m
+2026-08-29T17:03:44.9213730Z [36;1m[0m
+2026-08-29T17:03:44.9214140Z [36;1mcommand -v rustup[0m
+2026-08-29T17:03:44.9214670Z [36;1mcommand -v cargo[0m
+2026-08-29T17:03:44.9215190Z [36;1mcommand -v make[0m
+2026-08-29T17:03:44.9215880Z [36;1mrustup target add aarch64-apple-ios aarch64-apple-ios-sim[0m
+2026-08-29T17:03:44.9216800Z [36;1mmake -C Vendor/Minimuxer/RustBridge xcframework[0m
+2026-08-29T17:03:44.9257320Z shell: /bin/bash -e {0}
+2026-08-29T17:03:44.9257600Z ##[endgroup]
+2026-08-29T17:03:46.9962280Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(std-1238065913d8532d.std.4f8fd4c009097165-cgu.0.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:46.9963690Z 
+2026-08-29T17:03:46.9987680Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(object-fb77d6e61dbf7138.object.57632073a85cdae9-cgu.0.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:46.9989220Z 
+2026-08-29T17:03:46.9990270Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(memchr-80797be705bbce5a.memchr.e8fd81404aeabca6-cgu.0.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:46.9991670Z 
+2026-08-29T17:03:46.9999870Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(gimli-e6328a222c6550d2.gimli.dab14b9af5779c5c-cgu.0.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0001210Z 
+2026-08-29T17:03:47.0001830Z Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a:cfg_if-a905edf97379ef4b.cfg_if.7524df228d0c9999-cgu.0.rcgu.o: no symbols
+2026-08-29T17:03:47.0003540Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(rustc_demangle-f5f4ae5b64cfd004.rustc_demangle.40cef0294f82176b-cgu.0.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0005470Z 
+2026-08-29T17:03:47.0006110Z Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a:rustc_std_workspace_alloc-b7ff2e77ee52d3b7.rustc_std_workspace_alloc.a18f81cba6c21ef5-cgu.0.rcgu.o: no symbols
+2026-08-29T17:03:47.0008070Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(miniz_oxide-78b3d044f311d4b1.miniz_oxide.50bb76a59c641831-cgu.0.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0009450Z 
+2026-08-29T17:03:47.0010080Z Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a:unwind-302bf4404ee309b9.unwind.e54a791f6a378f62-cgu.0.rcgu.o: no symbols
+2026-08-29T17:03:47.0011290Z Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a:rustc_std_workspace_core-bab214b31511071c.rustc_std_workspace_core.dfda7d4881ab56ee-cgu.0.rcgu.o: no symbols
+2026-08-29T17:03:47.0013080Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(alloc-c3e5b068b53f9243.alloc.8db8cead5acdd0a9-cgu.0.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0014770Z 
+2026-08-29T17:03:47.0016000Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(core-f93bddc3dcad7be1.core.325310443edc25ef-cgu.0.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0017310Z 
+2026-08-29T17:03:47.0018530Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.000.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0019970Z 
+2026-08-29T17:03:47.0021180Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.001.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0022520Z 
+2026-08-29T17:03:47.0025880Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.002.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0027350Z 
+2026-08-29T17:03:47.0028630Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.003.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0029890Z 
+2026-08-29T17:03:47.0031010Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.004.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0032520Z 
+2026-08-29T17:03:47.0035660Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.005.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0036910Z 
+2026-08-29T17:03:47.0038120Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.006.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0039460Z 
+2026-08-29T17:03:47.0040600Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.007.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0042070Z 
+2026-08-29T17:03:47.0043210Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.010.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0044460Z 
+2026-08-29T17:03:47.0045790Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.016.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0047010Z 
+2026-08-29T17:03:47.0048220Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.017.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0049430Z 
+2026-08-29T17:03:47.0050650Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.028.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0051930Z 
+2026-08-29T17:03:47.0053120Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.029.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0054340Z 
+2026-08-29T17:03:47.0055470Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.035.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0057040Z 
+2026-08-29T17:03:47.0058260Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.036.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0059870Z 
+2026-08-29T17:03:47.0061400Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.052.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0063670Z 
+2026-08-29T17:03:47.0065050Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.053.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0069580Z 
+2026-08-29T17:03:47.0072800Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.081.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0078260Z 
+2026-08-29T17:03:47.0082400Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.082.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0086360Z 
+2026-08-29T17:03:47.0089950Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.113.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0127050Z 
+2026-08-29T17:03:47.0130880Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.151.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0144950Z 
+2026-08-29T17:03:47.0148650Z /Applications/Xcode_26.5.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm: error: Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a(compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.194.rcgu.o): Unknown attribute kind (105) (Producer: 'LLVM22.1.6-rust-1.97.1-stable' Reader: 'LLVM APPLE_1_2100.1.1.101_0')
+2026-08-29T17:03:47.0152300Z 
+2026-08-29T17:03:47.0153940Z Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a:compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.223.rcgu.o: no symbols
+2026-08-29T17:03:47.0156970Z Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a:compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.224.rcgu.o: no symbols
+2026-08-29T17:03:47.0159990Z Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a:compiler_builtins-c474715e2ac50578.compiler_builtins.498324e461c21fb7-cgu.226.rcgu.o: no symbols
+2026-08-29T17:03:47.0163990Z Vendored RustBridge is missing _rust_bridge_idevice_lookup_app; rebuilding before packaging.
+2026-08-29T17:03:47.0170260Z /opt/homebrew/bin/rustup
+2026-08-29T17:03:47.0171140Z /Users/runner/.cargo/bin/cargo
+2026-08-29T17:03:47.0171930Z /usr/bin/make
+2026-08-29T17:03:47.1009290Z info: downloading component rust-std
+2026-08-29T17:03:49.4547610Z info: downloading component rust-std
+2026-08-29T17:03:52.6705000Z --- Building Rust Bridge ---
+2026-08-29T17:03:52.6753390Z cd "." && cargo build --locked --target aarch64-apple-ios --release
+2026-08-29T17:03:53.2128380Z     Updating git repository `https://github.com/jkcoxson/idevice`
+2026-08-29T17:03:54.8923650Z     Updating git submodule `https://github.com/jkcoxson/plist_ffi.git`
+2026-08-29T17:03:55.9655500Z     Updating crates.io index
+2026-08-29T17:03:55.9724060Z     Updating git repository `https://github.com/SideStore/rusty_libimobiledevice`
+2026-08-29T17:03:57.8527290Z  Downloading crates ...
+2026-08-29T17:03:57.8929390Z   Downloaded async-stream v0.3.6
+2026-08-29T17:03:57.9036780Z   Downloaded aead v0.5.2
+2026-08-29T17:03:57.9070010Z   Downloaded block-padding v0.3.3
+2026-08-29T17:03:57.9086330Z   Downloaded adler2 v2.0.1
+2026-08-29T17:03:57.9125100Z   Downloaded aes v0.8.4
+2026-08-29T17:03:57.9199870Z   Downloaded tinystr v0.8.3
+2026-08-29T17:03:57.9268670Z   Downloaded tls_codec v0.4.2
+2026-08-29T17:03:57.9485720Z   Downloaded tokio-macros v2.6.1
+2026-08-29T17:03:57.9495590Z   Downloaded vec_map v0.8.2
+2026-08-29T17:03:57.9597810Z   Downloaded autocfg v1.5.0
+2026-08-29T17:03:57.9618270Z   Downloaded byteorder v1.5.0
+2026-08-29T17:03:57.9618790Z   Downloaded cexpr v0.6.0
+2026-08-29T17:03:57.9654040Z   Downloaded home v0.5.12
+2026-08-29T17:03:57.9698650Z   Downloaded time-macros v0.2.27
+2026-08-29T17:03:57.9755800Z   Downloaded icu_properties v2.2.0
+2026-08-29T17:03:57.9839330Z   Downloaded writeable v0.6.3
+2026-08-29T17:03:57.9881730Z   Downloaded ansi_term v0.12.1
+2026-08-29T17:03:57.9967870Z   Downloaded chrono v0.4.44
+2026-08-29T17:03:58.0237670Z   Downloaded autotools v0.2.7
+2026-08-29T17:03:58.0326440Z   Downloaded bytes v1.11.1
+2026-08-29T17:03:58.0490550Z   Downloaded try-lock v0.2.5
+2026-08-29T17:03:58.0529180Z   Downloaded untrusted v0.9.0
+2026-08-29T17:03:58.0607480Z   Downloaded version_check v0.9.5
+2026-08-29T17:03:58.0640680Z   Downloaded which v4.4.2
+2026-08-29T17:03:58.0680690Z   Downloaded x509-cert v0.2.5
+2026-08-29T17:03:58.0995100Z   Downloaded indexmap v2.13.0
+2026-08-29T17:03:58.1160590Z   Downloaded num-bigint-dig v0.8.6
+2026-08-29T17:03:58.1256330Z   Downloaded rustls-pki-types v1.14.0
+2026-08-29T17:03:58.1348760Z   Downloaded async-compression v0.4.41
+2026-08-29T17:03:58.1568770Z   Downloaded async-stream-impl v0.3.6
+2026-08-29T17:03:58.1577970Z   Downloaded atomic-waker v1.1.2
+2026-08-29T17:03:58.1597560Z   Downloaded atty v0.2.14
+2026-08-29T17:03:58.1617840Z   Downloaded base64 v0.22.1
+2026-08-29T17:03:58.1687260Z   Downloaded cc v1.2.56
+2026-08-29T17:03:58.1744260Z   Downloaded find-msvc-tools v0.1.9
+2026-08-29T17:03:58.1781160Z   Downloaded futures-io v0.3.32
+2026-08-29T17:03:58.1809450Z   Downloaded futures-util v0.3.32
+2026-08-29T17:03:58.2102540Z   Downloaded icu_provider v2.2.0
+2026-08-29T17:03:58.2192240Z   Downloaded time v0.3.47
+2026-08-29T17:03:58.2585620Z   Downloaded time-core v0.1.8
+2026-08-29T17:03:58.2610240Z   Downloaded tls_codec_derive v0.4.2
+2026-08-29T17:03:58.2672160Z   Downloaded tracing-core v0.1.36
+2026-08-29T17:03:58.2724160Z   Downloaded typenum v1.19.0
+2026-08-29T17:03:58.2780930Z   Downloaded unicode-ident v1.0.24
+2026-08-29T17:03:58.2839360Z   Downloaded universal-hash v0.5.1
+2026-08-29T17:03:58.2857420Z   Downloaded url v2.5.8
+2026-08-29T17:03:58.2906540Z   Downloaded uuid v1.23.0
+2026-08-29T17:03:58.2965990Z   Downloaded x25519-dalek v2.0.1
+2026-08-29T17:03:58.3006780Z   Downloaded yoke v0.8.2
+2026-08-29T17:03:58.3068650Z   Downloaded yoke-derive v0.8.2
+2026-08-29T17:03:58.3105110Z   Downloaded md-5 v0.10.6
+2026-08-29T17:03:58.3148660Z   Downloaded peeking_take_while v0.1.2
+2026-08-29T17:03:58.3171380Z   Downloaded aho-corasick v1.1.4
+2026-08-29T17:03:58.3345200Z   Downloaded async_zip v0.0.18
+2026-08-29T17:03:58.3533650Z   Downloaded aws-lc-rs v1.16.2
+2026-08-29T17:03:58.3783510Z   Downloaded cfg-if v1.0.4
+2026-08-29T17:03:58.3813120Z   Downloaded const-oid v0.9.6
+2026-08-29T17:03:58.3868620Z   Downloaded unicode-width v0.1.14
+2026-08-29T17:03:58.4005990Z   Downloaded lazy_static v1.5.0
+2026-08-29T17:03:58.4061110Z   Downloaded compression-core v0.4.31
+2026-08-29T17:03:58.4092660Z   Downloaded crossbeam-queue v0.3.12
+2026-08-29T17:03:58.4198780Z   Downloaded errno v0.3.14
+2026-08-29T17:03:58.4217620Z   Downloaded futures-sink v0.3.32
+2026-08-29T17:03:58.4230700Z   Downloaded tracing-attributes v0.1.31
+2026-08-29T17:03:58.4283350Z   Downloaded jobserver v0.1.34
+2026-08-29T17:03:58.4338350Z   Downloaded lazycell v1.3.0
+2026-08-29T17:03:58.4356300Z   Downloaded once_cell v1.21.3
+2026-08-29T17:03:58.4418570Z   Downloaded pem-rfc7468 v0.7.0
+2026-08-29T17:03:58.4471470Z   Downloaded potential_utf v0.1.5
+2026-08-29T17:03:58.4504260Z   Downloaded cbc v0.1.2
+2026-08-29T17:03:58.4529930Z   Downloaded equivalent v1.0.2
+2026-08-29T17:03:58.4549990Z   Downloaded zerofrom v0.1.7
+2026-08-29T17:03:58.4567130Z   Downloaded zeroize_derive v1.4.3
+2026-08-29T17:03:58.4585590Z   Downloaded zmij v1.0.21
+2026-08-29T17:03:58.4625040Z   Downloaded iri-string v0.7.12
+2026-08-29T17:03:58.4817250Z   Downloaded nskeyedarchiver_converter v0.1.3
+2026-08-29T17:03:58.4826200Z   Downloaded idna v1.1.0
+2026-08-29T17:03:58.4887530Z   Downloaded lock_api v0.4.14
+2026-08-29T17:03:58.4911930Z   Downloaded opaque-debug v0.3.1
+2026-08-29T17:03:58.4929130Z   Downloaded ppv-lite86 v0.2.21
+2026-08-29T17:03:58.4960230Z   Downloaded serde_core v1.0.228
+2026-08-29T17:03:58.5012130Z   Downloaded flagset v0.4.7
+2026-08-29T17:03:58.5044330Z   Downloaded tower-http v0.6.8
+2026-08-29T17:03:58.5324220Z   Downloaded tower-layer v0.3.3
+2026-08-29T17:03:58.5344310Z   Downloaded utf8_iter v1.0.4
+2026-08-29T17:03:58.5367840Z   Downloaded zerofrom-derive v0.1.7
+2026-08-29T17:03:58.5379970Z   Downloaded idna_adapter v1.2.1
+2026-08-29T17:03:58.5397210Z   Downloaded litemap v0.8.2
+2026-08-29T17:03:58.5500290Z   Downloaded num-conv v0.2.0
+2026-08-29T17:03:58.5522130Z   Downloaded percent-encoding v2.3.2
+2026-08-29T17:03:58.5551280Z   Downloaded pin-project-internal v1.1.11
+2026-08-29T17:03:58.5587370Z   Downloaded poly1305 v0.8.0
+2026-08-29T17:03:58.5712350Z   Downloaded tower-service v0.3.3
+2026-08-29T17:03:58.5757710Z   Downloaded parking_lot v0.12.5
+2026-08-29T17:03:58.5866620Z   Downloaded block-buffer v0.10.4
+2026-08-29T17:03:58.5937990Z   Downloaded crypto-common v0.1.7
+2026-08-29T17:03:58.5986210Z   Downloaded futures-macro v0.3.32
+2026-08-29T17:03:58.6028870Z   Downloaded compression-codecs v0.4.37
+2026-08-29T17:03:58.6121460Z   Downloaded dunce v1.0.5
+2026-08-29T17:03:58.6154300Z   Downloaded ed25519 v2.2.3
+2026-08-29T17:03:58.6228710Z   Downloaded http-body v1.0.1
+2026-08-29T17:03:58.6259100Z   Downloaded http-body-util v0.1.3
+2026-08-29T17:03:58.6298400Z   Downloaded zerovec-derive v0.11.3
+2026-08-29T17:03:58.6333840Z   Downloaded inout v0.1.4
+2026-08-29T17:03:58.6364940Z   Downloaded ns-keyed-archive v0.1.4
+2026-08-29T17:03:58.6384980Z   Downloaded plist-macro v0.1.6
+2026-08-29T17:03:58.6403080Z   Downloaded sha1 v0.10.6
+2026-08-29T17:03:58.6430330Z   Downloaded fastrand v2.3.0
+2026-08-29T17:03:58.6455250Z   Downloaded futures-core v0.3.32
+2026-08-29T17:03:58.6476810Z   Downloaded cpufeatures v0.2.17
+2026-08-29T17:03:58.6499500Z   Downloaded form_urlencoded v1.2.2
+2026-08-29T17:03:58.6512740Z   Downloaded futures-task v0.3.32
+2026-08-29T17:03:58.6532640Z   Downloaded generic-array v0.14.7
+2026-08-29T17:03:58.6555240Z   Downloaded jktcp v0.1.1
+2026-08-29T17:03:58.6578110Z   Downloaded mio v1.1.1
+2026-08-29T17:03:58.6684510Z   Downloaded num-integer v0.1.46
+2026-08-29T17:03:58.6711470Z   Downloaded num-iter v0.1.45
+2026-08-29T17:03:58.6726920Z   Downloaded parking v2.2.1
+2026-08-29T17:03:58.6743210Z   Downloaded plist_plus v0.2.6
+2026-08-29T17:03:58.6777860Z   Downloaded powerfmt v0.2.0
+2026-08-29T17:03:58.6794260Z   Downloaded rustc-hash v1.1.0
+2026-08-29T17:03:58.6806290Z   Downloaded sync_wrapper v1.0.2
+2026-08-29T17:03:58.6817510Z   Downloaded stable_deref_trait v1.2.1
+2026-08-29T17:03:58.6833250Z   Downloaded strsim v0.8.0
+2026-08-29T17:03:58.6854060Z   Downloaded subtle v2.6.1
+2026-08-29T17:03:58.6870850Z   Downloaded base64ct v1.8.3
+2026-08-29T17:03:58.6921720Z   Downloaded bitflags v1.3.2
+2026-08-29T17:03:58.6977220Z   Downloaded chacha20 v0.9.1
+2026-08-29T17:03:58.7010760Z   Downloaded cipher v0.4.4
+2026-08-29T17:03:58.7047320Z   Downloaded cmake v0.1.57
+2026-08-29T17:03:58.7070980Z   Downloaded core-foundation-sys v0.8.7
+2026-08-29T17:03:58.7156020Z   Downloaded der_derive v0.7.3
+2026-08-29T17:03:58.7192800Z   Downloaded deranged v0.5.8
+2026-08-29T17:03:58.7237830Z   Downloaded digest v0.10.7
+2026-08-29T17:03:58.7279840Z   Downloaded displaydoc v0.2.5
+2026-08-29T17:03:58.7341160Z   Downloaded enum_dispatch v0.3.13
+2026-08-29T17:03:58.7397190Z   Downloaded fs_extra v1.3.0
+2026-08-29T17:03:58.7423830Z   Downloaded futures-executor v0.3.32
+2026-08-29T17:03:58.7444860Z   Downloaded glob v0.3.3
+2026-08-29T17:03:58.7472530Z   Downloaded hmac v0.12.1
+2026-08-29T17:03:58.7511020Z   Downloaded humantime v2.3.0
+2026-08-29T17:03:58.7532340Z   Downloaded iana-time-zone v0.1.65
+2026-08-29T17:03:58.7582730Z   Downloaded want v0.3.1
+2026-08-29T17:03:58.7597150Z   Downloaded ipnet v2.12.0
+2026-08-29T17:03:58.7625580Z   Downloaded itoa v1.0.17
+2026-08-29T17:03:58.7646990Z   Downloaded libloading v0.8.9
+2026-08-29T17:03:58.7682950Z   Downloaded pin-project-lite v0.2.17
+2026-08-29T17:03:58.7799510Z   Downloaded pkcs8 v0.10.2
+2026-08-29T17:03:58.7848640Z   Downloaded quote v1.0.44
+2026-08-29T17:03:58.7892050Z   Downloaded rand_chacha v0.3.1
+2026-08-29T17:03:58.7908570Z   Downloaded thiserror v2.0.18
+2026-08-29T17:03:58.8039990Z   Downloaded slab v0.4.12
+2026-08-29T17:03:58.8064350Z   Downloaded signature v2.2.0
+2026-08-29T17:03:58.8091700Z   Downloaded synstructure v0.13.2
+2026-08-29T17:03:58.8109010Z   Downloaded termcolor v1.4.1
+2026-08-29T17:03:58.8131320Z   Downloaded textwrap v0.11.0
+2026-08-29T17:03:58.8158900Z   Downloaded bitflags v2.11.0
+2026-08-29T17:03:58.8239070Z   Downloaded clang-sys v1.8.1
+2026-08-29T17:03:58.8283980Z   Downloaded crc32fast v1.5.0
+2026-08-29T17:03:58.8322450Z   Downloaded crossbeam-utils v0.8.21
+2026-08-29T17:03:58.8369600Z   Downloaded either v1.15.0
+2026-08-29T17:03:58.8391440Z   Downloaded env_logger v0.9.3
+2026-08-29T17:03:58.8434650Z   Downloaded futures v0.3.32
+2026-08-29T17:03:58.8529110Z   Downloaded futures-channel v0.3.32
+2026-08-29T17:03:58.8582730Z   Downloaded futures-lite v2.6.1
+2026-08-29T17:03:58.8646460Z   Downloaded getrandom v0.2.17
+2026-08-29T17:03:58.8687550Z   Downloaded getrandom v0.4.2
+2026-08-29T17:03:58.8765510Z   Downloaded httparse v1.10.1
+2026-08-29T17:03:58.8803760Z   Downloaded tokio-rustls v0.26.4
+2026-08-29T17:03:58.8839950Z   Downloaded zeroize v1.8.2
+2026-08-29T17:03:58.8857950Z   Downloaded idevice-srp v0.6.0
+2026-08-29T17:03:58.8887850Z   Downloaded num-traits v0.2.19
+2026-08-29T17:03:58.8931970Z   Downloaded thiserror-impl v2.0.18
+2026-08-29T17:03:58.8955700Z   Downloaded smallvec v1.15.1
+2026-08-29T17:03:58.8988690Z   Downloaded sha2 v0.10.9
+2026-08-29T17:03:58.9030900Z   Downloaded simd-adler32 v0.3.9
+2026-08-29T17:03:58.9060420Z   Downloaded rand_chacha v0.9.0
+2026-08-29T17:03:58.9078600Z   Downloaded rand_core v0.6.4
+2026-08-29T17:03:58.9098120Z   Downloaded rand_core v0.9.5
+2026-08-29T17:03:58.9118980Z   Downloaded rustc_version v0.4.1
+2026-08-29T17:03:58.9140840Z   Downloaded scopeguard v1.2.0
+2026-08-29T17:03:58.9156910Z   Downloaded chacha20 v0.10.0
+2026-08-29T17:03:58.9197380Z   Downloaded chacha20poly1305 v0.10.1
+2026-08-29T17:03:58.9218070Z   Downloaded crossfire v2.1.10
+2026-08-29T17:03:58.9291630Z   Downloaded curve25519-dalek v4.1.3
+2026-08-29T17:03:58.9416350Z   Downloaded getrandom v0.3.4
+2026-08-29T17:03:58.9476200Z   Downloaded icu_normalizer v2.2.0
+2026-08-29T17:03:58.9532320Z   Downloaded icu_normalizer_data v2.2.0
+2026-08-29T17:03:58.9560440Z   Downloaded log v0.4.29
+2026-08-29T17:03:58.9593540Z   Downloaded memchr v2.8.0
+2026-08-29T17:03:58.9691050Z   Downloaded parking_lot_core v0.9.12
+2026-08-29T17:03:58.9734630Z   Downloaded pin-project v1.1.11
+2026-08-29T17:03:59.0112030Z   Downloaded pkcs1 v0.7.5
+2026-08-29T17:03:59.0185250Z   Downloaded serde_derive v1.0.228
+2026-08-29T17:03:59.0247050Z   Downloaded spki v0.7.3
+2026-08-29T17:03:59.0279920Z   Downloaded rand_core v0.10.0
+2026-08-29T17:03:59.0307090Z   Downloaded base64 v0.21.7
+2026-08-29T17:03:59.0377730Z   Downloaded der v0.7.10
+2026-08-29T17:03:59.0488320Z   Downloaded icu_collections v2.2.0
+2026-08-29T17:03:59.0613320Z   Downloaded rand v0.8.5
+2026-08-29T17:03:59.0672870Z   Downloaded ed25519-dalek v2.2.0
+2026-08-29T17:03:59.0738810Z   Downloaded flate2 v1.1.9
+2026-08-29T17:03:59.0875610Z   Downloaded http v1.4.0
+2026-08-29T17:03:59.1015960Z   Downloaded hyper-util v0.1.20
+2026-08-29T17:03:59.1134400Z   Downloaded icu_locale_core v2.2.0
+2026-08-29T17:03:59.1387780Z   Downloaded rand v0.9.2
+2026-08-29T17:03:59.1393290Z   Downloaded serde v1.0.228
+2026-08-29T17:03:59.1460610Z   Downloaded rand v0.10.0
+2026-08-29T17:03:59.1536870Z   Downloaded hashbrown v0.16.1
+2026-08-29T17:03:59.1646080Z   Downloaded hkdf v0.12.4
+2026-08-29T17:03:59.1688700Z   Downloaded hyper v1.9.0
+2026-08-29T17:03:59.1815170Z   Downloaded icu_properties_data v2.2.0
+2026-08-29T17:03:59.2056960Z   Downloaded plist v1.8.0
+2026-08-29T17:03:59.2098280Z   Downloaded reqwest v0.13.2
+2026-08-29T17:03:59.2180180Z   Downloaded shlex v1.3.0
+2026-08-29T17:03:59.2197340Z   Downloaded socket2 v0.6.2
+2026-08-29T17:03:59.2227990Z   Downloaded semver v1.0.28
+2026-08-29T17:03:59.2269680Z   Downloaded clap v2.34.0
+2026-08-29T17:03:59.2362680Z   Downloaded miniz_oxide v0.8.9
+2026-08-29T17:03:59.2404630Z   Downloaded bindgen v0.59.2
+2026-08-29T17:03:59.2513580Z   Downloaded minimal-lexical v0.2.1
+2026-08-29T17:03:59.2616950Z   Downloaded spin v0.9.8
+2026-08-29T17:03:59.2654070Z   Downloaded tower v0.5.3
+2026-08-29T17:03:59.2853350Z   Downloaded zerotrie v0.2.4
+2026-08-29T17:03:59.2965080Z   Downloaded num-bigint v0.4.6
+2026-08-29T17:03:59.3073590Z   Downloaded proc-macro2 v1.0.106
+2026-08-29T17:03:59.3137570Z   Downloaded json v0.12.4
+2026-08-29T17:03:59.3203340Z   Downloaded rustls-webpki v0.103.10
+2026-08-29T17:03:59.3278420Z   Downloaded syn v2.0.117
+2026-08-29T17:03:59.3600440Z   Downloaded rsa v0.9.10
+2026-08-29T17:03:59.3731640Z   Downloaded nom v7.1.3
+2026-08-29T17:03:59.3828960Z   Downloaded regex-automata v0.4.14
+2026-08-29T17:03:59.4038420Z   Downloaded tokio-util v0.7.18
+2026-08-29T17:03:59.4241600Z   Downloaded tracing v0.1.44
+2026-08-29T17:03:59.4648270Z   Downloaded zerovec v0.11.6
+2026-08-29T17:03:59.4820840Z   Downloaded regex v1.12.3
+2026-08-29T17:03:59.4917440Z   Downloaded serde_json v1.0.149
+2026-08-29T17:03:59.5305040Z   Downloaded zerocopy v0.8.40
+2026-08-29T17:03:59.5698640Z   Downloaded libm v0.2.16
+2026-08-29T17:03:59.6050880Z   Downloaded quick-xml v0.38.4
+2026-08-29T17:03:59.6161860Z   Downloaded rustix v0.38.44
+2026-08-29T17:03:59.6963330Z   Downloaded rustls v0.23.37
+2026-08-29T17:03:59.7229580Z   Downloaded regex-syntax v0.8.10
+2026-08-29T17:03:59.7488770Z   Downloaded ring v0.17.14
+2026-08-29T17:03:59.8866940Z   Downloaded libc v0.2.182
+2026-08-29T17:03:59.9928830Z   Downloaded tokio v1.49.0
+2026-08-29T17:04:00.4023970Z   Downloaded aws-lc-sys v0.39.1
+2026-08-29T17:04:02.5906680Z    Compiling proc-macro2 v1.0.106
+2026-08-29T17:04:02.5929140Z    Compiling unicode-ident v1.0.24
+2026-08-29T17:04:02.5929610Z    Compiling quote v1.0.44
+2026-08-29T17:04:03.3137910Z    Compiling libc v0.2.182
+2026-08-29T17:04:06.7631880Z    Compiling cfg-if v1.0.4
+2026-08-29T17:04:06.8300760Z    Compiling version_check v0.9.5
+2026-08-29T17:04:07.0743620Z    Compiling typenum v1.19.0
+2026-08-29T17:04:07.3475280Z    Compiling getrandom v0.2.17
+2026-08-29T17:04:07.4056590Z    Compiling generic-array v0.14.7
+2026-08-29T17:04:07.4574260Z    Compiling syn v2.0.117
+2026-08-29T17:04:07.6194470Z    Compiling rand_core v0.6.4
+2026-08-29T17:04:08.3730970Z    Compiling subtle v2.6.1
+2026-08-29T17:04:08.4614740Z    Compiling shlex v1.3.0
+2026-08-29T17:04:08.5594340Z    Compiling const-oid v0.9.6
+2026-08-29T17:04:08.6623890Z    Compiling crypto-common v0.1.7
+2026-08-29T17:04:08.7679380Z    Compiling jobserver v0.1.34
+2026-08-29T17:04:09.0121060Z    Compiling pin-project-lite v0.2.17
+2026-08-29T17:04:09.0520680Z    Compiling find-msvc-tools v0.1.9
+2026-08-29T17:04:09.1706520Z    Compiling cc v1.2.56
+2026-08-29T17:04:09.3548190Z    Compiling futures-core v0.3.32
+2026-08-29T17:04:09.4807610Z    Compiling block-buffer v0.10.4
+2026-08-29T17:04:09.5519010Z    Compiling memchr v2.8.0
+2026-08-29T17:04:10.3593560Z    Compiling synstructure v0.13.2
+2026-08-29T17:04:10.5851840Z    Compiling digest v0.10.7
+2026-08-29T17:04:10.7179300Z    Compiling itoa v1.0.17
+2026-08-29T17:04:10.7445830Z    Compiling stable_deref_trait v1.2.1
+2026-08-29T17:04:10.7691050Z    Compiling serde_core v1.0.228
+2026-08-29T17:04:10.8706960Z    Compiling smallvec v1.15.1
+2026-08-29T17:04:10.9660730Z    Compiling bytes v1.11.1
+2026-08-29T17:04:11.0829890Z    Compiling cmake v0.1.57
+2026-08-29T17:04:11.2009890Z    Compiling zeroize_derive v1.4.3
+2026-08-29T17:04:11.3121510Z    Compiling zerofrom-derive v0.1.7
+2026-08-29T17:04:11.5367160Z    Compiling zeroize v1.8.2
+2026-08-29T17:04:11.6269680Z    Compiling yoke-derive v0.8.2
+2026-08-29T17:04:11.6444350Z    Compiling zerovec-derive v0.11.3
+2026-08-29T17:04:12.0445980Z    Compiling zerofrom v0.1.7
+2026-08-29T17:04:12.1514520Z    Compiling futures-io v0.3.32
+2026-08-29T17:04:12.3620760Z    Compiling yoke v0.8.2
+2026-08-29T17:04:12.4262940Z    Compiling zerocopy v0.8.40
+2026-08-29T17:04:12.5032610Z    Compiling futures-sink v0.3.32
+2026-08-29T17:04:12.5507070Z    Compiling zerovec v0.11.6
+2026-08-29T17:04:12.7249450Z    Compiling displaydoc v0.2.5
+2026-08-29T17:04:13.1140330Z    Compiling tokio-macros v2.6.1
+2026-08-29T17:04:13.5415260Z    Compiling socket2 v0.6.2
+2026-08-29T17:04:14.0732540Z    Compiling mio v1.1.1
+2026-08-29T17:04:14.3576440Z    Compiling glob v0.3.3
+2026-08-29T17:04:14.5541970Z    Compiling libm v0.2.16
+2026-08-29T17:04:14.6454300Z    Compiling autocfg v1.5.0
+2026-08-29T17:04:14.7435670Z    Compiling clang-sys v1.8.1
+2026-08-29T17:04:14.8642770Z    Compiling num-traits v0.2.19
+2026-08-29T17:04:14.9310100Z    Compiling tokio v1.49.0
+2026-08-29T17:04:14.9885330Z    Compiling aho-corasick v1.1.4
+2026-08-29T17:04:16.1164330Z    Compiling ppv-lite86 v0.2.21
+2026-08-29T17:04:16.3166430Z    Compiling futures-channel v0.3.32
+2026-08-29T17:04:16.4593070Z    Compiling rustix v0.38.44
+2026-08-29T17:04:16.5766470Z    Compiling dunce v1.0.5
+2026-08-29T17:04:16.6186110Z    Compiling serde v1.0.228
+2026-08-29T17:04:16.6521820Z    Compiling regex-syntax v0.8.10
+2026-08-29T17:04:16.7736000Z    Compiling fs_extra v1.3.0
+2026-08-29T17:04:16.9793480Z    Compiling aws-lc-sys v0.39.1
+2026-08-29T17:04:18.0530650Z    Compiling regex-automata v0.4.14
+2026-08-29T17:04:19.9529460Z    Compiling tinystr v0.8.3
+2026-08-29T17:04:20.0757260Z    Compiling futures-macro v0.3.32
+2026-08-29T17:04:20.2163070Z    Compiling serde_derive v1.0.228
+2026-08-29T17:04:20.5407020Z    Compiling errno v0.3.14
+2026-08-29T17:04:20.5965350Z    Compiling atty v0.2.14
+2026-08-29T17:04:20.6551310Z    Compiling futures-task v0.3.32
+2026-08-29T17:04:20.7313560Z    Compiling minimal-lexical v0.2.1
+2026-08-29T17:04:20.8562740Z    Compiling unicode-width v0.1.14
+2026-08-29T17:04:20.9794410Z    Compiling bitflags v2.11.0
+2026-08-29T17:04:21.0779940Z    Compiling slab v0.4.12
+2026-08-29T17:04:21.1972510Z    Compiling writeable v0.6.3
+2026-08-29T17:04:21.3612980Z    Compiling litemap v0.8.2
+2026-08-29T17:04:21.4991190Z    Compiling icu_locale_core v2.2.0
+2026-08-29T17:04:22.6275930Z    Compiling futures-util v0.3.32
+2026-08-29T17:04:25.2830030Z    Compiling textwrap v0.11.0
+2026-08-29T17:04:25.4998420Z    Compiling nom v7.1.3
+2026-08-29T17:04:25.9302530Z    Compiling libloading v0.8.9
+2026-08-29T17:04:26.2301580Z    Compiling regex v1.12.3
+2026-08-29T17:04:27.5181150Z    Compiling zerotrie v0.2.4
+2026-08-29T17:04:27.5981090Z    Compiling potential_utf v0.1.5
+2026-08-29T17:04:27.8149080Z    Compiling utf8_iter v1.0.4
+2026-08-29T17:04:27.9833460Z    Compiling termcolor v1.4.1
+2026-08-29T17:04:28.1116890Z    Compiling base64 v0.22.1
+2026-08-29T17:04:28.2696100Z    Compiling home v0.5.12
+2026-08-29T17:04:28.3526320Z    Compiling strsim v0.8.0
+2026-08-29T17:04:28.5115880Z    Compiling icu_normalizer_data v2.2.0
+2026-08-29T17:04:28.6935680Z    Compiling ansi_term v0.12.1
+2026-08-29T17:04:28.7039520Z    Compiling vec_map v0.8.2
+2026-08-29T17:04:28.8207070Z    Compiling either v1.15.0
+2026-08-29T17:04:28.8400950Z    Compiling powerfmt v0.2.0
+2026-08-29T17:04:29.0277910Z    Compiling icu_properties_data v2.2.0
+2026-08-29T17:04:29.1181980Z    Compiling once_cell v1.21.3
+2026-08-29T17:04:29.2548200Z    Compiling base64ct v1.8.3
+2026-08-29T17:04:29.3704340Z    Compiling humantime v2.3.0
+2026-08-29T17:04:29.5717220Z    Compiling bitflags v1.3.2
+2026-08-29T17:04:29.5853360Z    Compiling bindgen v0.59.2
+2026-08-29T17:04:29.6036560Z    Compiling log v0.4.29
+2026-08-29T17:04:29.7282990Z    Compiling env_logger v0.9.3
+2026-08-29T17:04:29.8019390Z    Compiling clap v2.34.0
+2026-08-29T17:04:30.1730600Z    Compiling pem-rfc7468 v0.7.0
+2026-08-29T17:04:30.7325660Z    Compiling which v4.4.2
+2026-08-29T17:04:30.9303010Z    Compiling deranged v0.5.8
+2026-08-29T17:04:31.8454640Z    Compiling icu_collections v2.2.0
+2026-08-29T17:04:32.2388630Z    Compiling icu_provider v2.2.0
+2026-08-29T17:04:32.4766340Z    Compiling cexpr v0.6.0
+2026-08-29T17:04:32.9951600Z    Compiling http v1.4.0
+2026-08-29T17:04:34.6802090Z    Compiling der_derive v0.7.3
+2026-08-29T17:04:35.4210510Z    Compiling block-padding v0.3.3
+2026-08-29T17:04:35.4880820Z    Compiling cpufeatures v0.2.17
+2026-08-29T17:04:35.5747520Z    Compiling equivalent v1.0.2
+2026-08-29T17:04:35.7198460Z    Compiling semver v1.0.28
+2026-08-29T17:04:35.7382300Z    Compiling flagset v0.4.7
+2026-08-29T17:04:35.8084170Z    Compiling lazycell v1.3.0
+2026-08-29T17:04:35.8563310Z    Compiling hashbrown v0.16.1
+2026-08-29T17:04:35.9286320Z    Compiling getrandom v0.3.4
+2026-08-29T17:04:36.1208950Z    Compiling aws-lc-rs v1.16.2
+2026-08-29T17:04:36.2953850Z    Compiling crc32fast v1.5.0
+2026-08-29T17:04:36.4362180Z    Compiling rustc-hash v1.1.0
+2026-08-29T17:04:36.4654080Z    Compiling num-conv v0.2.0
+2026-08-29T17:04:36.4855270Z    Compiling time-core v0.1.8
+2026-08-29T17:04:36.5220840Z    Compiling peeking_take_while v0.1.2
+2026-08-29T17:04:36.5510750Z    Compiling lazy_static v1.5.0
+2026-08-29T17:04:36.5564700Z    Compiling time v0.3.47
+2026-08-29T17:04:39.4036670Z    Compiling indexmap v2.13.0
+2026-08-29T17:04:39.9251170Z    Compiling rustc_version v0.4.1
+2026-08-29T17:04:40.1575130Z    Compiling der v0.7.10
+2026-08-29T17:04:40.1881560Z    Compiling inout v0.1.4
+2026-08-29T17:04:40.2990970Z    Compiling http-body v1.0.1
+2026-08-29T17:04:40.6420020Z    Compiling num-integer v0.1.46
+2026-08-29T17:04:41.0128290Z    Compiling rand_chacha v0.3.1
+2026-08-29T17:04:42.5946280Z    Compiling autotools v0.2.7
+2026-08-29T17:04:42.7890880Z    Compiling quick-xml v0.38.4
+2026-08-29T17:04:42.8522390Z    Compiling crossbeam-utils v0.8.21
+2026-08-29T17:04:43.0666170Z    Compiling httparse v1.10.1
+2026-08-29T17:04:43.3357980Z    Compiling adler2 v2.0.1
+2026-08-29T17:04:43.4674100Z    Compiling simd-adler32 v0.3.9
+2026-08-29T17:04:44.2690450Z    Compiling parking_lot_core v0.9.12
+2026-08-29T17:04:44.5343270Z    Compiling thiserror v2.0.18
+2026-08-29T17:04:44.8444020Z    Compiling miniz_oxide v0.8.9
+2026-08-29T17:04:45.1523360Z    Compiling plist v1.8.0
+2026-08-29T17:04:46.2540370Z    Compiling rand v0.8.5
+2026-08-29T17:04:46.5487930Z    Compiling spki v0.7.3
+2026-08-29T17:04:46.7905880Z    Compiling icu_properties v2.2.0
+2026-08-29T17:04:47.1827290Z    Compiling icu_normalizer v2.2.0
+2026-08-29T17:04:47.9392830Z    Compiling cipher v0.4.4
+2026-08-29T17:04:48.0775970Z    Compiling curve25519-dalek v4.1.3
+2026-08-29T17:04:48.2072440Z    Compiling tracing-core v0.1.36
+2026-08-29T17:04:48.3394540Z    Compiling tracing-attributes v0.1.31
+2026-08-29T17:04:49.1441500Z    Compiling thiserror-impl v2.0.18
+2026-08-29T17:04:49.3770300Z    Compiling signature v2.2.0
+2026-08-29T17:04:49.4519360Z    Compiling zmij v1.0.21
+2026-08-29T17:04:49.6381140Z    Compiling spin v0.9.8
+2026-08-29T17:04:49.7387710Z    Compiling getrandom v0.4.2
+2026-08-29T17:04:49.9093120Z    Compiling tower-service v0.3.3
+2026-08-29T17:04:49.9593630Z    Compiling percent-encoding v2.3.2
+2026-08-29T17:04:50.1005980Z    Compiling scopeguard v1.2.0
+2026-08-29T17:04:50.1648830Z    Compiling rand_core v0.10.0
+2026-08-29T17:04:50.1851490Z    Compiling try-lock v0.2.5
+2026-08-29T17:04:50.2522290Z    Compiling want v0.3.1
+2026-08-29T17:04:50.2690400Z    Compiling lock_api v0.4.14
+2026-08-29T17:04:50.4350460Z    Compiling tracing v0.1.44
+2026-08-29T17:04:50.4474710Z    Compiling flate2 v1.1.9
+2026-08-29T17:04:50.7331410Z    Compiling rand_core v0.9.5
+2026-08-29T17:04:50.8456200Z    Compiling idna_adapter v1.2.1
+2026-08-29T17:04:51.3599120Z    Compiling rustls-pki-types v1.14.0
+2026-08-29T17:04:51.5147930Z    Compiling sync_wrapper v1.0.2
+2026-08-29T17:04:51.5551450Z    Compiling tower-layer v0.3.3
+2026-08-29T17:04:51.6849350Z    Compiling compression-core v0.4.31
+2026-08-29T17:04:51.9782870Z    Compiling untrusted v0.9.0
+2026-08-29T17:04:52.0445880Z    Compiling rustls v0.23.37
+2026-08-29T17:04:52.1678170Z    Compiling serde_json v1.0.149
+2026-08-29T17:04:52.2117140Z    Compiling atomic-waker v1.1.2
+2026-08-29T17:04:52.2699080Z    Compiling num-bigint-dig v0.8.6
+2026-08-29T17:04:52.4524350Z    Compiling hyper v1.9.0
+2026-08-29T17:04:52.5004430Z    Compiling enum_dispatch v0.3.13
+2026-08-29T17:04:53.1328160Z    Compiling compression-codecs v0.4.37
+2026-08-29T17:04:53.3086050Z    Compiling tower v0.5.3
+2026-08-29T17:04:53.7562700Z    Compiling parking_lot v0.12.5
+2026-08-29T17:04:54.5033970Z    Compiling crossbeam-queue v0.3.12
+2026-08-29T17:04:54.5969880Z    Compiling idna v1.1.0
+2026-08-29T17:04:55.3915730Z    Compiling rand_chacha v0.9.0
+2026-08-29T17:04:57.4641350Z    Compiling form_urlencoded v1.2.2
+2026-08-29T17:04:57.6458490Z    Compiling pkcs8 v0.10.2
+2026-08-29T17:04:58.3089670Z    Compiling plist_plus v0.2.6
+2026-08-29T17:04:58.7256780Z    Compiling num-iter v0.1.45
+2026-08-29T17:04:58.8003800Z    Compiling sha2 v0.10.9
+2026-08-29T17:04:59.4532150Z    Compiling futures-executor v0.3.32
+2026-08-29T17:04:59.8244070Z    Compiling pin-project-internal v1.1.11
+2026-08-29T17:05:00.0153170Z    Compiling universal-hash v0.5.1
+2026-08-29T17:05:00.3922620Z    Compiling iri-string v0.7.12
+2026-08-29T17:05:00.5946930Z    Compiling parking v2.2.1
+2026-08-29T17:05:00.7104190Z    Compiling opaque-debug v0.3.1
+2026-08-29T17:05:00.7389900Z    Compiling ipnet v2.12.0
+2026-08-29T17:05:01.8811700Z    Compiling fastrand v2.3.0
+2026-08-29T17:05:02.1116440Z    Compiling core-foundation-sys v0.8.7
+2026-08-29T17:05:02.2521030Z    Compiling iana-time-zone v0.1.65
+2026-08-29T17:05:02.3323730Z    Compiling futures-lite v2.6.1
+2026-08-29T17:05:02.9962420Z    Compiling tower-http v0.6.8
+2026-08-29T17:05:03.0101050Z    Compiling hyper-util v0.1.20
+2026-08-29T17:05:03.8382470Z    Compiling poly1305 v0.8.0
+2026-08-29T17:05:04.0778000Z    Compiling pin-project v1.1.11
+2026-08-29T17:05:04.1103960Z    Compiling futures v0.3.32
+2026-08-29T17:05:05.5925070Z    Compiling pkcs1 v0.7.5
+2026-08-29T17:05:07.6685800Z    Compiling url v2.5.8
+2026-08-29T17:05:10.1626070Z    Compiling rand v0.9.2
+2026-08-29T17:05:10.8095230Z    Compiling crossfire v2.1.10
+2026-08-29T17:05:11.5036790Z    Compiling async-compression v0.4.41
+2026-08-29T17:05:11.8976190Z    Compiling nskeyedarchiver_converter v0.1.3
+2026-08-29T17:05:12.8909190Z    Compiling chacha20 v0.10.0
+2026-08-29T17:05:13.2115000Z    Compiling ed25519 v2.2.3
+2026-08-29T17:05:13.4215390Z    Compiling chacha20 v0.9.1
+2026-08-29T17:05:13.5655740Z    Compiling rusty_libimobiledevice v0.1.7 (https://github.com/SideStore/rusty_libimobiledevice#6a556c63)
+2026-08-29T17:05:14.1582920Z    Compiling num-bigint v0.4.6
+2026-08-29T17:05:15.0548180Z    Compiling http-body-util v0.1.3
+2026-08-29T17:05:15.6150600Z    Compiling sha1 v0.10.6
+2026-08-29T17:05:16.1566550Z    Compiling tokio-util v0.7.18
+2026-08-29T17:05:17.3584560Z    Compiling async-stream-impl v0.3.6
+2026-08-29T17:05:17.9077800Z    Compiling md-5 v0.10.6
+2026-08-29T17:05:18.0404980Z    Compiling hmac v0.12.1
+2026-08-29T17:05:18.2320180Z    Compiling aead v0.5.2
+2026-08-29T17:05:18.4080880Z    Compiling base64 v0.21.7
+2026-08-29T17:05:19.1702140Z    Compiling idevice-srp v0.6.0
+2026-08-29T17:05:19.5037300Z    Compiling chacha20poly1305 v0.10.1
+2026-08-29T17:05:19.5961010Z    Compiling hkdf v0.12.4
+2026-08-29T17:05:19.6965770Z    Compiling uuid v1.23.0
+2026-08-29T17:05:19.9511020Z    Compiling async-stream v0.3.6
+2026-08-29T17:05:20.0479940Z    Compiling async_zip v0.0.18
+2026-08-29T17:05:20.5823020Z    Compiling x509-cert v0.2.5
+2026-08-29T17:05:21.3429430Z    Compiling reqwest v0.13.2
+2026-08-29T17:05:28.8026010Z    Compiling ed25519-dalek v2.2.0
+2026-08-29T17:05:29.5763060Z    Compiling rand v0.10.0
+2026-08-29T17:05:30.4233380Z    Compiling ns-keyed-archive v0.1.4
+2026-08-29T17:05:31.7053180Z    Compiling jktcp v0.1.1
+2026-08-29T17:05:35.6965160Z    Compiling rsa v0.9.10
+2026-08-29T17:05:40.3540050Z    Compiling chrono v0.4.44
+2026-08-29T17:05:41.2296290Z    Compiling x25519-dalek v2.0.1
+2026-08-29T17:05:41.3346230Z    Compiling cbc v0.1.2
+2026-08-29T17:05:41.4499080Z    Compiling aes v0.8.4
+2026-08-29T17:05:42.3399420Z    Compiling plist-macro v0.1.6
+2026-08-29T17:05:43.5150260Z    Compiling byteorder v1.5.0
+2026-08-29T17:05:43.6925490Z    Compiling json v0.12.4
+2026-08-29T17:05:56.5627990Z    Compiling rustls-webpki v0.103.10
+2026-08-29T17:06:00.6892800Z    Compiling tokio-rustls v0.26.4
+2026-08-29T17:06:00.9460970Z    Compiling idevice v0.1.56 (https://github.com/jkcoxson/idevice?rev=a714d35d95dc16769f8a54a6168ccec6338b73c7#a714d35d)
+2026-08-29T17:06:13.8087390Z    Compiling rust_bridge v1.0.0 (/Users/runner/work/Seal/Seal/Vendor/Minimuxer/RustBridge)
+2026-08-29T17:06:27.6223850Z     Finished `release` profile [optimized] target(s) in 2m 34s
+2026-08-29T17:06:27.7538990Z cd "." && cargo build --locked --target aarch64-apple-ios-sim --release
+2026-08-29T17:06:28.3513150Z    Compiling libc v0.2.182
+2026-08-29T17:06:28.3519320Z    Compiling cfg-if v1.0.4
+2026-08-29T17:06:28.3520050Z    Compiling typenum v1.19.0
+2026-08-29T17:06:28.3672080Z    Compiling generic-array v0.14.7
+2026-08-29T17:06:28.4161450Z    Compiling zeroize v1.8.2
+2026-08-29T17:06:28.6763680Z    Compiling subtle v2.6.1
+2026-08-29T17:06:28.8123040Z    Compiling getrandom v0.2.17
+2026-08-29T17:06:28.8747760Z    Compiling const-oid v0.9.6
+2026-08-29T17:06:28.9900950Z    Compiling rand_core v0.6.4
+2026-08-29T17:06:29.1345970Z    Compiling pin-project-lite v0.2.17
+2026-08-29T17:06:29.1844040Z    Compiling futures-core v0.3.32
+2026-08-29T17:06:29.2574250Z    Compiling crypto-common v0.1.7
+2026-08-29T17:06:29.2737850Z    Compiling block-buffer v0.10.4
+2026-08-29T17:06:29.3167460Z    Compiling memchr v2.8.0
+2026-08-29T17:06:29.3509650Z    Compiling zerofrom v0.1.7
+2026-08-29T17:06:29.4366910Z    Compiling stable_deref_trait v1.2.1
+2026-08-29T17:06:29.4572670Z    Compiling itoa v1.0.17
+2026-08-29T17:06:29.6168440Z    Compiling digest v0.10.7
+2026-08-29T17:06:29.6727540Z    Compiling yoke v0.8.2
+2026-08-29T17:06:29.7722930Z    Compiling bytes v1.11.1
+2026-08-29T17:06:29.7834340Z    Compiling smallvec v1.15.1
+2026-08-29T17:06:29.9396390Z    Compiling serde_core v1.0.228
+2026-08-29T17:06:29.9404230Z    Compiling futures-io v0.3.32
+2026-08-29T17:06:29.9625520Z    Compiling futures-sink v0.3.32
+2026-08-29T17:06:30.0459820Z    Compiling zerocopy v0.8.40
+2026-08-29T17:06:30.0654390Z    Compiling zerovec v0.11.6
+2026-08-29T17:06:30.5182140Z    Compiling socket2 v0.6.2
+2026-08-29T17:06:31.1035270Z    Compiling mio v1.1.1
+2026-08-29T17:06:31.6692050Z    Compiling libm v0.2.16
+2026-08-29T17:06:31.6793550Z    Compiling tokio v1.49.0
+2026-08-29T17:06:31.7189500Z    Compiling futures-channel v0.3.32
+2026-08-29T17:06:31.9330180Z    Compiling serde v1.0.228
+2026-08-29T17:06:31.9517860Z    Compiling num-traits v0.2.19
+2026-08-29T17:06:33.1223110Z    Compiling ppv-lite86 v0.2.21
+2026-08-29T17:06:33.3003460Z    Compiling tinystr v0.8.3
+2026-08-29T17:06:33.4337020Z    Compiling writeable v0.6.3
+2026-08-29T17:06:33.5077850Z    Compiling futures-task v0.3.32
+2026-08-29T17:06:33.5792030Z    Compiling slab v0.4.12
+2026-08-29T17:06:33.6301930Z    Compiling litemap v0.8.2
+2026-08-29T17:06:33.7905710Z    Compiling icu_locale_core v2.2.0
+2026-08-29T17:06:33.8015470Z    Compiling futures-util v0.3.32
+2026-08-29T17:06:36.5414220Z    Compiling aws-lc-sys v0.39.1
+2026-08-29T17:06:36.9521420Z    Compiling potential_utf v0.1.5
+2026-08-29T17:06:37.0898540Z    Compiling zerotrie v0.2.4
+2026-08-29T17:06:37.4583970Z    Compiling once_cell v1.21.3
+2026-08-29T17:06:37.6202330Z    Compiling base64ct v1.8.3
+2026-08-29T17:06:37.9622750Z    Compiling base64 v0.22.1
+2026-08-29T17:06:38.5390790Z    Compiling utf8_iter v1.0.4
+2026-08-29T17:06:38.6505080Z    Compiling powerfmt v0.2.0
+2026-08-29T17:06:38.9209300Z    Compiling deranged v0.5.8
+2026-08-29T17:06:40.2672240Z    Compiling icu_collections v2.2.0
+2026-08-29T17:06:40.9960020Z    Compiling icu_normalizer_data v2.2.0
+2026-08-29T17:06:41.0199500Z    Compiling pem-rfc7468 v0.7.0
+2026-08-29T17:06:41.7414310Z    Compiling icu_properties_data v2.2.0
+2026-08-29T17:06:41.7523860Z    Compiling icu_provider v2.2.0
+2026-08-29T17:06:42.1674690Z    Compiling http v1.4.0
+2026-08-29T17:06:43.3265830Z    Compiling block-padding v0.3.3
+2026-08-29T17:06:43.3886790Z    Compiling cpufeatures v0.2.17
+2026-08-29T17:06:43.4372540Z    Compiling equivalent v1.0.2
+2026-08-29T17:06:43.4674650Z    Compiling flagset v0.4.7
+2026-08-29T17:06:43.5305500Z    Compiling num-conv v0.2.0
+2026-08-29T17:06:43.5771650Z    Compiling hashbrown v0.16.1
+2026-08-29T17:06:43.6756950Z    Compiling time-core v0.1.8
+2026-08-29T17:06:43.7505260Z    Compiling time v0.3.47
+2026-08-29T17:06:44.0823990Z    Compiling indexmap v2.13.0
+2026-08-29T17:06:44.7724430Z    Compiling der v0.7.10
+2026-08-29T17:06:46.5956360Z    Compiling crc32fast v1.5.0
+2026-08-29T17:06:46.6205510Z    Compiling getrandom v0.3.4
+2026-08-29T17:06:46.6316130Z    Compiling inout v0.1.4
+2026-08-29T17:06:46.7157310Z    Compiling http-body v1.0.1
+2026-08-29T17:06:46.8997100Z    Compiling num-integer v0.1.46
+2026-08-29T17:06:47.2584620Z    Compiling rand_chacha v0.3.1
+2026-08-29T17:06:47.3878720Z    Compiling quick-xml v0.38.4
+2026-08-29T17:06:49.3520380Z    Compiling simd-adler32 v0.3.9
+2026-08-29T17:06:49.9947370Z    Compiling adler2 v2.0.1
+2026-08-29T17:06:50.1132070Z    Compiling crossbeam-utils v0.8.21
+2026-08-29T17:06:50.1234380Z    Compiling miniz_oxide v0.8.9
+2026-08-29T17:06:50.6672170Z    Compiling parking_lot_core v0.9.12
+2026-08-29T17:06:50.6759880Z    Compiling thiserror v2.0.18
+2026-08-29T17:06:50.7310570Z    Compiling httparse v1.10.1
+2026-08-29T17:06:50.7746910Z    Compiling plist v1.8.0
+2026-08-29T17:06:51.6750080Z    Compiling rand v0.8.5
+2026-08-29T17:06:52.5011750Z    Compiling icu_normalizer v2.2.0
+2026-08-29T17:06:52.7678180Z    Compiling icu_properties v2.2.0
+2026-08-29T17:06:53.9689540Z    Compiling cipher v0.4.4
+2026-08-29T17:06:54.5617040Z    Compiling spki v0.7.3
+2026-08-29T17:06:54.6183410Z    Compiling tracing-core v0.1.36
+2026-08-29T17:06:54.7364330Z    Compiling signature v2.2.0
+2026-08-29T17:06:54.8134230Z    Compiling percent-encoding v2.3.2
+2026-08-29T17:06:54.9942270Z    Compiling tower-service v0.3.3
+2026-08-29T17:06:55.0747820Z    Compiling try-lock v0.2.5
+2026-08-29T17:06:55.1691090Z    Compiling rand_core v0.10.0
+2026-08-29T17:06:55.2809970Z    Compiling spin v0.9.8
+2026-08-29T17:06:55.3905170Z    Compiling scopeguard v1.2.0
+2026-08-29T17:06:55.4561930Z    Compiling lock_api v0.4.14
+2026-08-29T17:06:55.5461640Z    Compiling lazy_static v1.5.0
+2026-08-29T17:06:55.5830030Z    Compiling want v0.3.1
+2026-08-29T17:06:55.6081980Z    Compiling getrandom v0.4.2
+2026-08-29T17:06:55.6176830Z    Compiling zmij v1.0.21
+2026-08-29T17:06:55.6391050Z    Compiling tracing v0.1.44
+2026-08-29T17:06:55.7584150Z    Compiling curve25519-dalek v4.1.3
+2026-08-29T17:06:55.8028430Z    Compiling flate2 v1.1.9
+2026-08-29T17:06:55.9165960Z    Compiling rand_core v0.9.5
+2026-08-29T17:06:56.0809780Z    Compiling idna_adapter v1.2.1
+2026-08-29T17:06:56.6217770Z    Compiling sync_wrapper v1.0.2
+2026-08-29T17:06:56.6754070Z    Compiling rustls-pki-types v1.14.0
+2026-08-29T17:06:57.1416610Z    Compiling untrusted v0.9.0
+2026-08-29T17:06:57.2022420Z    Compiling compression-core v0.4.31
+2026-08-29T17:06:57.2817140Z    Compiling atomic-waker v1.1.2
+2026-08-29T17:06:57.3267470Z    Compiling log v0.4.29
+2026-08-29T17:06:57.3537560Z    Compiling tower-layer v0.3.3
+2026-08-29T17:06:57.4306630Z    Compiling serde_json v1.0.149
+2026-08-29T17:06:57.4405100Z    Compiling num-bigint-dig v0.8.6
+2026-08-29T17:06:57.4471760Z    Compiling hyper v1.9.0
+2026-08-29T17:06:57.4636900Z    Compiling tower v0.5.3
+2026-08-29T17:06:57.9786900Z    Compiling compression-codecs v0.4.37
+2026-08-29T17:06:58.1451950Z    Compiling crossbeam-queue v0.3.12
+2026-08-29T17:06:58.2586700Z    Compiling parking_lot v0.12.5
+2026-08-29T17:06:59.1447980Z    Compiling idna v1.1.0
+2026-08-29T17:07:00.4525460Z    Compiling rand_chacha v0.9.0
+2026-08-29T17:07:02.6216560Z    Compiling form_urlencoded v1.2.2
+2026-08-29T17:07:02.8013460Z    Compiling pkcs8 v0.10.2
+2026-08-29T17:07:03.5017950Z    Compiling num-iter v0.1.45
+2026-08-29T17:07:03.6457090Z    Compiling sha2 v0.10.9
+2026-08-29T17:07:03.9023940Z    Compiling futures-executor v0.3.32
+2026-08-29T17:07:04.2345550Z    Compiling universal-hash v0.5.1
+2026-08-29T17:07:04.2950720Z    Compiling fastrand v2.3.0
+2026-08-29T17:07:04.4982630Z    Compiling iri-string v0.7.12
+2026-08-29T17:07:04.7990210Z    Compiling ipnet v2.12.0
+2026-08-29T17:07:06.1336730Z    Compiling opaque-debug v0.3.1
+2026-08-29T17:07:06.1754360Z    Compiling parking v2.2.1
+2026-08-29T17:07:06.4199680Z    Compiling core-foundation-sys v0.8.7
+2026-08-29T17:07:06.6444630Z    Compiling bitflags v2.11.0
+2026-08-29T17:07:06.9540850Z    Compiling tower-http v0.6.8
+2026-08-29T17:07:07.4508650Z    Compiling iana-time-zone v0.1.65
+2026-08-29T17:07:07.6285570Z    Compiling futures-lite v2.6.1
+2026-08-29T17:07:07.9631640Z    Compiling poly1305 v0.8.0
+2026-08-29T17:07:08.1795980Z    Compiling hyper-util v0.1.20
+2026-08-29T17:07:08.6922660Z    Compiling pin-project v1.1.11
+2026-08-29T17:07:08.7432470Z    Compiling futures v0.3.32
+2026-08-29T17:07:12.1782910Z    Compiling plist_plus v0.2.6
+2026-08-29T17:07:12.1832910Z    Compiling pkcs1 v0.7.5
+2026-08-29T17:07:14.2481460Z    Compiling url v2.5.8
+2026-08-29T17:07:17.3289260Z    Compiling rand v0.9.2
+2026-08-29T17:07:18.0561500Z    Compiling crossfire v2.1.10
+2026-08-29T17:07:18.6183490Z    Compiling async-compression v0.4.41
+2026-08-29T17:07:19.0264270Z    Compiling nskeyedarchiver_converter v0.1.3
+2026-08-29T17:07:19.5005230Z    Compiling chacha20 v0.10.0
+2026-08-29T17:07:19.6942300Z    Compiling ed25519 v2.2.3
+2026-08-29T17:07:19.8606670Z    Compiling chacha20 v0.9.1
+2026-08-29T17:07:19.9626220Z    Compiling num-bigint v0.4.6
+2026-08-29T17:07:21.6844010Z    Compiling http-body-util v0.1.3
+2026-08-29T17:07:21.8560390Z    Compiling sha1 v0.10.6
+2026-08-29T17:07:22.2134270Z    Compiling tokio-util v0.7.18
+2026-08-29T17:07:22.8195470Z    Compiling hmac v0.12.1
+2026-08-29T17:07:22.8909940Z    Compiling md-5 v0.10.6
+2026-08-29T17:07:22.9579260Z    Compiling aead v0.5.2
+2026-08-29T17:07:23.0335220Z    Compiling base64 v0.21.7
+2026-08-29T17:07:23.4838900Z    Compiling idevice-srp v0.6.0
+2026-08-29T17:07:23.7886250Z    Compiling async-stream v0.3.6
+2026-08-29T17:07:23.8710460Z    Compiling chacha20poly1305 v0.10.1
+2026-08-29T17:07:23.8899420Z    Compiling uuid v1.23.0
+2026-08-29T17:07:23.9843610Z    Compiling hkdf v0.12.4
+2026-08-29T17:07:24.1043640Z    Compiling async_zip v0.0.18
+2026-08-29T17:07:24.7911720Z    Compiling x509-cert v0.2.5
+2026-08-29T17:07:25.2077610Z    Compiling reqwest v0.13.2
+2026-08-29T17:07:30.9826130Z    Compiling rusty_libimobiledevice v0.1.7 (https://github.com/SideStore/rusty_libimobiledevice#6a556c63)
+2026-08-29T17:07:30.9923900Z    Compiling ed25519-dalek v2.2.0
+2026-08-29T17:07:31.4003560Z    Compiling rand v0.10.0
+2026-08-29T17:07:32.1220090Z    Compiling ns-keyed-archive v0.1.4
+2026-08-29T17:07:33.4337120Z    Compiling jktcp v0.1.1
+2026-08-29T17:07:35.6454590Z    Compiling rsa v0.9.10
+2026-08-29T17:07:40.1959350Z    Compiling chrono v0.4.44
+2026-08-29T17:07:41.1746200Z    Compiling x25519-dalek v2.0.1
+2026-08-29T17:07:41.2852470Z    Compiling aes v0.8.4
+2026-08-29T17:07:41.9716680Z    Compiling cbc v0.1.2
+2026-08-29T17:07:42.0748900Z    Compiling plist-macro v0.1.6
+2026-08-29T17:07:43.1119750Z    Compiling json v0.12.4
+2026-08-29T17:07:43.6215080Z    Compiling byteorder v1.5.0
+2026-08-29T17:08:01.2511500Z    Compiling aws-lc-rs v1.16.2
+2026-08-29T17:08:01.2693740Z    Compiling rustls v0.23.37
+2026-08-29T17:08:02.9578080Z    Compiling rustls-webpki v0.103.10
+2026-08-29T17:08:08.6488710Z    Compiling tokio-rustls v0.26.4
+2026-08-29T17:08:09.0882890Z    Compiling idevice v0.1.56 (https://github.com/jkcoxson/idevice?rev=a714d35d95dc16769f8a54a6168ccec6338b73c7#a714d35d)
+2026-08-29T17:08:27.8676350Z    Compiling rust_bridge v1.0.0 (/Users/runner/work/Seal/Seal/Vendor/Minimuxer/RustBridge)
+2026-08-29T17:08:47.5634540Z     Finished `release` profile [optimized] target(s) in 2m 19s
+2026-08-29T17:08:47.6021510Z --- Building RustBridge.xcframework ---
+2026-08-29T17:08:47.6068930Z mkdir -p "."/lib/headers
+2026-08-29T17:08:47.6229940Z rm -rf "."/lib/RustBridge.xcframework
+2026-08-29T17:08:47.6362450Z xcodebuild -create-xcframework \
+2026-08-29T17:08:47.6364050Z 		-library "."/target/aarch64-apple-ios/release/librust_bridge.a \
+2026-08-29T17:08:47.6372390Z 		-headers "."/lib/headers \
+2026-08-29T17:08:47.6373250Z 		-library "."/target/aarch64-apple-ios-sim/release/librust_bridge.a \
+2026-08-29T17:08:47.6374290Z 		-headers "."/lib/headers \
+2026-08-29T17:08:47.6375140Z 		-output "."/lib/RustBridge.xcframework
+2026-08-29T17:08:53.4230270Z xcframework successfully written out to: /Users/runner/work/Seal/Seal/Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework
+2026-08-29T17:08:53.4438480Z --- Done: RustBridge/lib/RustBridge.xcframework ---

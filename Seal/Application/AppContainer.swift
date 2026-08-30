@@ -81,7 +81,20 @@ struct AppContainer {
             let renewalCoordinator = RenewalCoordinator(
                 appStore: appStore,
                 signingCoordinator: signingCoordinator,
-                queueStore: refreshQueueStore
+                queueStore: refreshQueueStore,
+                defaultAccountIDProvider: {
+                    let activeID = await signingPreferenceStore.activeAccountID()
+                    if let activeID,
+                       let accounts = try? await accountRepository.fetchAll(),
+                       accounts.contains(where: { $0.id == activeID && AccountAvailabilityPolicy.isSelectable($0) }) {
+                        return activeID
+                    }
+                    if let accounts = try? await accountRepository.fetchAll(),
+                       let firstSelectable = accounts.first(where: { AccountAvailabilityPolicy.isSelectable($0) }) {
+                        return firstSelectable.id
+                    }
+                    return nil
+                }
             )
             let appRecordRecovery = AppRecordRecovery(
                 appStore: appStore,

@@ -1,0 +1,16 @@
+﻿2026-08-29T18:23:44.9030300Z ##[group]Run TARGET="$(xcodebuild \
+2026-08-29T18:23:44.9030940Z [36;1mTARGET="$(xcodebuild \[0m
+2026-08-29T18:23:44.9031310Z [36;1m  -project Seal.xcodeproj \[0m
+2026-08-29T18:23:44.9031590Z [36;1m  -target SealTunnel \[0m
+2026-08-29T18:23:44.9032010Z [36;1m  -configuration Debug \[0m
+2026-08-29T18:23:44.9032280Z [36;1m  -sdk iphonesimulator \[0m
+2026-08-29T18:23:44.9032810Z [36;1m  -showBuildSettings | awk -F ' = ' '/^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = / { print $2; exit }')"[0m
+2026-08-29T18:23:44.9033340Z [36;1mecho "SealTunnel IPHONEOS_DEPLOYMENT_TARGET=$TARGET"[0m
+2026-08-29T18:23:44.9033790Z [36;1mtest "$TARGET" = "16.0"[0m
+2026-08-29T18:23:44.9034280Z [36;1mPOINT="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' SealTunnel/Info.plist)"[0m
+2026-08-29T18:23:44.9034990Z [36;1mtest "$POINT" = "com.apple.networkextension.packet-tunnel"[0m
+2026-08-29T18:23:44.9035440Z [36;1mgrep -q "packet-tunnel-provider" SealTunnel/SealTunnel.entitlements[0m
+2026-08-29T18:23:44.9036170Z [36;1mgrep -q "packet-tunnel-provider" Seal/Resources/Seal.entitlements[0m
+2026-08-29T18:23:44.9234980Z shell: /bin/bash -e {0}
+2026-08-29T18:23:44.9235320Z ##[endgroup]
+2026-08-29T18:23:48.7877390Z SealTunnel IPHONEOS_DEPLOYMENT_TARGET=16.0

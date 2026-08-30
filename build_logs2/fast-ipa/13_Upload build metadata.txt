@@ -1,0 +1,19 @@
+﻿2026-08-29T16:50:31.7546410Z ##[group]Run actions/upload-artifact@v7.0.1
+2026-08-29T16:50:31.7546650Z with:
+2026-08-29T16:50:31.7546810Z   name: Seal-Build-Metadata-76
+2026-08-29T16:50:31.7547000Z   if-no-files-found: warn
+2026-08-29T16:50:31.7547280Z   path: build/Seal.ipa.sha256
+build/Seal-Info.plist
+build/SealTunnel-Info.plist
+
+2026-08-29T16:50:31.7547590Z   retention-days: 14
+2026-08-29T16:50:31.7547750Z   compression-level: 6
+2026-08-29T16:50:31.7547900Z   overwrite: false
+2026-08-29T16:50:31.7548060Z   include-hidden-files: false
+2026-08-29T16:50:31.7548230Z   archive: true
+2026-08-29T16:50:31.7548370Z ##[endgroup]
+2026-08-29T16:50:32.1320330Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-08-29T16:50:32.1331290Z The least common ancestor is /Users/runner/work/Seal/Seal/build. This will be the root directory of the artifact
+2026-08-29T16:50:32.1344150Z ##[warning]No files were found with the provided path: build/Seal.ipa.sha256
+build/Seal-Info.plist
+build/SealTunnel-Info.plist. No artifacts will be uploaded.

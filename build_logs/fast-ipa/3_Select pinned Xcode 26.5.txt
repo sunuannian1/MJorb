@@ -1,0 +1,9 @@
+﻿2026-08-29T14:57:51.5963380Z ##[group]Run test -d /Applications/Xcode_26.5.app
+2026-08-29T14:57:51.5963950Z [36;1mtest -d /Applications/Xcode_26.5.app[0m
+2026-08-29T14:57:51.5964570Z [36;1msudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer[0m
+2026-08-29T14:57:51.5965090Z [36;1mxcodebuild -version[0m
+2026-08-29T14:57:51.5965420Z [36;1mtest "$(xcodebuild -version | head -n 1)" = "Xcode 26.5"[0m
+2026-08-29T14:57:51.6022640Z shell: /bin/bash -e {0}
+2026-08-29T14:57:51.6023050Z ##[endgroup]
+2026-08-29T14:57:54.4533690Z Xcode 26.5
+2026-08-29T14:57:54.4534350Z Build version 17F42

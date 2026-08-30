@@ -1,0 +1,84 @@
+﻿2026-08-29T17:03:38.1077530Z ##[group]Run actions/checkout@v6.0.2
+2026-08-29T17:03:38.1078350Z with:
+2026-08-29T17:03:38.1078720Z   repository: dmjorb/Seal
+2026-08-29T17:03:38.1081350Z   token: ***
+2026-08-29T17:03:38.1081660Z   ssh-strict: true
+2026-08-29T17:03:38.1081980Z   ssh-user: git
+2026-08-29T17:03:38.1082310Z   persist-credentials: true
+2026-08-29T17:03:38.1082660Z   clean: true
+2026-08-29T17:03:38.1082980Z   sparse-checkout-cone-mode: true
+2026-08-29T17:03:38.1083360Z   fetch-depth: 1
+2026-08-29T17:03:38.1083670Z   fetch-tags: false
+2026-08-29T17:03:38.1084000Z   show-progress: true
+2026-08-29T17:03:38.1084360Z   lfs: false
+2026-08-29T17:03:38.1084720Z   submodules: false
+2026-08-29T17:03:38.1085050Z   set-safe-directory: true
+2026-08-29T17:03:38.1085620Z ##[endgroup]
+2026-08-29T17:03:38.5351040Z Syncing repository: dmjorb/Seal
+2026-08-29T17:03:38.5352580Z ##[group]Getting Git version info
+2026-08-29T17:03:38.5353160Z Working directory is '/Users/runner/work/Seal/Seal'
+2026-08-29T17:03:38.5353930Z [command]/opt/homebrew/bin/git version
+2026-08-29T17:03:38.5633220Z git version 2.55.0
+2026-08-29T17:03:38.5653220Z ##[endgroup]
+2026-08-29T17:03:38.5658930Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/8630699b-7ff3-4ac6-a515-be7b565fe654/.gitconfig'
+2026-08-29T17:03:38.5666900Z Temporarily overriding HOME='/Users/runner/work/_temp/8630699b-7ff3-4ac6-a515-be7b565fe654' before making global git config changes
+2026-08-29T17:03:38.5668000Z Adding repository directory to the temporary git global config as a safe directory
+2026-08-29T17:03:38.5670460Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/Seal/Seal
+2026-08-29T17:03:38.5777860Z Deleting the contents of '/Users/runner/work/Seal/Seal'
+2026-08-29T17:03:38.5780450Z ##[group]Initializing the repository
+2026-08-29T17:03:38.5783930Z [command]/opt/homebrew/bin/git init /Users/runner/work/Seal/Seal
+2026-08-29T17:03:38.6022310Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-08-29T17:03:38.6035690Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-08-29T17:03:38.6040500Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-08-29T17:03:38.6042860Z hint: call:
+2026-08-29T17:03:38.6044220Z hint:
+2026-08-29T17:03:38.6046250Z hint: 	git config --global init.defaultBranch <name>
+2026-08-29T17:03:38.6047230Z hint:
+2026-08-29T17:03:38.6047930Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-08-29T17:03:38.6049030Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-08-29T17:03:38.6050000Z hint:
+2026-08-29T17:03:38.6050710Z hint: 	git branch -m <name>
+2026-08-29T17:03:38.6051340Z hint:
+2026-08-29T17:03:38.6051980Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-08-29T17:03:38.6053260Z Initialized empty Git repository in /Users/runner/work/Seal/Seal/.git/
+2026-08-29T17:03:38.6055190Z [command]/opt/homebrew/bin/git remote add origin https://github.com/dmjorb/Seal
+2026-08-29T17:03:38.6135220Z ##[endgroup]
+2026-08-29T17:03:38.6136090Z ##[group]Disabling automatic garbage collection
+2026-08-29T17:03:38.6140310Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-08-29T17:03:38.6217940Z ##[endgroup]
+2026-08-29T17:03:38.6218620Z ##[group]Setting up auth
+2026-08-29T17:03:38.6219360Z Removing SSH command configuration
+2026-08-29T17:03:38.6226310Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-08-29T17:03:38.6302670Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-08-29T17:03:38.7320640Z Removing HTTP extra header
+2026-08-29T17:03:38.7324740Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-08-29T17:03:38.7397680Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-08-29T17:03:38.8199540Z Removing includeIf entries pointing to credentials config files
+2026-08-29T17:03:38.8203970Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-08-29T17:03:38.8271710Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-08-29T17:03:38.9568890Z [command]/opt/homebrew/bin/git config --file /Users/runner/work/_temp/git-credentials-35a79de1-3935-475a-8e5b-ac5bee7e24fd.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-08-29T17:03:38.9572140Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/Users/runner/work/Seal/Seal/.git.path /Users/runner/work/_temp/git-credentials-35a79de1-3935-475a-8e5b-ac5bee7e24fd.config
+2026-08-29T17:03:38.9576760Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/Users/runner/work/Seal/Seal/.git/worktrees/*.path /Users/runner/work/_temp/git-credentials-35a79de1-3935-475a-8e5b-ac5bee7e24fd.config
+2026-08-29T17:03:38.9640030Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-35a79de1-3935-475a-8e5b-ac5bee7e24fd.config
+2026-08-29T17:03:38.9696110Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-35a79de1-3935-475a-8e5b-ac5bee7e24fd.config
+2026-08-29T17:03:38.9760660Z ##[endgroup]
+2026-08-29T17:03:38.9761620Z ##[group]Fetching the repository
+2026-08-29T17:03:38.9763450Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +4cd015d61d06f0a49eae03930a1af579f17d7372:refs/remotes/origin/main
+2026-08-29T17:03:41.5368750Z From https://github.com/dmjorb/Seal
+2026-08-29T17:03:41.5370750Z  * [new ref]         4cd015d61d06f0a49eae03930a1af579f17d7372 -> origin/main
+2026-08-29T17:03:41.5381660Z [command]/opt/homebrew/bin/git branch --list --remote origin/main
+2026-08-29T17:03:41.5470180Z   origin/main
+2026-08-29T17:03:41.5483160Z [command]/opt/homebrew/bin/git rev-parse refs/remotes/origin/main
+2026-08-29T17:03:41.5552110Z 4cd015d61d06f0a49eae03930a1af579f17d7372
+2026-08-29T17:03:41.5556430Z ##[endgroup]
+2026-08-29T17:03:41.5559030Z ##[group]Determining the checkout info
+2026-08-29T17:03:41.5561560Z ##[endgroup]
+2026-08-29T17:03:41.5563210Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-08-29T17:03:41.5669220Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-08-29T17:03:41.5747750Z ##[group]Checking out the ref
+2026-08-29T17:03:41.5749950Z [command]/opt/homebrew/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-08-29T17:03:41.8672860Z Switched to a new branch 'main'
+2026-08-29T17:03:41.8687410Z branch 'main' set up to track 'origin/main'.
+2026-08-29T17:03:41.9081670Z ##[endgroup]
+2026-08-29T17:03:41.9347930Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-08-29T17:03:41.9465420Z 4cd015d61d06f0a49eae03930a1af579f17d7372

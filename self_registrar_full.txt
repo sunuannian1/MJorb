@@ -1,0 +1,137 @@
+Read "C:\Users\DMJ\Desktop\Seal--source-e50b594\Seal\Core\Renewal\SelfAppRegistrar.swift":
+
+     1	import Foundation
+     2	import ZIPFoundation
+     3	
+     4	actor SelfAppRegistrar {
+     5	    private let metadata: SelfAppMetadata
+     6	    private let appStore: any AppStore
+     7	    private let accountRepository: any AccountRepository
+     8	    private let fileStore: AppFileStore
+     9	
+    10	    init(
+    11	        metadata: SelfAppMetadata,
+    12	        appStore: any AppStore,
+    13	        accountRepository: any AccountRepository,
+    14	        fileStore: AppFileStore
+    15	    ) {
+    16	        self.metadata = metadata
+    17	        self.appStore = appStore
+    18	        self.accountRepository = accountRepository
+    19	        self.fileStore = fileStore
+    20	    }
+    21	
+    22	    func ensureRegistered() async throws {
+    23	        let records = try await appStore.fetchAll()
+    24	        let accounts = try await accountRepository.fetchAll()
+    25	        let existing = SelfAppRecordSelection.preferredExistingSealRecord(
+    26	            in: records,
+    27	            currentBundleIdentifier: metadata.bundleIdentifier
+    28	        )
+    29	        if let existing, existing.hasPendingSelfUpdateSource {
+    30	            return
+    31	        }
+    32	        let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
+    33	            teamIdentifier: metadata.signingTeamIdentifier,
+    34	            accounts: accounts,
+    35	            fallbackAccountID: existing?.accountID
+    36	        )
+    37	        let id = existing?.id ?? UUID()
+    38	        let workspace = try await fileStore.signingWorkspace(appID: UUID())
+    39	        defer { try? FileManager.default.removeItem(at: workspace) }
+    40	        let payload = workspace.appending(path: "Payload", directoryHint: .isDirectory)
+    41	        let appURL = payload.appending(
+    42	            path: "\(metadata.name).app",
+    43	            directoryHint: .isDirectory
+    44	        )
+    45	        try FileManager.default.createDirectory(
+    46	            at: payload,
+    47	            withIntermediateDirectories: true
+    48	        )
+    49	        try FileManager.default.copyItem(at: metadata.bundleURL, to: appURL)
+    50	        let ipaURL = workspace.appending(path: "Seal.ipa")
+    51	        try FileManager.default.zipItem(
+    52	            at: payload,
+    53	            to: ipaURL,
+    54	            shouldKeepParent: true,
+    55	            compressionMethod: .deflate
+    56	        )
+    57	        let attributes = try FileManager.default.attributesOfItem(atPath: ipaURL.path)
+    58	        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+    59	        let staged = try await fileStore.stage(sourceURL: ipaURL)
+    60	        do {
+    61	            let files = try await fileStore.commit(
+    62	                staged: staged,
+    63	                appID: id,
+    64	                iconData: metadata.iconData
+    65	            )
+    66	            do {
+    67	                try await fileStore.cancel(staged)
+    68	            } catch {
+    69	                throw ImportFailure(
+    70	                    title: "Seal 临时文件清理失败",
+    71	                    reason: "Seal 自身注册已写入文件，但暂存文件未能清理。",
+    72	                    recovery: "重新打开 Seal 后在存储维护中重试",
+    73	                    code: "SEAL-STORAGE-SELF-001"
+    74	                )
+    75	            }
+    76	
+    77	            let record = AppRecord(
+    78	                id: id,
+    79	                originalBundleIdentifier: SelfAppBundleIdentity.originalBundleIdentifier(
+    80	                    currentBundleIdentifier: metadata.bundleIdentifier,
+    81	                    declaredOriginalBundleIdentifier: metadata.originalBundleIdentifier,
+    82	                    existingOriginalBundleIdentifier: existing?.originalBundleIdentifier
+    83	                ),
+    84	                mappedBundleIdentifier: metadata.bundleIdentifier,
+    85	                name: metadata.name,
+    86	                version: metadata.version,
+    87	                buildNumber: metadata.buildNumber,
+    88	                size: size,
+    89	                iconRelativePath: files.iconRelativePath,
+    90	                state: .installed,
+    91	                expiryDate: metadata.expirationDate,
+    92	                accountID: resolvedAccountID,
+    93	                signingTeamID: metadata.signingTeamIdentifier ?? existing?.signingTeamID,
+    94	                certificateSerialNumber: existing?.certificateSerialNumber,
+    95	                provisioningProfileExpirationDate: metadata.expirationDate,
+    96	                ipaRelativePath: files.ipaRelativePath,
+    97	                signedIPARelativePath: nil,
+    98	                preferredBundleIdentifier: metadata.bundleIdentifier,
+    99	                isSeal: true,
+   100	                isPinned: true,
+   101	                importedAt: existing?.importedAt ?? Date(),
+   102	                extensions: existing?.extensions ?? []
+   103	            )
+   104	            try await appStore.save(record)
+   105	            try await Self.removeDuplicateSealRecords(
+   106	                records,
+   107	                keeping: id,
+   108	                appStore: appStore
+   109	            )
+   110	        } catch {
+   111	            let originalError = error
+   112	            do {
+   113	                try await fileStore.cancel(staged)
+   114	            } catch {
+   115	                throw ImportFailure(
+   116	                    title: "Seal 自身注册恢复未完成",
+   117	                    reason: "注册流程失败，且暂存文件未能清理。",
+   118	                    recovery: "重新打开 Seal 后检查存储",
+   119	                    code: "SEAL-STORAGE-SELF-002"
+   120	                )
+   121	            }
+   122	            throw originalError
+   123	        }
+   124	    }
+   125	    private static func removeDuplicateSealRecords(
+   126	        _ records: [AppRecord],
+   127	        keeping keptID: UUID,
+   128	        appStore: any AppStore
+   129	    ) async throws {
+   130	        for record in records where record.id != keptID && record.isSeal {
+   131	            try await appStore.delete(id: record.id)
+   132	        }
+   133	    }
+   134	
+   135	}
