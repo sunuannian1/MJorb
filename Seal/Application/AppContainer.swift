@@ -83,7 +83,7 @@ struct AppContainer {
                 signingCoordinator: signingCoordinator,
                 queueStore: refreshQueueStore,
                 defaultAccountIDProvider: {
-                    let activeID = await signingPreferenceStore.activeAccountID()
+                    let activeID = signingPreferenceStore.activeAccountID()
                     if let activeID,
                        let accounts = try? await accountRepository.fetchAll(),
                        accounts.contains(where: { $0.id == activeID && AccountAvailabilityPolicy.isSelectable($0) }) {
