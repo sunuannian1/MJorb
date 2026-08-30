@@ -21,7 +21,6 @@ actor RenewalCoordinator {
     private let queueStore: RefreshQueueStore
     private let planner: RefreshPlanner
     private let defaultAccountIDProvider: (@Sendable () async -> UUID?)?
-    private let logHandler: (@Sendable (SealLogEntry.Category, SealLogEntry.Level, String, String?) async -> Void)?
 
     /// 单个应用续签失败后的最大自动重试次数（即总共最多尝试 1 + maxRetries 次）
     private let maxAttempts = 3
@@ -35,15 +34,13 @@ actor RenewalCoordinator {
         signingCoordinator: SigningCoordinator,
         queueStore: RefreshQueueStore,
         planner: RefreshPlanner = RefreshPlanner(),
-        defaultAccountIDProvider: (@Sendable () async -> UUID?)? = nil,
-        logHandler: (@Sendable (SealLogEntry.Category, SealLogEntry.Level, String, String?) async -> Void)? = nil
+        defaultAccountIDProvider: (@Sendable () async -> UUID?)? = nil
     ) {
         self.appStore = appStore
         self.signingCoordinator = signingCoordinator
         self.queueStore = queueStore
         self.planner = planner
         self.defaultAccountIDProvider = defaultAccountIDProvider
-        self.logHandler = logHandler
     }
 
     func refreshAll(
@@ -61,14 +58,6 @@ actor RenewalCoordinator {
         await progress(.prepared(apps: queuedApps))
         try await queueStore.replace(with: queue)
         return try await process(queue: queue, progress: progress)
-    }
-
-    private func log(
-        _ level: SealLogEntry.Level,
-        _ message: String,
-        code: String? = nil
-    ) async {
-        await logHandler?(.renewal, level, message, code)
     }
 
     /// 判断某个错误是否值得自动重试。
@@ -125,7 +114,6 @@ actor RenewalCoordinator {
                 )
                 try? await queueStore.markFailed(appID: item.appID, errorCode: failure.code)
                 failed += 1
-                await log(.error, "续签失败：未找到应用记录 \(item.appID)", code: failure.code)
                 await emitFailure(progress: progress, offset: offset, total: queue.count, item: item, failure: failure)
                 continue
             }
@@ -133,8 +121,6 @@ actor RenewalCoordinator {
             // —— 自动重试循环：最多 maxAttempts 次 ——
             var lastError: Error?
             var updatedRecord: AppRecord?
-            let appName = initialApps.first(where: { $0.id == item.appID })?.name ?? "应用"
-            await log(.info, "批量续签开始：\(appName)（第 \(offset + 1)/\(queue.count) 个）")
 
             for attempt in 1...maxAttempts {
                 // 每次尝试都重新读取最新记录
@@ -187,16 +173,9 @@ actor RenewalCoordinator {
                     throw CancellationError()
                 } catch {
                     lastError = error
-                    let failure = normalize(error)
-                    await log(
-                        .error,
-                        "「\(app.name)」第 \(attempt)/\(maxAttempts) 次尝试失败：\(failure.reason)",
-                        code: failure.code
-                    )
                     // 还能重试就等待后继续
                     if attempt < maxAttempts && isRetryable(error) {
                         let delay = baseRetryDelay * UInt64(attempt)
-                        await log(.info, "「\(app.name)」\(delay / 1_000_000_000) 秒后自动重试…", code: "SEAL-RENEW-RETRY")
                         try? await Task.sleep(nanoseconds: delay)
                         continue
                     }
@@ -208,7 +187,6 @@ actor RenewalCoordinator {
                 // 成功
                 try await queueStore.markCompleted(appID: item.appID)
                 succeeded += 1
-                await log(.info, "批量续签成功：\(updated.name)")
                 await progress(
                     .appSucceeded(
                         index: offset + 1,
@@ -231,7 +209,6 @@ actor RenewalCoordinator {
                     )
                 }
                 failed += 1
-                await log(.error, "「\(appName)」自动重试 \(maxAttempts) 次后仍失败：\(failure.reason)", code: failure.code)
                 await emitFailure(progress: progress, offset: offset, total: queue.count, item: item, failure: failure)
             }
         }
@@ -244,7 +221,6 @@ actor RenewalCoordinator {
                 code: "SEAL-RENEW-QUEUE-005"
             )
         }
-        await log(.info, "批量续签结束：共 \(queue.count) 个，成功 \(succeeded)，失败 \(failed)")
         return BatchRefreshResult(
             total: queue.count,
             succeeded: succeeded,

@@ -94,14 +94,6 @@ struct AppContainer {
                         return firstSelectable.id
                     }
                     return nil
-                },
-                logHandler: { category, level, message, code in
-                    try? await logStore.append(
-                        category: category,
-                        level: level,
-                        message: message,
-                        code: code
-                    )
                 }
             )
             let appRecordRecovery = AppRecordRecovery(
