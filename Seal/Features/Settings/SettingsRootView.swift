@@ -121,16 +121,6 @@ struct SettingsRootView: View {
                             )
                         }
                         .buttonStyle(.plain)
-                        sectionDivider
-
-                        settingsLink(value: SettingsRoute.logs) {
-                            settingsRow(
-                                title: "日志",
-                                value: "\(viewModel.logs.count) 条",
-                                icon: "doc.text",
-                                showsChevron: true
-                            )
-                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -160,8 +150,6 @@ struct SettingsRootView: View {
                     LocalDevVPNSettingsView(viewModel: viewModel)
                 case .storage:
                     StorageMaintenanceView(viewModel: viewModel)
-                case .logs:
-                    LogsView(viewModel: viewModel)
                 }
             }
             .alert(item: $viewModel.alertFailure) { failure in
