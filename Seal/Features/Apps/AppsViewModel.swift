@@ -1199,6 +1199,10 @@ final class AppsViewModel: ObservableObject {
         ]
         UserDefaults.standard.set(payload, forKey: Self.pendingBatchResultKey)
         UserDefaults.standard.synchronize()
+        // 双保险：同时写入 JSON 文件，避免 Seal 自签覆盖安装时 UserDefaults 丢失
+        if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: Self.pendingBatchResultFileURL, options: .atomic)
+        }
         Task { try? await logStore?.append(category: .renewal, level: .info, message: "[BatchDebug] persisted: total=\(session.total) succeeded=\(succeeded) failed=\(session.failed) items=\(itemPayload.count)", code: "SEAL-BATCH-DEBUG-2") }
     }
 
@@ -1207,8 +1211,16 @@ final class AppsViewModel: ObservableObject {
             Task { try? await logStore?.append(category: .renewal, level: .warning, message: "[BatchDebug] restore skipped: session=\(batchRefreshSession != nil) task=\(batchRefreshTask != nil)", code: "SEAL-BATCH-DEBUG-3") }
             return
         }
-        guard let payload = UserDefaults.standard.dictionary(forKey: Self.pendingBatchResultKey) else {
-            Task { try? await logStore?.append(category: .renewal, level: .info, message: "[BatchDebug] restore skipped: no pending data in UserDefaults", code: "SEAL-BATCH-DEBUG-4") }
+        // 优先从文件读取（更可靠，避免 Seal 自签覆盖安装时 UserDefaults 丢失），文件没有再回退到 UserDefaults
+        let payload: [String: Any]?
+        if let fileData = try? Data(contentsOf: Self.pendingBatchResultFileURL),
+           let filePayload = try? JSONSerialization.jsonObject(with: fileData) as? [String: Any] {
+            payload = filePayload
+        } else {
+            payload = UserDefaults.standard.dictionary(forKey: Self.pendingBatchResultKey)
+        }
+        guard let payload else {
+            Task { try? await logStore?.append(category: .renewal, level: .info, message: "[BatchDebug] restore skipped: no pending data in file or UserDefaults", code: "SEAL-BATCH-DEBUG-4") }
             return
         }
         let succeeded = payload["succeeded"] as? Int ?? 0
@@ -1234,9 +1246,15 @@ final class AppsViewModel: ObservableObject {
 
     private func clearPendingBatchResult() {
         UserDefaults.standard.removeObject(forKey: Self.pendingBatchResultKey)
+        try? FileManager.default.removeItem(at: Self.pendingBatchResultFileURL)
     }
 
     private static let pendingBatchResultKey = "seal.pendingBatchRefreshResult"
+    private static var pendingBatchResultFileURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(AppConfiguration.Paths.applicationSupportSubdirectory, isDirectory: true)
+            .appendingPathComponent("PendingBatchResult.json")
+    }
 
     private func startSigning(
         app: AppRecord,
