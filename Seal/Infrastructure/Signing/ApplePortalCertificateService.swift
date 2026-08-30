@@ -173,9 +173,9 @@ actor ApplePortalCertificateService {
             $0.serialNumber.caseInsensitiveCompare(serialNumber) == .orderedSame
         }) else {
             throw Self.failure(
-                title: "证书不存在",
-                reason: "Apple 返回：证书撤销失败",
-                recovery: "重新同步证书",
+                title: "证书撤销失败",
+                reason: "Apple 服务器未能撤销指定证书。可能原因：网络不稳定、或该证书已被撤销。",
+                recovery: "检查网络后重试；如持续失败请重新同步证书状态",
                 code: "SEAL-CERT-210a"
             )
         }

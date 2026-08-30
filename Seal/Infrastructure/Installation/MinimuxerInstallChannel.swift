@@ -311,9 +311,9 @@ actor MinimuxerInstallChannel: InstallChannel {
 
     private static func installationFailure(_ error: Error) -> ImportFailure {
         ImportFailure(
-            title: "无法安装应用",
-            reason: "iOS 安装服务未能完成安装。技术信息已隐藏。",
-            recovery: "重试",
+            title: "安装失败",
+            reason: "iOS 安装服务未能完成安装。可能原因：设备未信任、存储空间不足、或应用与设备不兼容。",
+            recovery: "确认设备已信任、存储空间充足后重试；如持续失败请查看日志",
             code: "SEAL-INSTALL-702"
         )
     }

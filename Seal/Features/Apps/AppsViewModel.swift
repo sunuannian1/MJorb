@@ -261,9 +261,9 @@ final class AppsViewModel: ObservableObject {
         }
         guard let accountID = app.accountID else {
             alertFailure = ImportFailure(
-                title: "Apple ID 不可用",
-                reason: "此 App 没有保存上次签名使用的 Apple ID。",
-                recovery: "查看详情",
+                title: "缺少签名账号",
+                reason: "这个应用没有记录上次签名使用的 Apple ID，无法续签。",
+                recovery: "重新导入 IPA 签名安装；Seal 自身请在「我的」中添加 Apple ID",
                 code: "SEAL-AUTH-104"
             )
             return
@@ -648,9 +648,9 @@ final class AppsViewModel: ObservableObject {
         let boundAccountID = isInstalledRecord ? app.accountID : nil
         if isInstalledRecord, boundAccountID == nil {
             alertFailure = ImportFailure(
-                title: "续签记录不完整",
-                reason: "未记录上次签名此 App 的 Apple ID。",
-                recovery: "重新导入 IPA 签名并安装",
+                title: "缺少签名账号记录",
+                reason: "这个应用没有记录上次签名使用的 Apple ID，无法自动续签。",
+                recovery: "重新导入 IPA 并签名安装；Seal 自身请在「我的」中添加对应 Apple ID",
                 code: "SEAL-AUTH-110a"
             )
             return
@@ -698,9 +698,9 @@ final class AppsViewModel: ObservableObject {
             guard let accountID = app.accountID,
                   let account = availableAccounts.first(where: { $0.id == accountID }) else {
                 alertFailure = ImportFailure(
-                    title: "Apple ID 不可用",
-                    reason: "上次签名此 App 的 Apple ID 不可用。",
-                    recovery: "前往设置",
+                    title: "签名账号不可用",
+                reason: "上次签名这个应用的 Apple ID 已被删除或凭据失效。",
+                recovery: "在「我的」中重新添加原 Apple ID，或用当前账号重新签名安装",
                     code: "SEAL-AUTH-104c"
                 )
                 return

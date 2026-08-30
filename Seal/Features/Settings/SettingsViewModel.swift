@@ -494,9 +494,9 @@ final class SettingsViewModel: ObservableObject {
             await load(force: true)
             await refreshCertificateInventory(for: account, force: true)
             alertFailure = Self.failure(
-                title: "签名失败",
-                reason: "Apple 返回：证书撤销失败",
-                recovery: "重试",
+                title: "证书撤销失败",
+                reason: "Apple 服务器未能撤销指定证书。可能原因：网络不稳定、或该证书已被撤销。",
+                recovery: "检查网络后重试；如持续失败请在「我的」中重新同步证书状态",
                 code: "SEAL-CERT-216"
             )
         }
@@ -1141,9 +1141,9 @@ final class SettingsViewModel: ObservableObject {
 
             guard authenticated.teams.isEmpty == false else {
                 throw Self.failure(
-                    title: "没有可用 Team",
-                    reason: "Apple 返回的账号信息中没有可用于签名的 Team。",
-                    recovery: "重新验证",
+                    title: "没有可用开发者团队",
+                reason: "这个 Apple ID 下没有可用于签名的开发者团队。",
+                recovery: "确认该 Apple ID 已注册开发者账号（免费账号即可），或更换其他 Apple ID",
                     code: "SEAL-AUTH-107"
                 )
             }

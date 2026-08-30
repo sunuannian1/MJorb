@@ -60,8 +60,8 @@ actor RenewalCoordinator {
                 guard let app = apps.first(where: { $0.id == item.appID }) else {
                     throw ImportFailure(
                         title: "无法续签应用",
-                        reason: "应用记录不存在",
-                        recovery: "重新导入 IPA",
+            reason: "续签时未找到该应用的本地记录。",
+            recovery: "重新导入 IPA 并签名安装",
                         code: "SEAL-RENEW-404"
                     )
                 }
@@ -141,9 +141,9 @@ actor RenewalCoordinator {
                 }
             } catch {
                 let failure = ImportFailure(
-                    title: "无法续签应用",
-                    reason: "签名或安装失败",
-                    recovery: "重试",
+                    title: "续签失败",
+            reason: "续签过程中签名或安装步骤失败，具体原因请查看详情。",
+            recovery: "根据错误提示处理后重试；如为账号问题请在「我的」中检查 Apple ID",
                     code: "SEAL-RENEW-500"
                 )
                 do {

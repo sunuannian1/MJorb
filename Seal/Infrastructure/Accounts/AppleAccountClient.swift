@@ -105,9 +105,9 @@ final class AppleAccountClient {
                 }
             guard availableTeams.isEmpty == false else {
                 throw ImportFailure(
-                    title: "无法添加账号",
-                    reason: "未找到开发团队",
-                    recovery: "检查 Apple ID",
+                    title: "未找到开发者团队",
+                    reason: "这个 Apple ID 没有可用的开发者团队（免费账号也会自动创建免费团队）。",
+                    recovery: "确认该 Apple ID 已在 Apple 开发者网站同意协议，或更换其他 Apple ID",
                     code: "SEAL-AUTH-103"
                 )
             }

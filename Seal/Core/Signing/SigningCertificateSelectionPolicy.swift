@@ -10,33 +10,33 @@ enum SigningCertificateSelectionPolicy {
         guard app.state == .installed || app.isSeal else { return }
         guard let boundAccountID = app.accountID else {
             throw ImportFailure(
-                title: "续签记录不完整",
-                reason: "未记录上次签名此 App 的 Apple ID。",
-                recovery: "重新导入 IPA 签名并安装",
+                title: "缺少签名账号记录",
+                reason: "这个应用没有记录上次签名使用的 Apple ID，无法自动续签。",
+                recovery: "重新导入 IPA 并签名安装；Seal 自身请在「我的」中添加对应 Apple ID",
                 code: "SEAL-AUTH-110"
             )
         }
         guard boundAccountID == account.id else {
             throw ImportFailure(
                 title: "Apple ID 不匹配",
-                reason: "续签必须使用上次签名此 App 的 Apple ID。",
-                recovery: "切换回原 Apple ID",
+                reason: "这个应用是用其他 Apple ID 签名的，续签必须使用原账号。",
+                recovery: "在「我的」中切换到原 Apple ID，或用当前账号重新签名安装",
                 code: "SEAL-AUTH-111"
             )
         }
         guard let teamID = normalized(app.signingTeamID) else {
             throw ImportFailure(
-                title: "续签记录不完整",
-                reason: "未记录上次签名此 App 的 Team。",
-                recovery: "重新导入 IPA 签名并安装",
+                title: "缺少团队记录",
+                reason: "这个应用没有记录上次签名使用的开发者团队，无法自动续签。",
+                recovery: "重新导入 IPA 并签名安装；Seal 自身请在「我的」中添加对应 Apple ID",
                 code: "SEAL-AUTH-113"
             )
         }
         guard teamID.caseInsensitiveCompare(account.teamID) == .orderedSame else {
             throw ImportFailure(
-                title: "Team 不匹配",
-                reason: "续签必须使用上次签名此 App 的 Team。",
-                recovery: "选择 Team",
+                title: "开发者团队不匹配",
+                reason: "这个应用属于其他开发者团队，当前 Apple ID 无权续签。",
+                recovery: "使用原开发者团队的 Apple ID 续签，或用当前账号重新签名安装",
                 code: "SEAL-AUTH-112"
             )
         }

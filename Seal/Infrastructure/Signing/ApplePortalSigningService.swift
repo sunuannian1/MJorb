@@ -66,17 +66,17 @@ enum ApplePortalSigningFailure {
             || normalized.contains("already registered by another developer account")
             || normalized.contains("bundle identifier unavailable") {
             return ImportFailure(
-                title: "Bundle ID 不可用",
-                reason: "Apple 返回：App ID 的 Bundle ID 不可用",
-                recovery: "更换 Bundle ID",
+                title: "Bundle ID 已被占用",
+                reason: "这个 Bundle ID 已被其他开发者账号注册，当前账号无法使用。",
+                recovery: "更换一个新的 Bundle ID，或使用注册该 Bundle ID 的原账号签名",
                 code: "SEAL-APPID-302"
             )
         }
 
         return ImportFailure(
-            title: "App ID 操作失败",
-            reason: "Apple 返回：App ID 操作失败",
-            recovery: "重试",
+            title: "App ID 创建失败",
+            reason: "Apple 服务器未能创建该应用的 App ID。可能原因：网络不稳定、免费账号 App ID 数量已达上限、或 Bundle ID 与其他账号冲突。",
+            recovery: "检查网络后重试；如持续失败，尝试更换 Bundle ID 或使用其他开发者账号",
             code: "SEAL-APPID-303"
         )
     }
@@ -91,9 +91,9 @@ enum ApplePortalSigningFailure {
             || normalized.contains("too many")
             || normalized.contains("invalidcertificaterequest") {
             return ImportFailure(
-                title: "签名失败",
-                reason: "Apple 返回：无法创建签名证书",
-                recovery: "重试",
+                title: "无法创建签名证书",
+                reason: "Apple 服务器未能创建签名证书。可能原因：该账号证书数量已达上限、或网络不稳定。",
+                recovery: "检查网络后重试；如持续失败请在「我的」中撤销旧证书后再试",
                 code: "SEAL-CERT-204a"
             )
         }
@@ -124,8 +124,8 @@ enum ApplePortalSigningFailure {
 
         return ImportFailure(
             title: "证书准备失败",
-            reason: "Apple 返回：证书准备失败",
-            recovery: "重试",
+                reason: "Apple 服务器未能准备好签名证书。可能原因：网络不稳定、或该账号证书数量已达上限。",
+                recovery: "检查网络后重试；如持续失败请在「我的」中撤销旧证书后再试",
             code: "SEAL-CERT-203"
         )
     }
@@ -222,9 +222,9 @@ actor ApplePortalSigningService {
                 throw failure
             } catch {
                 throw Self.failure(
-                    title: "签名失败",
-                    reason: "Apple 返回：请求未能完成",
-                    recovery: "重试",
+                    title: "签名请求失败",
+            reason: "Apple 服务器未能完成签名请求。可能原因：网络不稳定、或 Apple 服务暂时不可用。",
+            recovery: "检查网络后稍后重试；如持续失败请查看日志",
                     code: "SEAL-SIGN-501"
                 )
             }
