@@ -26,7 +26,13 @@ actor MinimuxerInstallChannel: InstallChannel {
            await isReady() {
             return cached
         }
-        let diagnostics = await diagnose()
+        // 宽松策略：通道诊断失败（VPN 抖动/Minimuxer 尚未就绪）时内部再试一次，
+        // 不把瞬时抖动直接抛给上层签名/续签流程
+        var diagnostics = await diagnose()
+        if diagnostics.failure != nil || diagnostics.deviceIdentifier == nil {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            diagnostics = await diagnose()
+        }
         if let failure = diagnostics.failure { throw failure }
         guard let deviceIdentifier = diagnostics.deviceIdentifier else {
             throw Self.channelNotReadyFailure
