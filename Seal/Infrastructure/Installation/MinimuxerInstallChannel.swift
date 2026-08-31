@@ -337,39 +337,6 @@ actor MinimuxerInstallChannel: InstallChannel {
 
     private static func installationFailure(_ error: Error) -> ImportFailure {
         let detail = diagnostic(error)
-        let lowercased = detail.lowercased()
-
-        if lowercased.contains("0xe80000db") || lowercased.contains("out of storage") {
-            return ImportFailure(title: "手机存储空间不足", reason: "设备存储空间已满，无法安装应用。", recovery: "清理手机存储空间后重试", code: "SEAL-INSTALL-721")
-        }
-        if lowercased.contains("0xe8008011") || lowercased.contains("profile has expired") {
-            return ImportFailure(title: "描述文件已过期", reason: "该 IPA 的签名描述文件已过期，需要重新签名后安装。", recovery: "重新签名后安装", code: "SEAL-INSTALL-722")
-        }
-        if lowercased.contains("0xe8008012") || lowercased.contains("cannot be installed on this device") {
-            return ImportFailure(title: "描述文件不包含此设备", reason: "该 IPA 的描述文件未包含当前设备的 UDID，无法在此设备上安装。", recovery: "用当前设备配对的 Apple ID 重新签名后安装", code: "SEAL-INSTALL-723")
-        }
-        if lowercased.contains("0xe8008015") || lowercased.contains("valid provisioning profile for this executable was not found") {
-            return ImportFailure(title: "找不到有效的描述文件", reason: "IPA 中缺少与当前设备匹配的有效描述文件，可能是签名不完整或描述文件已被移除。", recovery: "重新签名后安装；如持续失败请检查 Apple ID 状态", code: "SEAL-INSTALL-724")
-        }
-        if lowercased.contains("0xe8008016") || lowercased.contains("invalid entitlements") {
-            return ImportFailure(title: "应用权限签名无效", reason: "IPA 中的 entitlements 与描述文件不匹配，可能是原 IPA 包含了免费账号不支持的权限。", recovery: "重新签名后安装；如持续失败说明该 IPA 包含免费账号不支持的功能", code: "SEAL-INSTALL-725")
-        }
-        if lowercased.contains("0xe8008017") || lowercased.contains("signed resource has been added") {
-            return ImportFailure(title: "IPA 签名已损坏", reason: "IPA 中的签名资源被修改或损坏，文件完整性校验失败。", recovery: "重新签名后安装", code: "SEAL-INSTALL-726")
-        }
-        if lowercased.contains("0xe8008018") || lowercased.contains("identity used to sign is no longer valid") {
-            return ImportFailure(title: "签名证书已失效", reason: "签名该 IPA 的证书已被撤销或失效。", recovery: "用当前有效的 Apple ID 重新签名后安装", code: "SEAL-INSTALL-727")
-        }
-        if lowercased.contains("0xe8008021") || lowercased.contains("maximum number of apps for free development profiles") {
-            return ImportFailure(title: "免费账号应用数量已达上限", reason: "免费 Apple ID 最多同时安装 3 个自签应用（含 Seal 自己），已达到上限。", recovery: "卸载一个已安装的自签应用后重试，或使用其他 Apple ID 签名", code: "SEAL-INSTALL-728")
-        }
-        if lowercased.contains("0xe8008025") || lowercased.contains("did not explicitly trust") {
-            return ImportFailure(title: "未信任开发者证书", reason: "当前设备未在「设置 → 通用 → VPN与设备管理」中信任该 Apple ID 的开发者证书。", recovery: "在手机设置中信任开发者证书后重试", code: "SEAL-INSTALL-729")
-        }
-        if lowercased.contains("0xe80000c8") || lowercased.contains("notsupportedbythinning") || lowercased.contains("device not supported") {
-            return ImportFailure(title: "设备不支持此应用", reason: "该 IPA 不支持当前设备的架构或系统版本。", recovery: "确认 IPA 支持当前设备和 iOS 版本", code: "SEAL-INSTALL-730")
-        }
-
         return ImportFailure(
             title: "安装失败",
             reason: "iOS 安装服务未能完成安装。\n设备返回：\(detail)",
@@ -377,7 +344,8 @@ actor MinimuxerInstallChannel: InstallChannel {
             code: "SEAL-INSTALL-702"
         )
     }
-private static func diagnostic(_ error: Error) -> String {
+
+    private static func diagnostic(_ error: Error) -> String {
         let nsError = error as NSError
         if let minimuxerError = error as? MinimuxerError {
             return Minimuxer.describeError(minimuxerError)
