@@ -163,9 +163,9 @@ enum ApplePortalSigningFailure {
         }
 
         return ImportFailure(
-            title: "证书准备失败"
-            reason: "Apple 服务器未能准备好签名证书。\nApple 返回：\(diagnostic)"
-            recovery: "检查网络后重试；如持续失败请在「我的」中撤销旧证书后再试"
+            title: "证书准备失败",
+            reason: "Apple 服务器未能准备好签名证书。\nApple 返回：\(diagnostic)",
+            recovery: "检查网络后重试；如持续失败请在「我的」中撤销旧证书后再试",
             code: "SEAL-CERT-203"
         )
     }
