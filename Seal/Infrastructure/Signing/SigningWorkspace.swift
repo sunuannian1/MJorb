@@ -63,12 +63,18 @@ struct SigningWorkspace: Sendable {
             )
             var mappings = [originalBundleID: mappedMain]
             try updateBundleIdentifier(at: appURL, to: mappedMain)
+            // 参照 SideStore 官方逻辑：替换 URL Schemes，避免同 Bundle ID 不同后缀的 App 冲突
+            try updateURLSchemes(in: appURL, originalBundleID: originalBundleID, newBundleID: mappedMain)
             if let preferredDisplayName = normalizedDisplayName(preferredDisplayName) {
                 try updateDisplayName(at: appURL, to: preferredDisplayName)
             }
             if let preferredIconData {
                 try replacePrimaryAppIcon(at: appURL, imageData: preferredIconData)
             }
+
+            // 自动移除免费账号不支持的内容：Watch App、App Clip
+            // 参照 SideStore/AltStore 官方逻辑，这些内容免费账号无法签名
+            try removeUnsupportedBundles(in: appURL)
 
             let extensionURLs = try appExtensionURLs(in: appURL)
             for extensionURL in extensionURLs {
@@ -374,6 +380,69 @@ struct SigningWorkspace: Sendable {
             options: 0
         )
         try updated.write(to: infoURL, options: .atomic)
+    }
+
+    /// 替换 URL Schemes，避免同 Bundle ID 不同后缀的 App 冲突
+    /// 参照 SideStore 官方逻辑
+    private func updateURLSchemes(in appURL: URL, originalBundleID: String, newBundleID: String) throws {
+        let infoURL = appURL.appendingPathComponent("Info.plist")
+        guard let info = try? propertyList(from: infoURL) else { return }
+
+        var urlTypes = info["CFBundleURLTypes"] as? [[String: Any]] ?? []
+        // 移除包含原始 Bundle ID 的 URL Scheme，避免冲突
+        urlTypes.removeAll { urlType in
+            guard let schemes = urlType["CFBundleURLSchemes"] as? [String] else { return false }
+            return schemes.contains { scheme in
+                scheme.contains(originalBundleID) || scheme == originalBundleID
+            }
+        }
+        // 添加基于新 Bundle ID 的 URL Scheme
+        let newScheme = newBundleID.replacingOccurrences(of: ".", with: "-")
+        urlTypes.append([
+            "CFBundleTypeRole": "Editor",
+            "CFBundleURLName": newBundleID,
+            "CFBundleURLSchemes": [newScheme]
+        ])
+
+        var updated = info
+        updated["CFBundleURLTypes"] = urlTypes
+        try writePropertyList(updated, to: infoURL)
+    }
+
+    /// 自动移除免费账号不支持的内容：Watch App、App Clip
+    /// 参照 SideStore/AltStore 官方逻辑
+    private func removeUnsupportedBundles(in appURL: URL) throws {
+        let fileManager = FileManager.default
+
+        // 移除 Watch App（免费账号不支持 Watch 签名）
+        let watchURL = appURL.appendingPathComponent("Watch")
+        if fileManager.fileExists(atPath: watchURL.path) {
+            try fileManager.removeItem(at: watchURL)
+        }
+
+        // 移除 App Clip（免费账号不支持 App Clip）
+        let appClipsURL = appURL.appendingPathComponent("AppClips")
+        if fileManager.fileExists(atPath: appClipsURL.path) {
+            try fileManager.removeItem(at: appClipsURL)
+        }
+
+        // 移除 PlugIns 中的 App Clip（.appex 但 NSExtensionPointIdentifier 为 com.apple.app-clip）
+        if let plugInsURL = appURL.appendingPathComponent("PlugIns") as URL?,
+           fileManager.fileExists(atPath: plugInsURL.path) {
+            let appexContents = try fileManager.contentsOfDirectory(
+                at: plugInsURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+            for appexURL in appexContents where appexURL.pathExtension == "appex" {
+                let infoURL = appexURL.appendingPathComponent("Info.plist")
+                if let info = try? propertyList(from: infoURL),
+                   let extensionPoint = info["NSExtensionPointIdentifier"] as? String,
+                   extensionPoint == "com.apple.app-clip" {
+                    try fileManager.removeItem(at: appexURL)
+                }
+            }
+        }
     }
 
     private func removeOldSignatures(in appURL: URL) throws {
