@@ -493,6 +493,7 @@ actor ApplePortalSigningService {
                 allowDroppingExtensions: allowDroppingExtensions,
                 team: team,
                 session: session,
+                certificateSerialNumber: identity.certificate.serialNumber,
                 progress: progress
             )
             try Task.checkCancellation()
@@ -953,6 +954,7 @@ actor ApplePortalSigningService {
         allowDroppingExtensions: Bool,
         team: ALTTeam,
         session: ALTAppleAPISession,
+        certificateSerialNumber: String,
         progress: @Sendable (SigningStage) async -> Void
     ) async throws -> ProfilePreparation {
         guard let mainApplication = ALTApplication(fileURL: appURL) else {
@@ -1092,10 +1094,13 @@ actor ApplePortalSigningService {
         for preparedAppID in preparedAppIDs {
             do {
                 try Task.checkCancellation()
-                let profile = try await fetchProvisioningProfile(
+                // 证书刚创建/更新时 Apple 服务器同步有延迟，描述文件可能还是旧证书。
+                // 获取后立即校验是否包含当前签名证书，不包含则等待后重试，最多 3 次。
+                let profile = try await fetchProvisioningProfileWithCertificateCheck(
                     for: preparedAppID.appID,
                     team: team,
-                    session: session
+                    session: session,
+                    expectedCertificateSerialNumber: certificateSerialNumber
                 )
                 profiles.append(profile)
             } catch is CancellationError {
@@ -1173,6 +1178,52 @@ actor ApplePortalSigningService {
         return box.value
     }
 
+
+
+    /// 获取描述文件并校验是否包含当前签名证书。
+    /// 证书刚创建/更新时 Apple 服务器同步有延迟，描述文件可能还是旧证书，
+    /// 这里最多重试 3 次，每次间隔 2 秒，给 Apple 服务器同步时间。
+    private func fetchProvisioningProfileWithCertificateCheck(
+        for appID: ALTAppID,
+        team: ALTTeam,
+        session: ALTAppleAPISession,
+        expectedCertificateSerialNumber: String
+    ) async throws -> ALTProvisioningProfile {
+        let normalizedExpected = expectedCertificateSerialNumber.filter(\.isHexDigit).uppercased()
+        var lastError: Error?
+        for attempt in 1...3 {
+            do {
+                let profile = try await fetchProvisioningProfile(for: appID, team: team, session: session)
+                // 官方 ALTProvisioningProfile.certificates 直接包含证书列表，
+                // 每个 ALTCertificate 有 serialNumber 属性
+                let profileSerials = Set(profile.certificates.compactMap { cert in
+                    cert.serialNumber?.filter(\.isHexDigit).uppercased()
+                })
+                if profileSerials.contains(normalizedExpected) {
+                    return profile
+                }
+                lastError = ImportFailure(
+                    title: "描述文件校验失败",
+                    reason: "描述文件不包含当前签名证书（第 \(attempt) 次获取），Apple 服务器同步延迟，正在重试...",
+                    recovery: "等待 Apple 服务器同步后自动重试",
+                    code: "SEAL-PROFILE-313"
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+            }
+            if attempt < 3 {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+        throw lastError ?? Self.failure(
+            title: "描述文件校验失败",
+            reason: "描述文件不包含当前签名证书，已重试 3 次仍未同步。",
+            recovery: "稍后重试，或检查 Apple ID 证书状态",
+            code: "SEAL-PROFILE-313"
+        )
+    }
 
     private func updateFeatures(
         appID: ALTAppID,
