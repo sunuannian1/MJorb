@@ -1,4 +1,4 @@
-import Combine
+﻿import Combine
 import Foundation
 @preconcurrency import AltSign
 
@@ -384,7 +384,7 @@ final class SettingsViewModel: ObservableObject {
               let keychain,
               let accountRepository,
               let applePortalCertificateService else { return }
-        guard let operationLease = acquireOperation(.managingCertificate) else { return }
+        guard let operationLease = await acquireOperation(.managingCertificate) else { return }
         defer { releaseOperation(operationLease) }
 
         isCertificateOperationRunning = true
@@ -441,7 +441,7 @@ final class SettingsViewModel: ObservableObject {
               let keychain,
               let accountRepository,
               let applePortalCertificateService else { return }
-        guard let operationLease = acquireOperation(.managingCertificate) else { return }
+        guard let operationLease = await acquireOperation(.managingCertificate) else { return }
         defer { releaseOperation(operationLease) }
 
         isCertificateOperationRunning = true
@@ -510,7 +510,7 @@ final class SettingsViewModel: ObservableObject {
               let keychain,
               let accountRepository,
               let applePortalCertificateService else { return }
-        guard let operationLease = acquireOperation(.managingCertificate) else { return }
+        guard let operationLease = await acquireOperation(.managingCertificate) else { return }
         defer { releaseOperation(operationLease) }
 
         isCertificateOperationRunning = true
@@ -1096,7 +1096,7 @@ final class SettingsViewModel: ObservableObject {
 
     func resetSigningEnvironment() async {
         guard let anisetteEnvironment else { return }
-        guard let operationLease = acquireOperation(.managingAccount) else { return }
+        guard let operationLease = await acquireOperation(.managingAccount) else { return }
         defer { releaseOperation(operationLease) }
         await anisetteEnvironment.resetProvisioning()
         try? await logStore?.append(
@@ -1113,7 +1113,7 @@ final class SettingsViewModel: ObservableObject {
     ) async -> Bool {
         guard accountPhase == .idle,
               let accountClient else { return false }
-        guard let operationLease = acquireOperation(.managingAccount) else { return false }
+        guard let operationLease = await acquireOperation(.managingAccount) else { return false }
         defer { releaseOperation(operationLease) }
         let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedEmail.isEmpty == false, password.isEmpty == false else {
@@ -1218,7 +1218,7 @@ final class SettingsViewModel: ObservableObject {
         guard accountPhase == .idle,
               let pending = pendingTeamSelection,
               pending.teams.contains(team) else { return false }
-        guard let operationLease = acquireOperation(.managingAccount) else { return false }
+        guard let operationLease = await acquireOperation(.managingAccount) else { return false }
         defer { releaseOperation(operationLease) }
         accountPhase = .authenticating
         defer { accountPhase = .idle }
@@ -1328,7 +1328,7 @@ final class SettingsViewModel: ObservableObject {
 
     func deleteAccount(_ account: AppleAccountRecord) async {
         guard let accountRepository, let keychain else { return }
-        guard let operationLease = acquireOperation(.managingAccount) else { return }
+        guard let operationLease = await acquireOperation(.managingAccount) else { return }
         defer { releaseOperation(operationLease) }
         let relatedApps = (try? await appStore?.fetchAll())?
             .filter { $0.accountID == account.id } ?? []
@@ -1406,7 +1406,7 @@ final class SettingsViewModel: ObservableObject {
         }
 
         // 只有文件确实存在时才获取锁，避免无意义的互斥冲突
-        guard let operationLease = acquireOperation(.resettingPairing) else { return false }
+        guard let operationLease = await acquireOperation(.resettingPairing) else { return false }
         defer { releaseOperation(operationLease) }
 
         // 二次检查，防止竞态条件
@@ -1465,7 +1465,7 @@ final class SettingsViewModel: ObservableObject {
     @discardableResult
     func importPairingFile(at sourceURL: URL) async -> Bool {
         guard let pairingStore else { return false }
-        guard let operationLease = acquireOperation(.resettingPairing) else { return false }
+        guard let operationLease = await acquireOperation(.resettingPairing) else { return false }
         defer { releaseOperation(operationLease) }
 
         let didAccess = sourceURL.startAccessingSecurityScopedResource()
@@ -1960,7 +1960,7 @@ final class SettingsViewModel: ObservableObject {
 
     func clearTemporaryFiles() async {
         guard let fileStore else { return }
-        guard let operationLease = acquireOperation(.maintainingStorage) else { return }
+        guard let operationLease = await acquireOperation(.maintainingStorage) else { return }
         defer { releaseOperation(operationLease) }
         do {
             try await fileStore.clearTemporaryFiles()
@@ -1983,7 +1983,7 @@ final class SettingsViewModel: ObservableObject {
 
     func clearUnusedStorageFiles() async {
         guard let fileStore, let appStore else { return }
-        guard let operationLease = acquireOperation(.maintainingStorage) else { return }
+        guard let operationLease = await acquireOperation(.maintainingStorage) else { return }
         defer { releaseOperation(operationLease) }
         do {
             let apps = try await appStore.fetchAll()
@@ -2034,7 +2034,7 @@ final class SettingsViewModel: ObservableObject {
 
     func resetCertificate(for account: AppleAccountRecord) async {
         guard let accountRepository else { return }
-        guard let operationLease = acquireOperation(.managingCertificate) else { return }
+        guard let operationLease = await acquireOperation(.managingCertificate) else { return }
         defer { releaseOperation(operationLease) }
         var updated = account
         updated.certificateSerialNumber = nil
@@ -2063,15 +2063,12 @@ final class SettingsViewModel: ObservableObject {
     private func acquireOperation(
         _ kind: OperationCoordinator.Kind,
         appID: UUID? = nil
-    ) -> OperationCoordinator.Lease? {
+    ) async -> OperationCoordinator.Lease? {
         guard let operationCoordinator else {
             return .uncoordinated(kind, appID: appID)
         }
-        guard let lease = operationCoordinator.begin(kind, appID: appID) else {
-            alertFailure = operationCoordinator.conflictFailure(requested: kind)
-            return nil
-        }
-        return lease
+        // 自动等待当前操作完成，不弹"暂时无法执行"弹窗
+        return await operationCoordinator.beginWaiting(kind, appID: appID)
     }
 
     private func releaseOperation(_ lease: OperationCoordinator.Lease) {

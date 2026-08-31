@@ -1,4 +1,4 @@
-import Combine
+﻿import Combine
 import Foundation
 
 @MainActor
@@ -546,7 +546,7 @@ final class AppsViewModel: ObservableObject {
 
     func importSelectedFile(_ url: URL) async {
         guard let workflow, phase == .idle else { return }
-        guard let operationLease = acquireOperation(.importing) else { return }
+        guard let operationLease = await acquireOperation(.importing) else { return }
         defer { releaseOperation(operationLease) }
         let hasSecurityScope = url.startAccessingSecurityScopedResource()
         defer {
@@ -565,7 +565,7 @@ final class AppsViewModel: ObservableObject {
 
     func confirmImport() async {
         guard let workflow else { return }
-        guard let operationLease = acquireOperation(.importing) else { return }
+        guard let operationLease = await acquireOperation(.importing) else { return }
         defer { releaseOperation(operationLease) }
         guard let draft = sheetDraft else {
             sheetFailure = ImportFailure(
@@ -588,7 +588,7 @@ final class AppsViewModel: ObservableObject {
 
     func retryImport() async {
         guard let workflow, sheetDraft != nil else { return }
-        guard let operationLease = acquireOperation(.importing) else { return }
+        guard let operationLease = await acquireOperation(.importing) else { return }
         defer { releaseOperation(operationLease) }
         phase = .committing
         sheetFailure = nil
@@ -919,7 +919,7 @@ final class AppsViewModel: ObservableObject {
     func installSignedArtifact(_ app: AppRecord) async -> Bool {
         guard signingTask == nil, batchRefreshTask == nil, installingCachedPackageAppID == nil,
               let signingCoordinator else { return false }
-        guard let operationLease = acquireOperation(.installing, appID: app.id) else { return false }
+        guard let operationLease = await acquireOperation(.installing, appID: app.id) else { return false }
         defer { releaseOperation(operationLease) }
         installingCachedPackageAppID = app.id
         defer { installingCachedPackageAppID = nil }
@@ -953,7 +953,7 @@ final class AppsViewModel: ObservableObject {
 
     func delete(_ app: AppRecord) async -> Bool {
         guard let appStore, let fileStore else { return false }
-        guard let operationLease = acquireOperation(.maintainingStorage, appID: app.id) else { return false }
+        guard let operationLease = await acquireOperation(.maintainingStorage, appID: app.id) else { return false }
         defer { releaseOperation(operationLease) }
         do {
             try await appStore.delete(id: app.id)
@@ -1054,7 +1054,7 @@ final class AppsViewModel: ObservableObject {
 
     private func runBatchRefresh() async {
         guard let renewalCoordinator else { return }
-        guard let operationLease = acquireOperation(.renewing) else {
+        guard let operationLease = await acquireOperation(.renewing) else {
             batchRefreshSession = nil
             batchRefreshTask = nil
             return
@@ -1338,7 +1338,7 @@ final class AppsViewModel: ObservableObject {
         guard let signingCoordinator else { return }
         let isRenewal = app.belongsInInstalledList
         let operationKind: OperationCoordinator.Kind = isRenewal ? .renewing : .signing
-        guard let operationLease = acquireOperation(operationKind, appID: app.id) else {
+        guard let operationLease = await acquireOperation(operationKind, appID: app.id) else {
             signingTask = nil
             return
         }
@@ -1554,16 +1554,16 @@ final class AppsViewModel: ObservableObject {
     private func acquireOperation(
         _ kind: OperationCoordinator.Kind,
         appID: UUID? = nil
-    ) -> OperationCoordinator.Lease? {
+    ) async -> OperationCoordinator.Lease? {
         guard let operationCoordinator else {
             return .uncoordinated(kind, appID: appID)
         }
-        guard let lease = operationCoordinator.begin(kind, appID: appID) else {
-            alertFailure = operationCoordinator.conflictFailure(requested: kind)
-            return nil
-        }
-        return lease
+        // 自动等待当前操作完成，不弹"暂时无法执行"弹窗
+        return await operationCoordinator.beginWaiting(kind, appID: appID)
     }
+
+
+
 
     private func releaseOperation(_ lease: OperationCoordinator.Lease) {
         operationCoordinator?.end(lease)

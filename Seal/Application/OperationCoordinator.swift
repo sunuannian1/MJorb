@@ -50,6 +50,18 @@ final class OperationCoordinator {
         activeLease = nil
     }
 
+    /// 异步等待获取锁，当前操作完成后自动获取。不弹冲突弹窗，用户无感知。
+    func beginWaiting(_ kind: Kind, appID: UUID? = nil, timeout: TimeInterval = 30) async -> Lease? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let lease = begin(kind, appID: appID) {
+                return lease
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return nil
+    }
+
     func conflictFailure(requested: Kind) -> ImportFailure {
         let activeTitle = activeLease?.kind.title ?? "其他操作"
         return ImportFailure(
