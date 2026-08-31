@@ -263,8 +263,9 @@ struct AppRecord: Codable, Equatable, Identifiable, Sendable {
     }
 
     var userIdentityKeys: Set<String> {
+        // 只比较实际签名后的 Bundle ID（mapped/preferred）
+        // 不包含 originalBundleIdentifier：同一原始 IPA 可用不同 Bundle ID 签出多个副本同时安装
         [
-            originalBundleIdentifier,
             mappedBundleIdentifier,
             preferredBundleIdentifier
         ]

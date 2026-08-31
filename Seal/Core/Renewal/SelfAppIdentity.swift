@@ -68,8 +68,16 @@ enum SelfAppRecordSelection {
     ) -> AppRecord? {
         let normalizedImportedBundleIdentifier = normalize(importedBundleIdentifier)
         let matchingRecords = records.filter { record in
-            record.isSeal
-                && record.userIdentityKeys.contains(normalizedImportedBundleIdentifier)
+            guard record.isSeal else { return false }
+            // Seal 记录需同时匹配原始 Bundle ID 和实际签名后的 Bundle ID
+            let identifiers = [
+                record.originalBundleIdentifier,
+                record.mappedBundleIdentifier,
+                record.preferredBundleIdentifier
+            ].compactMap { value in
+                value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            }.filter { $0.isEmpty == false }
+            return identifiers.contains(normalizedImportedBundleIdentifier)
         }
         return matchingRecords.sorted { lhs, rhs in
             if lhs.belongsInInstalledList != rhs.belongsInInstalledList {
