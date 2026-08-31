@@ -836,6 +836,37 @@ actor ApplePortalSigningService {
         }
 
         var existing = try await fetchAppIDs(team: team, session: session)
+
+        // 官方 SideStore 逻辑：免费账号 App ID 上限预检
+        // requiredAppIDs = 1（主 App）+ 扩展数量
+        // availableAppIDs = max(0, 10 - 已有 App ID 数量）
+        // 不足时提前报错，告知最早过期时间，避免创建到一半才失败
+        if team.type == .free {
+            let extensionCount = mainApplication.appExtensions.count
+            let requiredAppIDs = 1 + extensionCount
+            let maximumFreeAppIDs = 10
+            let availableAppIDs = max(0, maximumFreeAppIDs - existing.count)
+            if requiredAppIDs > availableAppIDs {
+                let sortedExpirations = existing.compactMap { $0.expirationDate }.sorted()
+                let earliestExpiration = sortedExpirations.first
+                let expirationText: String
+                if let date = earliestExpiration {
+                    let formatter = DateFormatter()
+                    formatter.dateStyle = .medium
+                    formatter.timeStyle = .short
+                    expirationText = formatter.string(from: date)
+                } else {
+                    expirationText = "未知"
+                }
+                throw Self.failure(
+                    title: "App ID 数量不足",
+                    reason: "当前 Apple ID 已有 \(existing.count) 个 App ID（上限 \(maximumFreeAppIDs)），本次签名需要 \(requiredAppIDs) 个（主 App + \(extensionCount) 个扩展），还需 \(requiredAppIDs - availableAppIDs) 个名额。",
+                    recovery: "最早的 App ID 将于 \(expirationText) 过期，过期后可重试；或使用其他 Apple ID 签名。",
+                    code: "SEAL-APPID-LIMIT"
+                )
+            }
+        }
+
         var preparedAppIDs: [(original: String, mapped: String, appID: ALTAppID)] = []
         var requestedEntitlements: [String: [String: ProvisioningEntitlementValue]] = [:]
         var droppedExtensionBundleIdentifiers: [String] = []
@@ -899,19 +930,25 @@ actor ApplePortalSigningService {
                         entitlementValues[entitlement.rawValue] = converted
                     }
                     requestedEntitlements[mappedBundleID] = entitlementValues
-                    appID = try await updateFeatures(
-                        appID: appID,
-                        application: application,
-                        team: team,
-                        session: session
-                    )
-                    if team.type != .free {
-                        try await assignAppGroups(
+                    // 扩展 features 更新失败时降级为空 features 重试，主 App 失败则直接报错
+                    do {
+                        appID = try await updateFeatures(
                             appID: appID,
                             application: application,
                             team: team,
                             session: session
                         )
+                        if team.type != .free {
+                            try await assignAppGroups(
+                                appID: appID,
+                                application: application,
+                                team: team,
+                                session: session
+                            )
+                        }
+                    } catch where mappedBundleID != mappedMainBundleID {
+                        // 扩展降级：清空 features，用空 entitlements 继续签名
+                        requestedEntitlements[mappedBundleID] = [:]
                     }
                 }
                 preparedAppIDs.append((originalBundleID, mappedBundleID, appID))
