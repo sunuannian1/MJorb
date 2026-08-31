@@ -1,4 +1,4 @@
-enum AccountStatus: String, Codable, Equatable, Sendable {
+﻿enum AccountStatus: String, Codable, Equatable, Sendable {
     case verified
     case availableOffline
     case needsVerification
@@ -12,4 +12,5 @@ enum AccountVerificationFailureReason: String, Codable, Equatable, Sendable {
     case credentialsRejected
     case localCredentialsMissing
     case localCredentialsMismatch
+    case sessionExpired
 }

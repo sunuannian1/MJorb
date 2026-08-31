@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 
 enum AppleServiceFailurePolicy {
     static func isNetworkError(_ error: Error) -> Bool {
@@ -47,6 +47,8 @@ enum AppleServiceFailurePolicy {
             return .localCredentialsMissing
         case "SEAL-AUTH-106":
             return .localCredentialsMismatch
+        case "SEAL-AUTH-107":
+            return .sessionExpired
         default:
             return nil
         }
