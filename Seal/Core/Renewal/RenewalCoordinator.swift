@@ -21,6 +21,7 @@ actor RenewalCoordinator {
     private let queueStore: RefreshQueueStore
     private let planner: RefreshPlanner
     private let defaultAccountIDProvider: (@Sendable () async -> UUID?)?
+    private let accountsProvider: (@Sendable () async -> [AppleAccountRecord])?
 
     /// 单个应用续签失败后的最大自动重试次数（即总共最多尝试 1 + maxRetries 次）
     private let maxAttempts = 3
@@ -34,13 +35,15 @@ actor RenewalCoordinator {
         signingCoordinator: SigningCoordinator,
         queueStore: RefreshQueueStore,
         planner: RefreshPlanner = RefreshPlanner(),
-        defaultAccountIDProvider: (@Sendable () async -> UUID?)? = nil
+        defaultAccountIDProvider: (@Sendable () async -> UUID?)? = nil,
+        accountsProvider: (@Sendable () async -> [AppleAccountRecord])? = nil
     ) {
         self.appStore = appStore
         self.signingCoordinator = signingCoordinator
         self.queueStore = queueStore
         self.planner = planner
         self.defaultAccountIDProvider = defaultAccountIDProvider
+        self.accountsProvider = accountsProvider
     }
 
     func refreshAll(
@@ -53,7 +56,13 @@ actor RenewalCoordinator {
         } else {
             fallbackAccountID = nil
         }
-        let queue = planner.makeQueue(apps: apps, fallbackAccountID: fallbackAccountID)
+        let allAccounts: [AppleAccountRecord]
+        if let provider = accountsProvider {
+            allAccounts = await provider()
+        } else {
+            allAccounts = []
+        }
+        let queue = planner.makeQueue(apps: apps, fallbackAccountID: fallbackAccountID, accounts: allAccounts)
         let queuedApps = queue.compactMap { item in apps.first(where: { $0.id == item.appID }) }
         await progress(.prepared(apps: queuedApps))
         try await queueStore.replace(with: queue)

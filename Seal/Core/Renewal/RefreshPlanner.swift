@@ -4,6 +4,7 @@ struct RefreshPlanner: Sendable {
     func makeQueue(
         apps: [AppRecord],
         fallbackAccountID: UUID? = nil,
+        accounts: [AppleAccountRecord] = [],
         now: Date = Date()
     ) -> [RefreshQueueItem] {
         apps
@@ -12,7 +13,14 @@ struct RefreshPlanner: Sendable {
                 priority(for: lhs, now: now) < priority(for: rhs, now: now)
             }
             .compactMap { app in
-                let accountID = app.accountID ?? fallbackAccountID
+                var accountID = app.accountID ?? fallbackAccountID
+                // Seal 应用：如果 accountID 为空，尝试根据 signingTeamID 重新匹配账号
+                // 解决"先添加非签名账号，后添加签名账号"导致续签选不到正确账号的问题
+                if app.isSeal, accountID == nil, let teamID = app.signingTeamID {
+                    accountID = accounts.first { account in
+                        account.teamID.caseInsensitiveCompare(teamID) == .orderedSame
+                    }?.id
+                }
                 guard let accountID else { return nil }
                 return RefreshQueueItem(appID: app.id, accountID: accountID)
             }

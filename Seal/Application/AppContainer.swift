@@ -94,6 +94,9 @@ struct AppContainer {
                         return firstSelectable.id
                     }
                     return nil
+                },
+                accountsProvider: {
+                    (try? await accountRepository.fetchAll()) ?? []
                 }
             )
             let appRecordRecovery = AppRecordRecovery(
