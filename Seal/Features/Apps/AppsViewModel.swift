@@ -1,5 +1,6 @@
 ﻿import Combine
 import Foundation
+@preconcurrency import Minimuxer
 
 @MainActor
 final class AppsViewModel: ObservableObject {
@@ -287,6 +288,48 @@ final class AppsViewModel: ObservableObject {
         }
     }
 
+    func enableJIT(for app: AppRecord) async {
+        guard app.belongsInInstalledList else {
+            alertFailure = ImportFailure(
+                title: "无法启用 JIT",
+                reason: "应用尚未安装，无法启用 JIT。",
+                recovery: "先签名安装该应用",
+                code: "SEAL-JIT-001"
+            )
+            return
+        }
+
+        guard let bundleIdentifier = app.mappedBundleIdentifier ?? app.preferredBundleIdentifier,
+              bundleIdentifier.isEmpty == false else {
+            alertFailure = ImportFailure(
+                title: "无法启用 JIT",
+                reason: "未找到该应用的 Bundle ID，无法启用 JIT。",
+                recovery: "重新签名安装该应用",
+                code: "SEAL-JIT-002"
+            )
+            return
+        }
+
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try Minimuxer.JIT.debugApp(appId: bundleIdentifier)
+            }.value
+
+            alertFailure = ImportFailure(
+                title: "JIT 已启用",
+                reason: "调试器已附加到 \(app.displayName)，JIT 已生效。请保持应用在前台运行，退出后需重新启用。",
+                recovery: "知道了",
+                code: "SEAL-JIT-OK"
+            )
+        } catch {
+            alertFailure = ImportFailure(
+                title: "JIT 启用失败",
+                reason: "无法附加调试器：\(error.localizedDescription)。请确认设备已连接（同一 WiFi + LocalDevVPN + 配对有效），且应用已安装。",
+                recovery: "检查设备连接后重试",
+                code: "SEAL-JIT-003"
+            )
+        }
+    }
     @discardableResult
     func refreshSigningChannel() async -> Bool {
         if let channelTask {

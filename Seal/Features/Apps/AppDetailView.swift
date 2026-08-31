@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import UIKit
 
 struct AppDetailView: View {
@@ -17,11 +17,18 @@ struct AppDetailView: View {
                     .padding(.bottom, 8)
                 } footer: {
                     if app.belongsInInstalledList {
-                        Button("立即续签") {
-                            dismiss()
-                            Task { await viewModel.beginRenewalDirectly(for: app) }
+                        VStack(spacing: 10) {
+                            Button("立即续签") {
+                                dismiss()
+                                Task { await viewModel.beginRenewalDirectly(for: app) }
+                            }
+                            .sealPrimaryAction(cornerRadius: 14)
+                            
+                            Button("启用 JIT") {
+                                Task { await viewModel.enableJIT(for: app) }
+                            }
+                            .sealOutlineAction(cornerRadius: 14)
                         }
-                        .sealPrimaryAction(cornerRadius: 14)
                     } else {
                         Button("关闭") { dismiss() }
                             .sealOutlineAction(cornerRadius: 14)
