@@ -222,6 +222,10 @@ struct AppRecord: Codable, Equatable, Identifiable, Sendable {
             [AppExtensionRecord].self,
             forKey: .extensions
         ) ?? []
+        importWarnings = try container.decodeIfPresent(
+            [String].self,
+            forKey: .importWarnings
+        ) ?? []
     }
 
     var hasPersistedSigningIdentity: Bool {
