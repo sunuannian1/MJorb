@@ -242,6 +242,7 @@ actor MinimuxerInstallChannel: InstallChannel {
             }
         }
         throw Self.installationFailure(lastInstallError!)
+        #endif
     }
 
     func verifyInstalled(bundleID: String) async throws {
@@ -262,7 +263,6 @@ actor MinimuxerInstallChannel: InstallChannel {
         #endif
     }
 
-    #endif
 
     #if !targetEnvironment(simulator)
     private func bindTunnelConfiguration() {
