@@ -1,4 +1,4 @@
-import Foundation
+mport Foundation
 import UIKit
 @preconcurrency import AltSign
 
@@ -80,9 +80,9 @@ enum ApplePortalSigningFailure {
             || normalized.contains("no more")
             || (normalized.contains("app id") && (normalized.contains("exceed") || normalized.contains("reached"))) {
             return ImportFailure(
-                title: "App ID 数量已达上限",
-                reason: "当前 Apple ID 账号的 App ID 数量已达上限（免费账号约 10 个）。Apple 返回：\(rawMessage)",
-                recovery: "去 Apple 开发者后台删除不用的旧 App ID，或等限额重置后重试",
+                title: "7 天内最多注册 10 个 App ID",
+                reason: "已达到 App ID 数量上限（10个）。App ID 无法手动删除，7 天后自动过期。请到「已签名 App」查看过期时间，或换其他 Apple ID 签名。Apple 返回：\(rawMessage)",
+                recovery: "知道了",
                 code: "SEAL-APPID-304"
             )
         }
@@ -130,6 +130,10 @@ enum ApplePortalSigningFailure {
     ) async throws -> String {
         let initial = requested ?? BundleIDPolicy.recommendedBundleIdentifier(for: original)
         let existing = try await fetchAppIDs(team: team, session: session)
+        // 官方：7 天内最多 10 个 App ID，满了直接报错，不尝试创建（换后缀也没用）
+        if existing.count >= 10 {
+            throw ALTAppleAPIError(.maximumAppIDLimitReached)
+        }
         var tried = Set<String>()
         tried.insert(initial)
         var current = initial
@@ -156,6 +160,9 @@ enum ApplePortalSigningFailure {
                     }
                 }
                 return current
+            } catch ALTAppleAPIError.maximumAppIDLimitReached {
+                // 官方：已达上限，直接抛出，不重试不换后缀
+                throw ALTAppleAPIError(.maximumAppIDLimitReached)
             } catch ALTAppleAPIError.bundleIdentifierUnavailable {
                 // 被其他账号占用，换随机后缀重试
                 guard attempt < 5 else { throw ALTAppleAPIError(.bundleIdentifierUnavailable) }
@@ -498,9 +505,9 @@ actor ApplePortalSigningService {
             throw ALTAppleAPIError(.invalidAnisetteData)
         } catch ALTAppleAPIError.maximumAppIDLimitReached {
             throw Self.failure(
-                title: "App ID 名额已满",
-                reason: "Apple 返回 App ID 数量已达到账号上限。",
-                recovery: "使用其他 Bundle ID 或开发者账号。",
+                title: "7 天内最多注册 10 个 App ID",
+                reason: "已达到 App ID 数量上限（10个）。App ID 无法手动删除，7 天后自动过期。请到「已签名 App」查看过期时间，或换其他 Apple ID 签名。",
+                recovery: "知道了",
                 code: "SEAL-APPID-301"
             )
         } catch ALTAppleAPIError.incorrectCredentials {

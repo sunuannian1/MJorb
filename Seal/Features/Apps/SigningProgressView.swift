@@ -1,4 +1,4 @@
-import SwiftUI
+mport SwiftUI
 import UIKit
 
 struct SigningProgressView: View {
@@ -307,6 +307,7 @@ struct SigningProgressView: View {
         if isTeamFailure(failure) { return "选择 Team" }
         if isAuthFailure(failure) { return "重新验证 Apple ID" }
         if isCertificateFailure(failure) { return "重新检查" }
+        if isAppIDLimitFailure(failure) { return "知道了" }
         if isAppIDFailure(failure) || failure.code.hasPrefix("SEAL-BUNDLE-") { return "修改 Bundle ID" }
         if isPairingFailure(failure) { return "重新配对设备" }
         if failure.code.hasPrefix("SEAL-VPN-") { return "重新检查" }
@@ -363,6 +364,10 @@ struct SigningProgressView: View {
 
     private func isAppIDFailure(_ failure: ImportFailure) -> Bool {
         failure.code.hasPrefix("SEAL-APPID-")
+    }
+
+    private func isAppIDLimitFailure(_ failure: ImportFailure) -> Bool {
+        failure.code == "SEAL-APPID-301" || failure.code == "SEAL-APPID-304"
     }
 
     private func isPairingFailure(_ failure: ImportFailure) -> Bool {
