@@ -73,9 +73,23 @@ enum ApplePortalSigningFailure {
             )
         }
 
+        // 精确识别免费账号 App ID 数量上限
+        if normalized.contains("maximum")
+            || normalized.contains("limit")
+            || normalized.contains("too many")
+            || normalized.contains("no more")
+            || (normalized.contains("app id") && (normalized.contains("exceed") || normalized.contains("reached"))) {
+            return ImportFailure(
+                title: "App ID 数量已达上限",
+                reason: "当前 Apple ID 账号的 App ID 数量已达上限（免费账号约 10 个）。Apple 返回：\(rawMessage)",
+                recovery: "去 Apple 开发者后台删除不用的旧 App ID，或等限额重置后重试",
+                code: "SEAL-APPID-304"
+            )
+        }
+
         return ImportFailure(
             title: "App ID 创建失败",
-            reason: "Apple 服务器未能创建该应用的 App ID。可能原因：网络不稳定、免费账号 App ID 数量已达上限、或 Bundle ID 与其他账号冲突。",
+            reason: "Apple 服务器未能创建该应用的 App ID。Apple 返回：\(diagnostic)",
             recovery: "检查网络后重试；如持续失败，尝试更换 Bundle ID 或使用其他开发者账号",
             code: "SEAL-APPID-303"
         )

@@ -243,7 +243,8 @@ actor SigningCoordinator {
                 app.state = originalState == .installed ? .installed : .signed
                 app.signedArtifactStatus = .installFailed
                 app.lastInstallFailureCode = "SEAL-INSTALL-500"
-                app.lastInstallFailureReason = "安装流程遇到未预期错误，技术信息已写入脱敏日志。"
+                let nsError = error as NSError
+                app.lastInstallFailureReason = "安装流程遇到未预期错误：\(nsError.domain) \(nsError.code) \(nsError.localizedDescription)"
             } else {
                 app.state = originalState == .installed ? .installed : originalState
             }
