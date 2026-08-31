@@ -846,34 +846,28 @@ actor ApplePortalSigningService {
 
         var existing = try await fetchAppIDs(team: team, session: session)
 
-        // 官方 SideStore 逻辑：免费账号 App ID 上限预检
-        // requiredAppIDs = 1（主 App）+ 扩展数量
-        // availableAppIDs = max(0, 10 - 已有 App ID 数量）
-        // 不足时提前报错，告知最早过期时间，避免创建到一半才失败
+        // 免费账号 App ID 上限预检：主 App 必须签，扩展签不了自动跳过
+
+
+
+
+        // 宽松策略：主 App 必须签，扩展签不了就自动跳过，不直接报错
         if team.type == .free {
-            let extensionCount = mainApplication.appExtensions.count
-            let requiredAppIDs = 1 + extensionCount
             let maximumFreeAppIDs = 10
             let availableAppIDs = max(0, maximumFreeAppIDs - existing.count)
-            if requiredAppIDs > availableAppIDs {
+            // 主 App 都签不了才报错
+            if availableAppIDs < 1 {
                 let sortedExpirations = existing.compactMap { $0.expirationDate }.sorted()
                 let earliestExpiration = sortedExpirations.first
-                let expirationText: String
-                if let date = earliestExpiration {
-                    let formatter = DateFormatter()
-                    formatter.dateStyle = .medium
-                    formatter.timeStyle = .short
-                    expirationText = formatter.string(from: date)
-                } else {
-                    expirationText = "未知"
-                }
+                let expirationText = earliestExpiration.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? "未知"
                 throw Self.failure(
                     title: "App ID 数量不足",
-                    reason: "当前 Apple ID 已有 \(existing.count) 个 App ID（上限 \(maximumFreeAppIDs)），本次签名需要 \(requiredAppIDs) 个（主 App + \(extensionCount) 个扩展），还需 \(requiredAppIDs - availableAppIDs) 个名额。",
+                    reason: "当前 Apple ID 已有 \(existing.count) 个 App ID（上限 \(maximumFreeAppIDs)），连主 App 都无法创建。",
                     recovery: "最早的 App ID 将于 \(expirationText) 过期，过期后可重试；或使用其他 Apple ID 签名。",
                     code: "SEAL-APPID-LIMIT"
                 )
             }
+            // 扩展数量不足时，后面 Phase 1 会自动跳过签不了的扩展，只签主 App
         }
 
         var preparedAppIDs: [(original: String, mapped: String, appID: ALTAppID)] = []
