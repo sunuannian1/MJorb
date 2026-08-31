@@ -828,34 +828,49 @@ actor ApplePortalSigningService {
                 }) {
                     appID = found
                 } else {
-                    do {
-                        let createdBox: LegacyBox<ALTAppID> =
-                            try await withCheckedThrowingContinuation { continuation in
-                                let normalizedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                let appIDNameSource = normalizedName.isEmpty ? mappedBundleID : normalizedName
-                                let appIDName = String(appIDNameSource.prefix(50))
-                                ALTAppleAPI.shared.addAppID(
-                                    withName: appIDName,
-                                    bundleIdentifier: mappedBundleID,
-                                    team: team,
-                                    session: session
-                                ) { created, error in
-                                    Self.resume(continuation, value: created, error: error)
+                    var createError: Error?
+                    for createAttempt in 1...3 {
+                        do {
+                            let createdBox: LegacyBox<ALTAppID> =
+                                try await withCheckedThrowingContinuation { continuation in
+                                    let normalizedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    let appIDNameSource = normalizedName.isEmpty ? mappedBundleID : normalizedName
+                                    let appIDName = String(appIDNameSource.prefix(50))
+                                    ALTAppleAPI.shared.addAppID(
+                                        withName: appIDName,
+                                        bundleIdentifier: mappedBundleID,
+                                        team: team,
+                                        session: session
+                                    ) { created, error in
+                                        Self.resume(continuation, value: created, error: error)
+                                    }
                                 }
+                            appID = createdBox.value
+                            createError = nil
+                            break
+                        } catch ALTAppleAPIError.bundleIdentifierUnavailable {
+                            let refreshed = try await fetchAppIDs(team: team, session: session)
+                            if let found = refreshed.first(where: {
+                                ApplePortalAppIDResolver.matches(
+                                    existingBundleIdentifier: $0.bundleIdentifier,
+                                    requestedBundleIdentifier: mappedBundleID
+                                )
+                            }) {
+                                appID = found
+                                createError = nil
+                            } else {
+                                createError = ALTAppleAPIError(.bundleIdentifierUnavailable)
                             }
-                        appID = createdBox.value
-                    } catch ALTAppleAPIError.bundleIdentifierUnavailable {
-                        let refreshed = try await fetchAppIDs(team: team, session: session)
-                        guard let found = refreshed.first(where: {
-                            ApplePortalAppIDResolver.matches(
-                                existingBundleIdentifier: $0.bundleIdentifier,
-                                requestedBundleIdentifier: mappedBundleID
-                            )
-                        }) else {
-                            throw ALTAppleAPIError(.bundleIdentifierUnavailable)
+                            break
+                        } catch {
+                            createError = error
+                            if createAttempt < 3 {
+                                try await Task.sleep(nanoseconds: 2_000_000_000)
+                                continue
+                            }
                         }
-                        appID = found
                     }
+                    if let createError { throw createError }
                     existing.append(appID)
                 }
 
