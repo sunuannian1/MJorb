@@ -105,6 +105,9 @@ actor AppFileStore {
                 withIntermediateDirectories: true
             )
             try copyImportSource(sourceURL, to: stagedURL)
+            // 检测并解包嵌套 IPA（外层只有一个 .ipa 文件的情况）
+            // 部分第三方平台下载的 IPA 是这种结构，不解包会导致签名时找不到 Payload
+            try extractNestedIPAIfNeeded(at: stagedURL, fileManager: fileManager)
             try protect(stagedURL)
             return StagedIPA(id: id, url: stagedURL)
         } catch is CancellationError {
@@ -177,6 +180,41 @@ actor AppFileStore {
         }
 
         try extractSingleIPA(from: archive, to: stagedURL)
+    }
+
+    /// 检测并解包嵌套 IPA（外层 zip 只有一个 .ipa 文件，没有 Payload 目录）
+    /// 部分第三方平台下载的 IPA 是这种结构，不解包会导致签名时找不到 Payload
+    private func extractNestedIPAIfNeeded(at ipaURL: URL, fileManager: FileManager) throws {
+        guard let archive = Archive(url: ipaURL, accessMode: .read) else { return }
+        let entries = Array(archive)
+
+        // 检查是否有 Payload 目录
+        let hasPayload = entries.contains { $0.path.hasPrefix("Payload/") }
+        if hasPayload { return }
+
+        // 查找唯一的 .ipa 文件
+        let ipaEntries = entries.filter {
+            $0.type == .file && $0.path.lowercased().hasSuffix(".ipa")
+        }
+        guard ipaEntries.count == 1, let nestedIPAEntry = ipaEntries.first else { return }
+
+        // 解压嵌套 IPA 到临时文件
+        let tempDir = fileManager.temporaryDirectory
+            .appendingPathComponent("SealNestedExtract-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: tempDir) }
+
+        let nestedIPATempURL = tempDir.appendingPathComponent("nested.ipa")
+        var nestedData = Data()
+        nestedData.reserveCapacity(Int(nestedIPAEntry.uncompressedSize))
+        _ = try archive.extract(nestedIPAEntry) { chunk in
+            nestedData.append(chunk)
+        }
+        try nestedData.write(to: nestedIPATempURL)
+
+        // 用解包后的 IPA 替换原文件
+        try fileManager.removeItem(at: ipaURL)
+        try fileManager.moveItem(at: nestedIPATempURL, to: ipaURL)
     }
 
     private func isReadableZIPArchive(_ sourceURL: URL) -> Bool {
