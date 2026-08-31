@@ -126,6 +126,7 @@ struct AppSigningSheet: View {
                 }
             }
         }
+        .onAppear { resetBundleIDDraftIfNeeded() }
     }
 
     private func startSigning(completionMode: SigningCompletionMode) {
@@ -322,8 +323,22 @@ struct AppSigningSheet: View {
     }
 
     private func resetBundleIDDraftIfNeeded() {
-        guard targetBundleID.isEmpty else { return }
-        targetBundleID = (try? BundleIDPolicy.targetBundleIdentifier(for: workingApp)) ?? workingApp.originalBundleIdentifier
+        // 已签名/已安装/Seal 自身（续签）保留已记录的 Bundle ID，不重新生成
+        if workingApp.belongsInInstalledList || workingApp.belongsInSignedList || workingApp.isSeal {
+            guard targetBundleID.isEmpty else { return }
+            targetBundleID = (try? BundleIDPolicy.targetBundleIdentifier(for: workingApp)) ?? workingApp.originalBundleIdentifier
+            return
+        }
+        // 未签名的 app：
+        // - 用户手动设置了 preferredBundleIdentifier → 用用户设置的
+        // - 否则每次打开/回到配置抽屉都重新生成 0-999 随机后缀
+        //   避免 App ID 创建失败后重试时还用同一个 Bundle ID 导致一直失败
+        if let preferred = workingApp.preferredBundleIdentifier,
+           !preferred.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            targetBundleID = preferred
+        } else {
+            targetBundleID = BundleIDPolicy.recommendedBundleIdentifier(for: workingApp.originalBundleIdentifier)
+        }
     }
 
     private var workingApp: AppRecord {
