@@ -117,7 +117,7 @@ final class AppleAccountClient {
                 accountIdentifier: auth.account.identifier,
                 dsid: auth.session.dsid,
                 authToken: auth.session.authToken
-            )
+            ).withAnisetteData(anisetteData)
             return AuthenticatedAppleAccount(
                 maskedEmail: Self.mask(email),
                 accountIdentifier: auth.account.identifier,

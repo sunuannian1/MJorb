@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 @preconcurrency import AltSign
 
 struct ApplePortalInventory: Codable, Equatable, Sendable {
@@ -87,7 +87,13 @@ actor ApplePortalInventoryService {
         scope: FetchScope
     ) async throws -> ApplePortalInventory {
         try Task.checkCancellation()
-        let anisette = try await anisetteProvider.fetch()
+        // 优先用登录时保存的 Anisette 数据，必须与 authToken 绑定使用
+        let anisette: ALTAnisetteData
+        if let saved = secret.savedAnisetteData {
+            anisette = saved
+        } else {
+            anisette = try await anisetteProvider.fetch()
+        }
         let session = ALTAppleAPISession(
             dsid: secret.dsid,
             authToken: secret.authToken,

@@ -305,7 +305,14 @@ actor ApplePortalSigningService {
         do {
             try Task.checkCancellation()
             await progress(.preparingAccount)
-            let anisette = try await anisetteProvider.fetch()
+            // 优先用登录时保存的 Anisette 数据，必须与 authToken 绑定使用
+            // 否则 Apple 会返回 1100 会话过期（刚添加就过期的根因）
+            let anisette: ALTAnisetteData
+            if let saved = secret.savedAnisetteData {
+                anisette = saved
+            } else {
+                anisette = try await anisetteProvider.fetch()
+            }
             let session = ALTAppleAPISession(
                 dsid: secret.dsid,
                 authToken: secret.authToken,

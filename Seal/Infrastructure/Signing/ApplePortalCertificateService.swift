@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import UIKit
 @preconcurrency import AltSign
 
@@ -186,7 +186,13 @@ actor ApplePortalCertificateService {
         account: AppleAccountRecord,
         secret: AccountSecret
     ) async throws -> (team: ALTTeam, session: ALTAppleAPISession) {
-        let anisette = try await anisetteProvider.fetch()
+        // 优先用登录时保存的 Anisette 数据，必须与 authToken 绑定使用
+        let anisette: ALTAnisetteData
+        if let saved = secret.savedAnisetteData {
+            anisette = saved
+        } else {
+            anisette = try await anisetteProvider.fetch()
+        }
         let session = ALTAppleAPISession(
             dsid: secret.dsid,
             authToken: secret.authToken,
