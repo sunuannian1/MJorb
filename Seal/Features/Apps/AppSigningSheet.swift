@@ -12,6 +12,7 @@ struct AppSigningSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedAccountID: UUID?
     @State private var targetBundleID = ""
+    @State private var hasUserEditedBundleID = false
     @State private var isBundleIDEditorPresented = false
     @State private var isNameEditorPresented = false
     @State private var isIconActionsPresented = false
@@ -42,7 +43,10 @@ struct AppSigningSheet: View {
             if BundleIDPolicy.isEditable(workingApp) {
                 BundleIDEditorSheet(initialValue: targetBundleID) { value in
                     let saved = await viewModel.updatePreferredBundleIdentifier(for: workingApp, value: value)
-                    if saved { targetBundleID = value }
+                    if saved {
+                        targetBundleID = value
+                        hasUserEditedBundleID = true
+                    }
                     return saved
                 }
                 .presentationDetents([.medium, .large])
@@ -329,13 +333,17 @@ struct AppSigningSheet: View {
             targetBundleID = (try? BundleIDPolicy.targetBundleIdentifier(for: workingApp)) ?? workingApp.originalBundleIdentifier
             return
         }
-        // 未签名的 app：
-        // - 用户手动设置了 preferredBundleIdentifier → 用用户设置的
+        // 用户手动编辑过 Bundle ID → 保留用户编辑，不自动重新生成
+        if hasUserEditedBundleID, !targetBundleID.isEmpty {
+            return
+        }
+        // 未签名且用户未手动编辑：
+        // - 有 preferredBundleIdentifier → 用已保存的
         // - 否则每次打开/回到配置抽屉都重新生成 0-999 随机后缀
-        //   避免 App ID 创建失败后重试时还用同一个 Bundle ID 导致一直失败
         if let preferred = workingApp.preferredBundleIdentifier,
            !preferred.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             targetBundleID = preferred
+            hasUserEditedBundleID = true
         } else {
             targetBundleID = BundleIDPolicy.recommendedBundleIdentifier(for: workingApp.originalBundleIdentifier)
         }

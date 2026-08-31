@@ -44,11 +44,11 @@ struct ImportedAppRow: View {
 
     private var displayBundleIdentifier: String {
         if app.belongsInInstalledList || app.belongsInSignedList {
-            return app.mappedBundleIdentifier ?? app.preferredBundleIdentifier ?? app.originalBundleIdentifier
+            return app.mappedBundleIdentifier ?? app.originalBundleIdentifier
         }
-        // 未签名的 app 列表中显示原始 Bundle ID
-        // 随机后缀只在打开签名抽屉时生成，不在列表中实时计算
-        return app.preferredBundleIdentifier ?? app.originalBundleIdentifier
+        // 未签名的 app 列表中始终显示原始 Bundle ID（与官方一致）
+        // 用户手动修改的 preferredBundleIdentifier 只在签名抽屉内生效
+        return app.originalBundleIdentifier
     }
 
     @ViewBuilder
