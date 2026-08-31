@@ -61,7 +61,6 @@ enum ApplePortalSigningFailure {
         let rawMessage = nsError.localizedDescription
         let normalized = rawMessage.lowercased()
 
-        // Bundle ID 已被其他账号注册（AltStore 官方错误码 3011）
         if nsError.code == 3011
             || normalized.contains("bundle identifier is unavailable")
             || normalized.contains("already registered by another developer account")
@@ -89,106 +88,12 @@ enum ApplePortalSigningFailure {
             )
         }
 
-        // 其他原因：透传 Apple 原始错误
         return ImportFailure(
             title: "App ID 创建失败",
             reason: "Apple 服务器未能创建该应用的 App ID。Apple 返回：\(diagnostic)",
             recovery: "检查网络后重试；如持续失败，尝试更换 Bundle ID 或使用其他开发者账号",
             code: "SEAL-APPID-303"
         )
-    }
-    /// 生成带 1-3 位随机数后缀的 Bundle ID：com.xxx.seal -> com.xxx.seal7 / .seal42 / .seal365
-    private static func randomBundleIdentifier(_ identifier: String) -> String {
-        // 去掉末尾已有的数字后缀
-        var index = identifier.endIndex
-        while index > identifier.startIndex {
-            let prev = identifier.index(before: index)
-            if identifier[prev].isNumber {
-                index = prev
-            } else {
-                break
-            }
-        }
-        let base = String(identifier[..<index])
-        // 随机选择 1-3 位，生成对应范围的随机数
-        let digits = Int.random(in: 1...3)
-        let suffix: Int
-        switch digits {
-        case 1: suffix = Int.random(in: 0...9)
-        case 2: suffix = Int.random(in: 10...99)
-        default: suffix = Int.random(in: 100...999)
-        }
-        return "\(base)\(suffix)"
-    }
-
-    /// 在 prepare 之前预创建主应用 App ID，被占用则自动换 1-3 位随机后缀
-    private func resolveMainAppBundleID(
-        requested: String?,
-        original: String,
-        displayName: String,
-        team: ALTTeam,
-        session: ALTAppleAPISession
-    ) async throws -> String {
-        let initial = requested ?? BundleIDPolicy.recommendedBundleIdentifier(for: original)
-        let existing = try await fetchAppIDs(team: team, session: session)
-        // 官方：7 天内最多 10 个 App ID，满了直接报错，不尝试创建（换后缀也没用）
-        if existing.count >= 10 {
-            throw ALTAppleAPIError(.maximumAppIDLimitReached)
-        }
-        var tried = Set<String>()
-        tried.insert(initial)
-        var current = initial
-        for attempt in 1...5 {
-            // 已存在则直接用
-            if existing.contains(where: {
-                $0.bundleIdentifier.caseInsensitiveCompare(current) == .orderedSame
-            }) {
-                return current
-            }
-            // 尝试创建
-            do {
-                let normalizedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-                let appIDNameSource = normalizedName.isEmpty ? current : normalizedName
-                let appIDName = String(appIDNameSource.prefix(50))
-                _ = try await withCheckedThrowingContinuation { continuation in
-                    ALTAppleAPI.shared.addAppID(
-                        withName: appIDName,
-                        bundleIdentifier: current,
-                        team: team,
-                        session: session
-                    ) { created, error in
-                        Self.resume(continuation, value: created, error: error)
-                    }
-                }
-                return current
-            } catch ALTAppleAPIError.maximumAppIDLimitReached {
-                // 官方：已达上限，直接抛出，不重试不换后缀
-                throw ALTAppleAPIError(.maximumAppIDLimitReached)
-            } catch ALTAppleAPIError.bundleIdentifierUnavailable {
-                // 被其他账号占用，换随机后缀重试
-                guard attempt < 5 else { throw ALTAppleAPIError(.bundleIdentifierUnavailable) }
-                var next = Self.randomBundleIdentifier(current)
-                var dedup = 0
-                while tried.contains(next) && dedup < 10 {
-                    next = Self.randomBundleIdentifier(current)
-                    dedup += 1
-                }
-                tried.insert(next)
-                current = next
-                continue
-            } catch ALTAppleAPIError.invalidAnisetteData {
-                // Anisette 失效直接抛出，让顶层重置后完整重试
-                throw error
-            } catch {
-                // 网络/服务器临时错误，重试 3 次
-                if attempt < 3 {
-                    try await Task.sleep(nanoseconds: 2_000_000_000)
-                    continue
-                }
-                throw error
-            }
-        }
-        return current
     }
 
     private static func certificateFailure(error: Error, diagnostic: String) -> ImportFailure {
@@ -408,10 +313,7 @@ actor ApplePortalSigningService {
             )
             try Task.checkCancellation()
 
-            // 在 prepare 之前预创建主应用 App ID：被占用则自动换随机后缀，
-            // 确保 prepare 写入 IPA 的 Bundle ID 与最终 App ID 一致，避免签名/安装不匹配
-            await progress(.preparingAppID)
-            stage = .appID
+            // 预创建主应用 App ID，被占用则自动换 1-3 位随机后缀
             let resolvedMainBundleID = try await resolveMainAppBundleID(
                 requested: targetBundleIdentifier,
                 original: app.originalBundleIdentifier,
@@ -419,6 +321,7 @@ actor ApplePortalSigningService {
                 team: team,
                 session: session
             )
+            try Task.checkCancellation()
 
             stage = .packaging
             let prepared = try signingWorkspace.prepare(
@@ -432,6 +335,7 @@ actor ApplePortalSigningService {
             )
             try Task.checkCancellation()
 
+            await progress(.preparingAppID)
             stage = .appID
             let profilePreparation = try await provisioningProfiles(
                 mappings: prepared.bundleIDMappings,
@@ -442,7 +346,6 @@ actor ApplePortalSigningService {
                 allowDroppingExtensions: allowDroppingExtensions,
                 team: team,
                 session: session,
-                certificateSerialNumber: identity.certificate.serialNumber,
                 progress: progress
             )
             try Task.checkCancellation()
@@ -507,9 +410,9 @@ actor ApplePortalSigningService {
             throw ALTAppleAPIError(.invalidAnisetteData)
         } catch ALTAppleAPIError.maximumAppIDLimitReached {
             throw Self.failure(
-                title: "7 天内最多注册 10 个 App ID",
-                reason: "已达到 App ID 数量上限（10个）。App ID 无法手动删除，7 天后自动过期。请到「已签名 App」查看过期时间，或换其他 Apple ID 签名。",
-                recovery: "知道了",
+                title: "App ID 名额已满",
+                reason: "Apple 返回 App ID 数量已达到账号上限。",
+                recovery: "使用其他 Bundle ID 或开发者账号。",
                 code: "SEAL-APPID-301"
             )
         } catch ALTAppleAPIError.incorrectCredentials {
@@ -903,7 +806,6 @@ actor ApplePortalSigningService {
         allowDroppingExtensions: Bool,
         team: ALTTeam,
         session: ALTAppleAPISession,
-        certificateSerialNumber: String,
         progress: @Sendable (SigningStage) async -> Void
     ) async throws -> ProfilePreparation {
         guard let mainApplication = ALTApplication(fileURL: appURL) else {
@@ -937,51 +839,34 @@ actor ApplePortalSigningService {
                 }) {
                     appID = found
                 } else {
-                    var createError: Error?
-                    for createAttempt in 1...3 {
-                        do {
-                            let createdBox: LegacyBox<ALTAppID> =
-                                try await withCheckedThrowingContinuation { continuation in
-                                    let normalizedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    let appIDNameSource = normalizedName.isEmpty ? mappedBundleID : normalizedName
-                                    let appIDName = String(appIDNameSource.prefix(50))
-                                    ALTAppleAPI.shared.addAppID(
-                                        withName: appIDName,
-                                        bundleIdentifier: mappedBundleID,
-                                        team: team,
-                                        session: session
-                                    ) { created, error in
-                                        Self.resume(continuation, value: created, error: error)
-                                    }
+                    do {
+                        let createdBox: LegacyBox<ALTAppID> =
+                            try await withCheckedThrowingContinuation { continuation in
+                                let normalizedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                let appIDNameSource = normalizedName.isEmpty ? mappedBundleID : normalizedName
+                                let appIDName = String(appIDNameSource.prefix(50))
+                                ALTAppleAPI.shared.addAppID(
+                                    withName: appIDName,
+                                    bundleIdentifier: mappedBundleID,
+                                    team: team,
+                                    session: session
+                                ) { created, error in
+                                    Self.resume(continuation, value: created, error: error)
                                 }
-                            appID = createdBox.value
-                            createError = nil
-                            break
-                        } catch ALTAppleAPIError.bundleIdentifierUnavailable {
-                            let refreshed = try await fetchAppIDs(team: team, session: session)
-                            if let found = refreshed.first(where: {
-                                ApplePortalAppIDResolver.matches(
-                                    existingBundleIdentifier: $0.bundleIdentifier,
-                                    requestedBundleIdentifier: mappedBundleID
-                                )
-                            }) {
-                                appID = found
-                                createError = nil
-                            } else {
-                                createError = ALTAppleAPIError(.bundleIdentifierUnavailable)
                             }
-                            break
-                        } catch ALTAppleAPIError.invalidAnisetteData {
-                            throw error
-                        } catch {
-                            createError = error
-                            if createAttempt < 3 {
-                                try await Task.sleep(nanoseconds: 2_000_000_000)
-                                continue
-                            }
+                        appID = createdBox.value
+                    } catch ALTAppleAPIError.bundleIdentifierUnavailable {
+                        let refreshed = try await fetchAppIDs(team: team, session: session)
+                        guard let found = refreshed.first(where: {
+                            ApplePortalAppIDResolver.matches(
+                                existingBundleIdentifier: $0.bundleIdentifier,
+                                requestedBundleIdentifier: mappedBundleID
+                            )
+                        }) else {
+                            throw ALTAppleAPIError(.bundleIdentifierUnavailable)
                         }
+                        appID = found
                     }
-                    if let createError { throw createError }
                     existing.append(appID)
                 }
 
@@ -1043,13 +928,10 @@ actor ApplePortalSigningService {
         for preparedAppID in preparedAppIDs {
             do {
                 try Task.checkCancellation()
-                // 证书刚创建/更新时 Apple 服务器同步有延迟，描述文件可能还是旧证书。
-                // 获取后立即校验是否包含当前签名证书，不包含则等待后重试，最多 3 次。
-                let profile = try await fetchProvisioningProfileWithCertificateCheck(
+                let profile = try await fetchProvisioningProfile(
                     for: preparedAppID.appID,
                     team: team,
-                    session: session,
-                    expectedCertificateSerialNumber: certificateSerialNumber
+                    session: session
                 )
                 profiles.append(profile)
             } catch is CancellationError {
@@ -1095,6 +977,77 @@ actor ApplePortalSigningService {
     }
 
 
+    /// 生成带 1-3 位随机数后缀的 Bundle ID：com.xxx.seal -> com.xxx.seal7 / .seal42 / .seal365
+    private static func randomBundleIdentifier(_ identifier: String) -> String {
+        // 去掉末尾已有的数字后缀
+        var index = identifier.endIndex
+        while index > identifier.startIndex {
+            let prev = identifier.index(before: index)
+            if identifier[prev].isNumber {
+                index = prev
+            } else {
+                break
+            }
+        }
+        let base = String(identifier[..<index])
+        let suffix = Int.random(in: 0...999)
+        return "\(base)\(suffix)"
+    }
+
+    /// 在 prepare 前预创建主应用 App ID，被占用则自动换 1-3 位随机后缀
+    private func resolveMainAppBundleID(
+        requested: String?,
+        original: String,
+        displayName: String,
+        team: ALTTeam,
+        session: ALTAppleAPISession
+    ) async throws -> String {
+        let initial = requested ?? BundleIDPolicy.recommendedBundleIdentifier(for: original)
+        let existing = try await fetchAppIDs(team: team, session: session)
+        // 官方：7 天内最多 10 个 App ID，满了直接报错，不换后缀
+        if existing.count >= 10 {
+            throw ALTAppleAPIError.maximumAppIDLimitReached
+        }
+        var tried = Set<String>()
+        tried.insert(initial)
+        var current = initial
+        for attempt in 1...5 {
+            // 已存在则直接用
+            if existing.contains(where: {
+                $0.bundleIdentifier.caseInsensitiveCompare(current) == .orderedSame
+            }) {
+                return current
+            }
+            // 尝试创建
+            do {
+                let normalizedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let appIDNameSource = normalizedName.isEmpty ? current : normalizedName
+                let appIDName = String(appIDNameSource.prefix(50))
+                let box: LegacyBox<ALTAppID> = try await withCheckedThrowingContinuation { continuation in
+                    ALTAppleAPI.shared.addAppID(
+                        withName: appIDName,
+                        bundleIdentifier: current,
+                        team: team,
+                        session: session
+                    ) { created, error in
+                        Self.resume(continuation, value: created, error: error)
+                    }
+                }
+                _ = box.value
+                return current
+            } catch ALTAppleAPIError.maximumAppIDLimitReached {
+                throw ALTAppleAPIError.maximumAppIDLimitReached
+            } catch ALTAppleAPIError.bundleIdentifierUnavailable {
+                guard attempt < 5 else { throw ALTAppleAPIError.bundleIdentifierUnavailable }
+                repeat {
+                    current = Self.randomBundleIdentifier(initial)
+                } while tried.contains(current)
+                tried.insert(current)
+            }
+        }
+        throw ALTAppleAPIError.bundleIdentifierUnavailable
+    }
+
     private func fetchAppIDs(
         team: ALTTeam,
         session: ALTAppleAPISession
@@ -1127,52 +1080,6 @@ actor ApplePortalSigningService {
         return box.value
     }
 
-
-
-    /// 获取描述文件并校验是否包含当前签名证书。
-    /// 证书刚创建/更新时 Apple 服务器同步有延迟，描述文件可能还是旧证书，
-    /// 这里最多重试 3 次，每次间隔 2 秒，给 Apple 服务器同步时间。
-    private func fetchProvisioningProfileWithCertificateCheck(
-        for appID: ALTAppID,
-        team: ALTTeam,
-        session: ALTAppleAPISession,
-        expectedCertificateSerialNumber: String
-    ) async throws -> ALTProvisioningProfile {
-        let normalizedExpected = expectedCertificateSerialNumber.filter(\.isHexDigit).uppercased()
-        var lastError: Error?
-        for attempt in 1...3 {
-            do {
-                let profile = try await fetchProvisioningProfile(for: appID, team: team, session: session)
-                // 官方 ALTProvisioningProfile.certificates 直接包含证书列表，
-                // 每个 ALTCertificate 有 serialNumber 属性
-                let profileSerials = Set(profile.certificates.compactMap { cert in
-                    cert.serialNumber?.filter(\.isHexDigit).uppercased()
-                })
-                if profileSerials.contains(normalizedExpected) {
-                    return profile
-                }
-                lastError = ImportFailure(
-                    title: "描述文件校验失败",
-                    reason: "描述文件不包含当前签名证书（第 \(attempt) 次获取），Apple 服务器同步延迟，正在重试...",
-                    recovery: "等待 Apple 服务器同步后自动重试",
-                    code: "SEAL-PROFILE-313"
-                )
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                lastError = error
-            }
-            if attempt < 3 {
-                try await Task.sleep(nanoseconds: 2_000_000_000)
-            }
-        }
-        throw lastError ?? Self.failure(
-            title: "描述文件校验失败",
-            reason: "描述文件不包含当前签名证书，已重试 3 次仍未同步。",
-            recovery: "稍后重试，或检查 Apple ID 证书状态",
-            code: "SEAL-PROFILE-313"
-        )
-    }
 
     private func updateFeatures(
         appID: ALTAppID,
