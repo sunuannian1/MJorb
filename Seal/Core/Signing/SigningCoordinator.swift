@@ -30,7 +30,7 @@ actor SigningCoordinator {
         accountID: UUID,
         requestedBundleIdentifier: String? = nil,
         selectedCertificateSerialNumber: String? = nil,
-        allowDroppingExtensions: Bool = false,
+        allowDroppingExtensions: Bool = true,
         installAfterSigning: Bool = true,
         progress: @Sendable (SigningStage) async -> Void
     ) async throws -> AppRecord {

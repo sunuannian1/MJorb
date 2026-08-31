@@ -40,6 +40,7 @@ struct AppRecord: Codable, Equatable, Identifiable, Sendable {
     var isPinned: Bool
     let importedAt: Date
     var extensions: [AppExtensionRecord]
+    var importWarnings: [String]
 
     init(
         id: UUID = UUID(),
@@ -80,7 +81,8 @@ struct AppRecord: Codable, Equatable, Identifiable, Sendable {
         isSeal: Bool = false,
         isPinned: Bool = false,
         importedAt: Date,
-        extensions: [AppExtensionRecord] = []
+        extensions: [AppExtensionRecord] = [],
+        importWarnings: [String] = []
     ) {
         self.id = id
         self.originalBundleIdentifier = originalBundleIdentifier
@@ -121,6 +123,7 @@ struct AppRecord: Codable, Equatable, Identifiable, Sendable {
         self.isPinned = isPinned
         self.importedAt = importedAt
         self.extensions = extensions
+        self.importWarnings = importWarnings
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -163,6 +166,7 @@ struct AppRecord: Codable, Equatable, Identifiable, Sendable {
         case isPinned
         case importedAt
         case extensions
+        case importWarnings
     }
 
     init(from decoder: Decoder) throws {

@@ -342,7 +342,8 @@ actor ImportWorkflow {
             isSeal: false,
             isPinned: isPinned,
             importedAt: importedAt,
-            extensions: parsed.extensions
+            extensions: parsed.extensions,
+            importWarnings: parsed.importWarnings
         )
     }
 

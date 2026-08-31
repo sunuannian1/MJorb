@@ -884,7 +884,7 @@ actor ApplePortalSigningService {
                     existing.append(appID)
                 }
 
-                if let application = applications[mappedBundleID] {
+                if let application = applications[originalBundleID] {
                     let entitlementSource = filteredAppIDEntitlements(from: application, team: team)
                     var entitlementValues: [String: ProvisioningEntitlementValue] = [:]
                     for (entitlement, value) in entitlementSource {

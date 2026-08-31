@@ -9,4 +9,5 @@ struct ParsedIPA: Equatable, Sendable {
     let iconData: Data?
     let extensions: [AppExtensionRecord]
     let entitlementKeys: Set<String>
+    let importWarnings: [String]
 }

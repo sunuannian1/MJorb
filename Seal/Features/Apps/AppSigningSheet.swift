@@ -173,6 +173,25 @@ struct AppSigningSheet: View {
                 Divider().padding(.leading, 14)
             }
 
+            if workingApp.importWarnings.isEmpty == false {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(workingApp.importWarnings, id: \.self) { warning in
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(Color.sealWarning)
+                            Text(warning)
+                                .font(.caption)
+                                .foregroundStyle(Color.sealTextSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                Divider().padding(.leading, 14)
+            }
+
             if isRenewal == false {
                 Button { isNameEditorPresented = true } label: {
                     summaryRow(title: "App 名称", value: workingApp.displayName, showsDisclosure: true)

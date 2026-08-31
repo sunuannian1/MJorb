@@ -105,6 +105,10 @@ struct IPAParserService: Sendable {
             entries: entries,
             archive: archive
         )
+        let importWarnings = detectImportWarnings(
+            appRoot: appRoot,
+            entries: entries
+        )
         let fileSize = try sourceFileSize(at: sourceURL)
 
         return ParsedIPA(
@@ -115,7 +119,8 @@ struct IPAParserService: Sendable {
             fileSize: fileSize,
             iconData: iconData,
             extensions: appExtensions,
-            entitlementKeys: entitlementKeys
+            entitlementKeys: entitlementKeys,
+            importWarnings: importWarnings
         )
     }
 
@@ -317,6 +322,58 @@ struct IPAParserService: Sendable {
             }
             keys.formUnion(info.keys)
         }
+    }
+
+    /// 预检 IPA 中可能导致签名失败的问题，返回用户可读的警告
+    private func detectImportWarnings(
+        appRoot: String,
+        entries: [Entry]
+    ) -> [String] {
+        var warnings: [String] = []
+
+        // 检测 Watch app（免费账号不支持）
+        let hasWatchApp = entries.contains { entry in
+            entry.path.hasPrefix("\(appRoot)/Watch/")
+                && entry.path.hasSuffix(".app/Info.plist")
+        }
+        if hasWatchApp {
+            warnings.append("包含 Apple Watch 应用，免费账号签名时会自动移除 Watch 部分")
+        }
+
+        // 检测包内证书文件（可疑，可能导致签名问题）
+        let hasEmbeddedCertificate = entries.contains { entry in
+            let lower = entry.path.lowercased()
+            return lower.hasSuffix(".p12")
+                || lower.hasSuffix(".cer")
+                || lower.hasSuffix(".cert")
+                || lower.hasSuffix(".mobileprovision")
+        }
+        if hasEmbeddedCertificate {
+            warnings.append("包内包含证书或描述文件，签名时会被移除")
+        }
+
+        // 检测越狱运行时（substrate 等）
+        let hasJailbreakRuntime = entries.contains { entry in
+            let lower = entry.path.lowercased()
+            return lower.contains("substrate")
+                || lower.contains("cycript")
+                || lower.contains("rocketbootstrap")
+                || lower.contains("liberty")
+        }
+        if hasJailbreakRuntime {
+            warnings.append("包含越狱运行时或插件，可能影响签名稳定性")
+        }
+
+        // 检测扩展数量
+        let extensionCount = entries.filter { entry in
+            entry.path.hasPrefix("\(appRoot)/PlugIns/")
+                && entry.path.hasSuffix(".appex/Info.plist")
+        }.count
+        if extensionCount > 3 {
+            warnings.append("包含 \(extensionCount) 个应用扩展，部分扩展可能无法签名")
+        }
+
+        return warnings
     }
 
     private func sourceFileSize(at url: URL) throws -> Int64 {
