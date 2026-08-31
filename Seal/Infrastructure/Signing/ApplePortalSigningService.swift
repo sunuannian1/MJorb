@@ -87,13 +87,65 @@ enum ApplePortalSigningFailure {
             )
         }
 
+                // Bundle ID 格式不合法
+        if normalized.contains("invalid characters")
+            || normalized.contains("invalid bundle identifier")
+            || normalized.contains("bundle identifier must")
+            || normalized.contains("underscore")
+            || (normalized.contains("bundle") && normalized.contains("format")) {
+            return ImportFailure(
+                title: "Bundle ID 格式不合法",
+                reason: "Bundle ID 只能包含字母、数字、点和短横线，不能包含下划线或其他特殊字符。Apple 返回：\(rawMessage)",
+                recovery: "修改 Bundle ID 后重试",
+                code: "SEAL-APPID-305"
+            )
+        }
+
+        // Session 过期
+        if normalized.contains("session expired")
+            || normalized.contains("session invalid")
+            || normalized.contains("your session has expired")
+            || normalized.contains("authentication token expired") {
+            return ImportFailure(
+                title: "Apple ID 会话已过期",
+                reason: "当前 Apple ID 登录会话已失效，需要重新验证。",
+                recovery: "重新验证 Apple ID",
+                code: "SEAL-APPID-306"
+            )
+        }
+
+        // 账号权限不足
+        if normalized.contains("permission")
+            || normalized.contains("not authorized")
+            || normalized.contains("you do not have permission")
+            || normalized.contains("insufficient privileges") {
+            return ImportFailure(
+                title: "账号权限不足",
+                reason: "当前 Apple ID 没有创建 App ID 的权限，可能是团队角色限制或账号状态异常。",
+                recovery: "确认 Apple ID 状态，或使用其他 Apple ID",
+                code: "SEAL-APPID-307"
+            )
+        }
+
+        // Apple 服务器维护/不可用
+        if normalized.contains("service unavailable")
+            || normalized.contains("maintenance")
+            || normalized.contains("temporarily unavailable")
+            || normalized.contains("try again later") {
+            return ImportFailure(
+                title: "Apple 服务器暂时不可用",
+                reason: "Apple 开发者服务正在维护或暂时不可用。",
+                recovery: "稍后重试",
+                code: "SEAL-APPID-308"
+            )
+        }
+
         return ImportFailure(
             title: "App ID 创建失败",
             reason: "Apple 服务器未能创建该应用的 App ID。Apple 返回：\(diagnostic)",
             recovery: "检查网络后重试；如持续失败，尝试更换 Bundle ID 或使用其他开发者账号",
             code: "SEAL-APPID-303"
         )
-    }
 
 
     /// 生成带 1-3 位随机数后缀的 Bundle ID：com.xxx.seal -> com.xxx.seal7 / .seal42 / .seal365

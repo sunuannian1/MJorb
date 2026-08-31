@@ -95,9 +95,9 @@ public class LockDownInstall: InstallProvider {
         }
         let path = "./\(MuxerConstants.pkgPath)/\(bundleId)/app.ipa"
         print("[minimuxer] Installing...")
-        if !inst.install(path: path) {
-            print("[minimuxer] ERROR: Install failed")
-            throw MinimuxerError.InstallApp("Failed to install")
+        if let installError = inst.install(path: path) {
+            print("[minimuxer] ERROR: Install failed: \(installError)")
+            throw MinimuxerError.InstallApp(installError)
         }
         print("[minimuxer] Install done!")
     }

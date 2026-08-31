@@ -1,0 +1,31 @@
+﻿2026-08-30T13:21:38.6100540Z Current runner version: '2.336.0'
+2026-08-30T13:21:38.6119340Z ##[group]Runner Image Provisioner
+2026-08-30T13:21:38.6119960Z Hosted Compute Agent
+2026-08-30T13:21:38.6120530Z Version: 20260707.563
+2026-08-30T13:21:38.6120990Z Commit: 02667638d2b423fbc733a8e32a88b44996a3ba6e
+2026-08-30T13:21:38.6121690Z Build Date: 2026-07-07T19:33:50Z
+2026-08-30T13:21:38.6122190Z Worker ID: {0ba479f0-169d-42be-9701-639fc805a7a4}
+2026-08-30T13:21:38.6122670Z Azure Region: westus
+2026-08-30T13:21:38.6123060Z ##[endgroup]
+2026-08-30T13:21:38.6124370Z ##[group]Operating System
+2026-08-30T13:21:38.6124910Z macOS
+2026-08-30T13:21:38.6125290Z 26.5.2
+2026-08-30T13:21:38.6125630Z 25F84
+2026-08-30T13:21:38.6125970Z ##[endgroup]
+2026-08-30T13:21:38.6126310Z ##[group]Runner Image
+2026-08-30T13:21:38.6126690Z Image: macos-26-arm64
+2026-08-30T13:21:38.6127080Z Version: 20260728.0273.1
+2026-08-30T13:21:38.6127820Z Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20260728.0273/images/macos/macos-26-arm64-Readme.md
+2026-08-30T13:21:38.6129120Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20260728.0273
+2026-08-30T13:21:38.6129780Z ##[endgroup]
+2026-08-30T13:21:38.6130560Z ##[group]GITHUB_TOKEN Permissions
+2026-08-30T13:21:38.6132250Z Contents: read
+2026-08-30T13:21:38.6132620Z Metadata: read
+2026-08-30T13:21:38.6132990Z ##[endgroup]
+2026-08-30T13:21:38.6134530Z Secret source: Actions
+2026-08-30T13:21:38.6135320Z Prepare workflow directory
+2026-08-30T13:21:38.6473570Z Prepare all required actions
+2026-08-30T13:21:38.6519630Z Getting action download info
+2026-08-30T13:21:39.0431390Z Download action repository 'actions/checkout@v6.0.2' (SHA:de0fac2e4500dabe0009e67214ff5f5447ce83dd)
+2026-08-30T13:21:39.3460200Z Download action repository 'actions/upload-artifact@v7.0.1' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+2026-08-30T13:21:39.5107890Z Complete job name: fast-ipa

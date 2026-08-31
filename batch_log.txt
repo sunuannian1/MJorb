@@ -1,0 +1,50 @@
+2026-08-30T12:54:54Z INFO renewal [SEAL-BATCH-DEBUG-6] [BatchDebug] dismissBatchRefresh called, status=completed(Seal.BatchRefreshResult(total: 3, succeeded: 2, failed: 1, remaining: 1))
+2026-08-30T12:54:47Z WARNING renewal [SEAL-BATCH-DEBUG-3] [BatchDebug] restore skipped: session=true task=false
+2026-08-30T12:54:47Z WARNING renewal 全部续签完成
+2026-08-30T12:54:00Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:53:59Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:53:58Z INFO signing 应用续签与安装完成
+2026-08-30T12:53:42Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:53:41Z INFO signing 准备签名：Lanerc，Apple ID：sun***n***@gmail.com，Team：[redacted]] ID：com.lanerc.app.lanercApp1.seal
+2026-08-30T12:53:38Z ERROR account [SEAL-INVENTORY-900a] Apple 返回：证书状态同步失败
+2026-08-30T12:53:38Z INFO account Apple App ID 已同步：4 个可用 App ID
+2026-08-30T12:53:38Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:53:32Z INFO account Apple App ID 已同步：4 个可用 App ID
+2026-08-30T12:53:28Z ERROR account [SEAL-INVENTORY-900a] Apple 返回：证书状态同步失败
+2026-08-30T12:53:15Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:53:09Z INFO installation LocalDevVPN 正常
+2026-08-30T12:53:02Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:53:02Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:52:53Z INFO renewal [SEAL-BATCH-DEBUG-2] [BatchDebug] persisted: total=3 succeeded=2 failed=1 items=3
+2026-08-30T12:52:21Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:52:19Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:52:19Z INFO signing 应用签名与安装完成
+2026-08-30T12:52:01Z INFO signing 准备签名：Guoguo，Apple ID：sun***n***@gmail.com，Team：[redacted]] ID：com.example.dongmangongheguo1.seal
+2026-08-30T12:52:00Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:51:53Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:51:51Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:51:49Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:51:49Z INFO signing 应用签名与安装完成
+2026-08-30T12:51:33Z INFO signing 准备签名：Lanerc，Apple ID：sun***n***@gmail.com，Team：[redacted]] ID：com.lanerc.app.lanercApp1.seal
+2026-08-30T12:51:29Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:51:18Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:51:17Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:51:13Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:51:13Z ERROR signing [SEAL-APPID-302] Bundle ID 已被占用：这个 Bundle ID 已被其他开发者账号注册，当前账号无法使用。
+2026-08-30T12:51:03Z INFO signing 准备签名：Lanerc，Apple ID：sun***n***@gmail.com，Team：[redacted]] ID：com.lanerc.app.lanercApp.seal
+2026-08-30T12:51:02Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:50:54Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:50:47Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:50:46Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:50:40Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:50:31Z INFO renewal [SEAL-BATCH-DEBUG-4] [BatchDebug] restore skipped: no pending data in UserDefaults
+2026-08-30T12:50:24Z ERROR account [SEAL-INVENTORY-900a] Apple 返回：证书状态同步失败
+2026-08-30T12:50:24Z INFO account Apple App ID 已同步：2 个可用 App ID
+2026-08-30T12:50:23Z ERROR account [SEAL-INVENTORY-900a] Apple 返回：证书状态同步失败
+2026-08-30T12:50:22Z ERROR account [SEAL-INVENTORY-900a] Apple 返回：证书状态同步失败
+2026-08-30T12:50:21Z ERROR account [SEAL-INVENTORY-900a] Apple 返回：证书状态同步失败
+2026-08-30T12:50:03Z ERROR account [SEAL-INVENTORY-900a] Apple 返回：证书状态同步失败
+2026-08-30T12:49:55Z ERROR account [SEAL-INVENTORY-900a] Apple 返回：证书状态同步失败
+2026-08-30T12:49:55Z INFO account Apple App ID 已同步：2 个可用 App ID
+2026-08-30T12:49:53Z INFO account Apple 侧证书状态已同步
+2026-08-30T12:49:42Z ERROR account [SEAL-INVENTORY-900a] Apple 返回：证书状态同步失败

@@ -86,7 +86,7 @@ internal func _rust_bridge_afc_read_directory(_ client: UnsafeMutableRawPointer?
 internal func _rust_bridge_instproxy_new(_ device: UnsafeMutableRawPointer?, _ label: UnsafePointer<Int8>?) -> UnsafeMutableRawPointer?
 
 @_silgen_name("rust_bridge_instproxy_install")
-internal func _rust_bridge_instproxy_install(_ client: UnsafeMutableRawPointer?, _ path: UnsafePointer<Int8>?) -> Bool
+internal func _rust_bridge_instproxy_install(_ client: UnsafeMutableRawPointer?, _ path: UnsafePointer<Int8>?) -> UnsafeMutablePointer<CChar>?
 
 @_silgen_name("rust_bridge_instproxy_uninstall")
 internal func _rust_bridge_instproxy_uninstall(_ client: UnsafeMutableRawPointer?, _ bundle_id: UnsafePointer<Int8>?) -> Bool

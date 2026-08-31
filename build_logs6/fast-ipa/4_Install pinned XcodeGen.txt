@@ -1,0 +1,12 @@
+﻿2026-08-30T12:24:20.1373620Z ##[group]Run curl --fail --location --silent --show-error \
+2026-08-30T12:24:20.1374050Z [36;1mcurl --fail --location --silent --show-error \[0m
+2026-08-30T12:24:20.1374330Z [36;1m  --output "$RUNNER_TEMP/xcodegen.zip" \[0m
+2026-08-30T12:24:20.1374800Z [36;1m  https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip[0m
+2026-08-30T12:24:20.1375450Z [36;1mecho "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 --check[0m
+2026-08-30T12:24:20.1375960Z [36;1mditto -x -k "$RUNNER_TEMP/xcodegen.zip" "$RUNNER_TEMP"[0m
+2026-08-30T12:24:20.1376250Z [36;1mecho "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"[0m
+2026-08-30T12:24:20.1376540Z [36;1m"$RUNNER_TEMP/xcodegen/bin/xcodegen" --version[0m
+2026-08-30T12:24:20.1405130Z shell: /bin/bash -e {0}
+2026-08-30T12:24:20.1405350Z ##[endgroup]
+2026-08-30T12:24:20.6270470Z /Users/runner/work/_temp/xcodegen.zip: OK
+2026-08-30T12:24:20.6741460Z Version: 2.45.4

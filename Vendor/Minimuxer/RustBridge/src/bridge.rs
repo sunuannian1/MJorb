@@ -326,10 +326,13 @@ pub extern "C" fn rust_bridge_instproxy_new(
 pub extern "C" fn rust_bridge_instproxy_install(
     client: *mut InstProxyWrapper,
     path: *const c_char,
-) -> bool {
-    let Some(c) = (unsafe { client.as_ref() }) else { return false; };
-    let Some(path) = c_string_arg(path) else { return false; };
-    c.0.install(&path, None).is_ok()
+) -> *mut c_char {
+    let Some(c) = (unsafe { client.as_ref() }) else { return to_char("invalid client".into()); };
+    let Some(path) = c_string_arg(path) else { return to_char("invalid path".into()); };
+    match c.0.install(&path, None) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(e) => to_char(format!("{:?}", e)),
+    }
 }
 
 #[no_mangle]

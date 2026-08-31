@@ -1,0 +1,12 @@
+﻿2026-08-30T13:27:48.8819410Z ##[group]Run TARGET="$(xcodebuild \
+2026-08-30T13:27:48.8819740Z [36;1mTARGET="$(xcodebuild \[0m
+2026-08-30T13:27:48.8822290Z [36;1m  -project Seal.xcodeproj \[0m
+2026-08-30T13:27:48.8823270Z [36;1m  -target Seal \[0m
+2026-08-30T13:27:48.8824080Z [36;1m  -configuration Debug \[0m
+2026-08-30T13:27:48.8825130Z [36;1m  -sdk iphonesimulator \[0m
+2026-08-30T13:27:48.8825660Z [36;1m  -showBuildSettings | awk -F ' = ' '/^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = / { print $2; exit }')"[0m
+2026-08-30T13:27:48.8826110Z [36;1mecho "Seal IPHONEOS_DEPLOYMENT_TARGET=$TARGET"[0m
+2026-08-30T13:27:48.8826420Z [36;1mtest "$TARGET" = "16.0"[0m
+2026-08-30T13:27:48.8871840Z shell: /bin/bash -e {0}
+2026-08-30T13:27:48.8872730Z ##[endgroup]
+2026-08-30T13:28:22.3562950Z Seal IPHONEOS_DEPLOYMENT_TARGET=16.0
