@@ -120,6 +120,69 @@ enum ApplePortalSigningFailure {
         return "\(base)\(suffix)"
     }
 
+    /// 在 prepare 之前预创建主应用 App ID，被占用则自动换 1-3 位随机后缀
+    private func resolveMainAppBundleID(
+        requested: String?,
+        original: String,
+        displayName: String,
+        team: ALTTeam,
+        session: ALTAppleAPISession
+    ) async throws -> String {
+        let initial = requested ?? BundleIDPolicy.recommendedBundleIdentifier(for: original)
+        let existing = try await fetchAppIDs(team: team, session: session)
+        var tried = Set<String>()
+        tried.insert(initial)
+        var current = initial
+        for attempt in 1...5 {
+            // 已存在则直接用
+            if existing.contains(where: {
+                $0.bundleIdentifier.caseInsensitiveCompare(current) == .orderedSame
+            }) {
+                return current
+            }
+            // 尝试创建
+            do {
+                let normalizedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let appIDNameSource = normalizedName.isEmpty ? current : normalizedName
+                let appIDName = String(appIDNameSource.prefix(50))
+                _ = try await withCheckedThrowingContinuation { continuation in
+                    ALTAppleAPI.shared.addAppID(
+                        withName: appIDName,
+                        bundleIdentifier: current,
+                        team: team,
+                        session: session
+                    ) { created, error in
+                        Self.resume(continuation, value: created, error: error)
+                    }
+                }
+                return current
+            } catch ALTAppleAPIError.bundleIdentifierUnavailable {
+                // 被其他账号占用，换随机后缀重试
+                guard attempt < 5 else { throw ALTAppleAPIError(.bundleIdentifierUnavailable) }
+                var next = Self.randomBundleIdentifier(current)
+                var dedup = 0
+                while tried.contains(next) && dedup < 10 {
+                    next = Self.randomBundleIdentifier(current)
+                    dedup += 1
+                }
+                tried.insert(next)
+                current = next
+                continue
+            } catch ALTAppleAPIError.invalidAnisetteData {
+                // Anisette 失效直接抛出，让顶层重置后完整重试
+                throw error
+            } catch {
+                // 网络/服务器临时错误，重试 3 次
+                if attempt < 3 {
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                    continue
+                }
+                throw error
+            }
+        }
+        return current
+    }
+
     private static func certificateFailure(error: Error, diagnostic: String) -> ImportFailure {
         let nsError = error as NSError
         let rawMessage = nsError.localizedDescription
@@ -337,19 +400,30 @@ actor ApplePortalSigningService {
             )
             try Task.checkCancellation()
 
+            // 在 prepare 之前预创建主应用 App ID：被占用则自动换随机后缀，
+            // 确保 prepare 写入 IPA 的 Bundle ID 与最终 App ID 一致，避免签名/安装不匹配
+            await progress(.preparingAppID)
+            stage = .appID
+            let resolvedMainBundleID = try await resolveMainAppBundleID(
+                requested: targetBundleIdentifier,
+                original: app.originalBundleIdentifier,
+                displayName: app.displayName,
+                team: team,
+                session: session
+            )
+
             stage = .packaging
             let prepared = try signingWorkspace.prepare(
                 ipaURL: originalIPAURL,
                 workspaceRoot: workspaceRoot,
                 originalBundleID: app.originalBundleIdentifier,
                 teamID: team.identifier,
-                targetMainBundleID: targetBundleIdentifier,
+                targetMainBundleID: resolvedMainBundleID,
                 preferredDisplayName: app.preferredDisplayName,
                 preferredIconData: preferredIconData
             )
             try Task.checkCancellation()
 
-            await progress(.preparingAppID)
             stage = .appID
             let profilePreparation = try await provisioningProfiles(
                 mappings: prepared.bundleIDMappings,
@@ -845,28 +919,25 @@ actor ApplePortalSigningService {
             do {
                 try Task.checkCancellation()
                 var appID: ALTAppID
-                var actualMappedBundleID = mappedBundleID
                 if let found = existing.first(where: {
                     ApplePortalAppIDResolver.matches(
                         existingBundleIdentifier: $0.bundleIdentifier,
-                        requestedBundleIdentifier: actualMappedBundleID
+                        requestedBundleIdentifier: mappedBundleID
                     )
                 }) {
                     appID = found
                 } else {
-                    var triedBundleIDs = Set<String>()
-                    triedBundleIDs.insert(actualMappedBundleID)
                     var createError: Error?
-                    for createAttempt in 1...5 {
+                    for createAttempt in 1...3 {
                         do {
                             let createdBox: LegacyBox<ALTAppID> =
                                 try await withCheckedThrowingContinuation { continuation in
                                     let normalizedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    let appIDNameSource = normalizedName.isEmpty ? actualMappedBundleID : normalizedName
+                                    let appIDNameSource = normalizedName.isEmpty ? mappedBundleID : normalizedName
                                     let appIDName = String(appIDNameSource.prefix(50))
                                     ALTAppleAPI.shared.addAppID(
                                         withName: appIDName,
-                                        bundleIdentifier: actualMappedBundleID,
+                                        bundleIdentifier: mappedBundleID,
                                         team: team,
                                         session: session
                                     ) { created, error in
@@ -881,37 +952,16 @@ actor ApplePortalSigningService {
                             if let found = refreshed.first(where: {
                                 ApplePortalAppIDResolver.matches(
                                     existingBundleIdentifier: $0.bundleIdentifier,
-                                    requestedBundleIdentifier: actualMappedBundleID
+                                    requestedBundleIdentifier: mappedBundleID
                                 )
                             }) {
                                 appID = found
                                 createError = nil
-                                break
-                            }
-                            // 被其他账号占用，自动换 1-3 位随机后缀重试
-                            if createAttempt < 5 {
-                                var nextID = Self.randomBundleIdentifier(actualMappedBundleID)
-                                var dedupAttempts = 0
-                                while triedBundleIDs.contains(nextID) && dedupAttempts < 10 {
-                                    nextID = Self.randomBundleIdentifier(actualMappedBundleID)
-                                    dedupAttempts += 1
-                                }
-                                guard triedBundleIDs.contains(nextID) == false else {
-                                    createError = ALTAppleAPIError(.bundleIdentifierUnavailable)
-                                    break
-                                }
-                                triedBundleIDs.insert(nextID)
-                                if let app = applications[actualMappedBundleID] {
-                                    applications[nextID] = app
-                                    applications.removeValue(forKey: actualMappedBundleID)
-                                }
-                                actualMappedBundleID = nextID
-                                continue
                             } else {
                                 createError = ALTAppleAPIError(.bundleIdentifierUnavailable)
                             }
+                            break
                         } catch ALTAppleAPIError.invalidAnisetteData {
-                            // Anisette 失效直接抛出，让顶层重置后完整重试，不在这里傻等
                             throw error
                         } catch {
                             createError = error
@@ -925,21 +975,21 @@ actor ApplePortalSigningService {
                     existing.append(appID)
                 }
 
-                if let application = applications[actualMappedBundleID] {
+                if let application = applications[mappedBundleID] {
                     let entitlementSource = filteredAppIDEntitlements(from: application, team: team)
                     var entitlementValues: [String: ProvisioningEntitlementValue] = [:]
                     for (entitlement, value) in entitlementSource {
                         guard let converted = ProvisioningEntitlementValue.make(from: value) else {
                             throw Self.failure(
                                 title: "应用权限无法解析",
-                                reason: "\(actualMappedBundleID) 的权限 \(entitlement.rawValue) 包含无法校验的值类型。",
+                                reason: "\(mappedBundleID) 的权限 \(entitlement.rawValue) 包含无法校验的值类型。",
                                 recovery: "检查 IPA 权限或使用支持该能力的账号",
                                 code: "SEAL-ENTITLEMENT-403"
                             )
                         }
                         entitlementValues[entitlement.rawValue] = converted
                     }
-                    requestedEntitlements[actualMappedBundleID] = entitlementValues
+                    requestedEntitlements[mappedBundleID] = entitlementValues
                     appID = try await updateFeatures(
                         appID: appID,
                         application: application,
@@ -955,11 +1005,11 @@ actor ApplePortalSigningService {
                         )
                     }
                 }
-                preparedAppIDs.append((originalBundleID, actualMappedBundleID, appID))
+                preparedAppIDs.append((originalBundleID, mappedBundleID, appID))
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                guard actualMappedBundleID != mappedMainBundleID else { throw error }
+                guard mappedBundleID != mappedMainBundleID else { throw error }
                 guard allowDroppingExtensions else {
                     throw Self.failure(
                         title: "签名失败",
@@ -969,10 +1019,10 @@ actor ApplePortalSigningService {
                     )
                 }
                 try signingWorkspace.removeExtension(
-                    mappedBundleIdentifier: actualMappedBundleID,
+                    mappedBundleIdentifier: mappedBundleID,
                     from: workspace
                 )
-                requestedEntitlements.removeValue(forKey: actualMappedBundleID)
+                requestedEntitlements.removeValue(forKey: mappedBundleID)
                 droppedExtensionBundleIdentifiers.append(originalBundleID)
             }
         }
