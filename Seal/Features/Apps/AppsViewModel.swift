@@ -1670,7 +1670,8 @@ final class AppsViewModel: ObservableObject {
                             kind: .share
                         )
                     ],
-                    entitlementKeys: []
+                    entitlementKeys: [],
+                    importWarnings: []
                 ),
                 stagedIPA: StagedIPA(
                     id: appID,
