@@ -131,7 +131,8 @@ struct PairingSettingsView: View {
             Text(value)
                 .foregroundStyle(Color.sealTextSecondary)
                 .multilineTextAlignment(.trailing)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
         .frame(minHeight: 54)
     }

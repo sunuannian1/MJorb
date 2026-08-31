@@ -1614,7 +1614,17 @@ final class SettingsViewModel: ObservableObject {
     /// 只检查配对+VPN+Minimuxer，不需要 Apple ID 账号
     func testPairingConnection() async {
         await load(force: true)
-        guard diagnosticState != .running, installChannel != nil else { return }
+        guard installChannel != nil else {
+            diagnosticState = .failed(
+                Self.failure(
+                    title: "连接通道未就绪",
+                    reason: "LocalDevVPN 未启动或未安装。请先打开 LocalDevVPN 并连接同一 Wi-Fi。",
+                    recovery: "打开 LocalDevVPN 后重试",
+                    code: "SEAL-PAIR-204"
+                )
+            )
+            return
+        }
         guard pairingRecord != nil else {
             diagnosticState = .failed(
                 Self.failure(
@@ -1626,6 +1636,10 @@ final class SettingsViewModel: ObservableObject {
             )
             return
         }
+        // 强制重置状态，确保每次点击都能重新验证（避免失败后卡住）
+        diagnosticState = .idle
+        installDiagnostics = .empty
+        await installChannel?.reset()
         await runInstallChannelCheck(successMessage: "设备连接正常")
     }
 

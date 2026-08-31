@@ -106,7 +106,8 @@ struct AppDetailView: View {
             Text(value)
                 .foregroundStyle(valueColor)
                 .multilineTextAlignment(.trailing)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
         .padding(.vertical, 15)
     }
