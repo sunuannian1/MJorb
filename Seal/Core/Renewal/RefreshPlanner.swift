@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 
 struct RefreshPlanner: Sendable {
     func makeQueue(
@@ -8,7 +8,7 @@ struct RefreshPlanner: Sendable {
         now: Date = Date()
     ) -> [RefreshQueueItem] {
         apps
-            .filter { $0.belongsInInstalledList && ($0.accountID != nil || fallbackAccountID != nil) }
+            .filter { $0.belongsInInstalledList }
             .sorted { lhs, rhs in
                 priority(for: lhs, now: now) < priority(for: rhs, now: now)
             }
