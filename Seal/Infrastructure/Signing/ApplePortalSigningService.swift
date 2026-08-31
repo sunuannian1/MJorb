@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import UIKit
 @preconcurrency import AltSign
 
@@ -157,7 +157,7 @@ enum ApplePortalSigningFailure {
             return ImportFailure(
                 title: "账号需要重新验证",
                 reason: "Apple 返回：认证状态无效",
-                recovery: "重新验证 Apple ID",
+                recovery: "前往「我的」页面重新登录该 Apple ID",
                 code: "SEAL-AUTH-102c"
             )
         }
@@ -370,8 +370,7 @@ actor ApplePortalSigningService {
                 throw Self.failure(
                     title: "无法签名",
                     reason: "主应用描述文件缺失",
-                    recovery: "重试",
-                    code: "SEAL-PROFILE-303"
+                    recovery: "检查网络后重试；如持续失败请重新导入 IPA",                    code: "SEAL-PROFILE-303"
                 )
             }
 
@@ -434,14 +433,14 @@ actor ApplePortalSigningService {
             throw Self.failure(
                 title: "账号需要验证",
                 reason: "Apple ID 会话已失效",
-                recovery: "重新验证账号",
+                recovery: "前往「我的」页面重新登录该 Apple ID",
                 code: "SEAL-AUTH-102d"
             )
         } catch ALTAppleAPIError.authenticationHandshakeFailed {
             throw Self.failure(
                 title: "账号需要验证",
                 reason: "Apple ID 会话已失效",
-                recovery: "重新验证账号",
+                recovery: "前往「我的」页面重新登录该 Apple ID",
                 code: "SEAL-AUTH-102e"
             )
         } catch let failure as ImportFailure {
@@ -1057,8 +1056,7 @@ actor ApplePortalSigningService {
             throw Self.failure(
                 title: "无法签名",
                 reason: "应用能力更新失败",
-                recovery: "重试",
-                code: "SEAL-PROFILE-304"
+                recovery: "检查网络后重试；如持续失败请重新导入 IPA",                code: "SEAL-PROFILE-304"
             )
         }
         updated.features = features
