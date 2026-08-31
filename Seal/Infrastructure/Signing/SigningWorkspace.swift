@@ -386,27 +386,24 @@ struct SigningWorkspace: Sendable {
     /// 参照 SideStore 官方逻辑
     private func updateURLSchemes(in appURL: URL, originalBundleID: String, newBundleID: String) throws {
         let infoURL = appURL.appendingPathComponent("Info.plist")
-        guard let info = try? propertyList(from: infoURL) else { return }
-
-        var urlTypes = info["CFBundleURLTypes"] as? [[String: Any]] ?? []
-        // 移除包含原始 Bundle ID 的 URL Scheme，避免冲突
-        urlTypes.removeAll { urlType in
-            guard let schemes = urlType["CFBundleURLSchemes"] as? [String] else { return false }
-            return schemes.contains { scheme in
-                scheme.contains(originalBundleID) || scheme == originalBundleID
+        try mutateInfoPlist(at: infoURL) { info in
+            var urlTypes = info["CFBundleURLTypes"] as? [[String: Any]] ?? []
+            // 移除包含原始 Bundle ID 的 URL Scheme，避免冲突
+            urlTypes.removeAll { urlType in
+                guard let schemes = urlType["CFBundleURLSchemes"] as? [String] else { return false }
+                return schemes.contains { scheme in
+                    scheme.contains(originalBundleID) || scheme == originalBundleID
+                }
             }
+            // 添加基于新 Bundle ID 的 URL Scheme
+            let newScheme = newBundleID.replacingOccurrences(of: ".", with: "-")
+            urlTypes.append([
+                "CFBundleTypeRole": "Editor",
+                "CFBundleURLName": newBundleID,
+                "CFBundleURLSchemes": [newScheme]
+            ])
+            info["CFBundleURLTypes"] = urlTypes
         }
-        // 添加基于新 Bundle ID 的 URL Scheme
-        let newScheme = newBundleID.replacingOccurrences(of: ".", with: "-")
-        urlTypes.append([
-            "CFBundleTypeRole": "Editor",
-            "CFBundleURLName": newBundleID,
-            "CFBundleURLSchemes": [newScheme]
-        ])
-
-        var updated = info
-        updated["CFBundleURLTypes"] = urlTypes
-        try writePropertyList(updated, to: infoURL)
     }
 
     /// 自动移除免费账号不支持的内容：Watch App、App Clip
@@ -436,7 +433,12 @@ struct SigningWorkspace: Sendable {
             )
             for appexURL in appexContents where appexURL.pathExtension == "appex" {
                 let infoURL = appexURL.appendingPathComponent("Info.plist")
-                if let info = try? propertyList(from: infoURL),
+                if let infoData = try? Data(contentsOf: infoURL),
+                   let info = try? PropertyListSerialization.propertyList(
+                       from: infoData,
+                       options: [],
+                       format: nil
+                   ) as? [String: Any],
                    let extensionPoint = info["NSExtensionPointIdentifier"] as? String,
                    extensionPoint == "com.apple.app-clip" {
                     try fileManager.removeItem(at: appexURL)
