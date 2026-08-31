@@ -95,6 +95,31 @@ enum ApplePortalSigningFailure {
         )
     }
 
+
+    /// 生成带 1-3 位随机数后缀的 Bundle ID：com.xxx.seal -> com.xxx.seal7 / .seal42 / .seal365
+    private static func randomBundleIdentifier(_ identifier: String) -> String {
+        // 去掉末尾已有的数字后缀
+        var index = identifier.endIndex
+        while index > identifier.startIndex {
+            let prev = identifier.index(before: index)
+            if identifier[prev].isNumber {
+                index = prev
+            } else {
+                break
+            }
+        }
+        let base = String(identifier[..<index])
+        // 随机选择 1-3 位，生成对应范围的随机数
+        let digits = Int.random(in: 1...3)
+        let suffix: Int
+        switch digits {
+        case 1: suffix = Int.random(in: 0...9)
+        case 2: suffix = Int.random(in: 10...99)
+        default: suffix = Int.random(in: 100...999)
+        }
+        return "\(base)\(suffix)"
+    }
+
     private static func certificateFailure(error: Error, diagnostic: String) -> ImportFailure {
         let nsError = error as NSError
         let rawMessage = nsError.localizedDescription
@@ -820,25 +845,28 @@ actor ApplePortalSigningService {
             do {
                 try Task.checkCancellation()
                 var appID: ALTAppID
+                var actualMappedBundleID = mappedBundleID
                 if let found = existing.first(where: {
                     ApplePortalAppIDResolver.matches(
                         existingBundleIdentifier: $0.bundleIdentifier,
-                        requestedBundleIdentifier: mappedBundleID
+                        requestedBundleIdentifier: actualMappedBundleID
                     )
                 }) {
                     appID = found
                 } else {
+                    var triedBundleIDs = Set<String>()
+                    triedBundleIDs.insert(actualMappedBundleID)
                     var createError: Error?
-                    for createAttempt in 1...3 {
+                    for createAttempt in 1...5 {
                         do {
                             let createdBox: LegacyBox<ALTAppID> =
                                 try await withCheckedThrowingContinuation { continuation in
                                     let normalizedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    let appIDNameSource = normalizedName.isEmpty ? mappedBundleID : normalizedName
+                                    let appIDNameSource = normalizedName.isEmpty ? actualMappedBundleID : normalizedName
                                     let appIDName = String(appIDNameSource.prefix(50))
                                     ALTAppleAPI.shared.addAppID(
                                         withName: appIDName,
-                                        bundleIdentifier: mappedBundleID,
+                                        bundleIdentifier: actualMappedBundleID,
                                         team: team,
                                         session: session
                                     ) { created, error in
@@ -853,15 +881,38 @@ actor ApplePortalSigningService {
                             if let found = refreshed.first(where: {
                                 ApplePortalAppIDResolver.matches(
                                     existingBundleIdentifier: $0.bundleIdentifier,
-                                    requestedBundleIdentifier: mappedBundleID
+                                    requestedBundleIdentifier: actualMappedBundleID
                                 )
                             }) {
                                 appID = found
                                 createError = nil
+                                break
+                            }
+                            // 被其他账号占用，自动换 1-3 位随机后缀重试
+                            if createAttempt < 5 {
+                                var nextID = Self.randomBundleIdentifier(actualMappedBundleID)
+                                var dedupAttempts = 0
+                                while triedBundleIDs.contains(nextID) && dedupAttempts < 10 {
+                                    nextID = Self.randomBundleIdentifier(actualMappedBundleID)
+                                    dedupAttempts += 1
+                                }
+                                guard triedBundleIDs.contains(nextID) == false else {
+                                    createError = ALTAppleAPIError(.bundleIdentifierUnavailable)
+                                    break
+                                }
+                                triedBundleIDs.insert(nextID)
+                                if let app = applications[actualMappedBundleID] {
+                                    applications[nextID] = app
+                                    applications.removeValue(forKey: actualMappedBundleID)
+                                }
+                                actualMappedBundleID = nextID
+                                continue
                             } else {
                                 createError = ALTAppleAPIError(.bundleIdentifierUnavailable)
                             }
-                            break
+                        } catch ALTAppleAPIError.invalidAnisetteData {
+                            // Anisette 失效直接抛出，让顶层重置后完整重试，不在这里傻等
+                            throw error
                         } catch {
                             createError = error
                             if createAttempt < 3 {
@@ -874,21 +925,21 @@ actor ApplePortalSigningService {
                     existing.append(appID)
                 }
 
-                if let application = applications[mappedBundleID] {
+                if let application = applications[actualMappedBundleID] {
                     let entitlementSource = filteredAppIDEntitlements(from: application, team: team)
                     var entitlementValues: [String: ProvisioningEntitlementValue] = [:]
                     for (entitlement, value) in entitlementSource {
                         guard let converted = ProvisioningEntitlementValue.make(from: value) else {
                             throw Self.failure(
                                 title: "应用权限无法解析",
-                                reason: "\(mappedBundleID) 的权限 \(entitlement.rawValue) 包含无法校验的值类型。",
+                                reason: "\(actualMappedBundleID) 的权限 \(entitlement.rawValue) 包含无法校验的值类型。",
                                 recovery: "检查 IPA 权限或使用支持该能力的账号",
                                 code: "SEAL-ENTITLEMENT-403"
                             )
                         }
                         entitlementValues[entitlement.rawValue] = converted
                     }
-                    requestedEntitlements[mappedBundleID] = entitlementValues
+                    requestedEntitlements[actualMappedBundleID] = entitlementValues
                     appID = try await updateFeatures(
                         appID: appID,
                         application: application,
@@ -904,11 +955,11 @@ actor ApplePortalSigningService {
                         )
                     }
                 }
-                preparedAppIDs.append((originalBundleID, mappedBundleID, appID))
+                preparedAppIDs.append((originalBundleID, actualMappedBundleID, appID))
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                guard mappedBundleID != mappedMainBundleID else { throw error }
+                guard actualMappedBundleID != mappedMainBundleID else { throw error }
                 guard allowDroppingExtensions else {
                     throw Self.failure(
                         title: "签名失败",
@@ -918,10 +969,10 @@ actor ApplePortalSigningService {
                     )
                 }
                 try signingWorkspace.removeExtension(
-                    mappedBundleIdentifier: mappedBundleID,
+                    mappedBundleIdentifier: actualMappedBundleID,
                     from: workspace
                 )
-                requestedEntitlements.removeValue(forKey: mappedBundleID)
+                requestedEntitlements.removeValue(forKey: actualMappedBundleID)
                 droppedExtensionBundleIdentifiers.append(originalBundleID)
             }
         }

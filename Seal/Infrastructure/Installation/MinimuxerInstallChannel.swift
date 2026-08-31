@@ -223,10 +223,22 @@ actor MinimuxerInstallChannel: InstallChannel {
                 return
             } catch {
                 lastInstallError = error
-                if installAttempt < 3 {
+                guard installAttempt < 3 else { break }
+                // 第一次失败：等 2 秒；第二次失败：重置设备连接后等 4 秒
+                if installAttempt == 1 {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    continue
+                } else {
+                    Minimuxer.reset()
+                    await waitForNetworkRefresh(rounds: 3, delay: .milliseconds(500))
+                    try? await Task.sleep(nanoseconds: 4_000_000_000)
                 }
+                // 等待设备重新就绪
+                var readyWait = 0
+                while await isReady() == false && readyWait < 10 {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    readyWait += 1
+                }
+                continue
             }
         }
         throw Self.installationFailure(lastInstallError!)
