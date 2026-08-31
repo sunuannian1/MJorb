@@ -257,8 +257,10 @@ public final class RustInstProxy {
         guard let p = _rust_bridge_instproxy_new(device.ptr, label) else { return nil }
         return RustInstProxy(ptr: p, device: device)
     }
-    public func install(path: String) -> Bool {
-        return _rust_bridge_instproxy_install(ptr, path)
+    public func install(path: String) -> String? {
+        guard let p = _rust_bridge_instproxy_install(ptr, path) else { return nil }
+        defer { _rust_bridge_free_string(p) }
+        return String(cString: p)
     }
     public func uninstall(bundleId: String) -> Bool {
         return _rust_bridge_instproxy_uninstall(ptr, bundleId)
