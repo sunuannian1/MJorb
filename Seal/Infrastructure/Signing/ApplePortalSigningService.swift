@@ -313,23 +313,13 @@ actor ApplePortalSigningService {
             )
             try Task.checkCancellation()
 
-            // 预创建主应用 App ID，被占用则自动换 1-3 位随机后缀
-            let resolvedMainBundleID = try await resolveMainAppBundleID(
-                requested: targetBundleIdentifier,
-                original: app.originalBundleIdentifier,
-                displayName: app.displayName,
-                team: team,
-                session: session
-            )
-            try Task.checkCancellation()
-
             stage = .packaging
             let prepared = try signingWorkspace.prepare(
                 ipaURL: originalIPAURL,
                 workspaceRoot: workspaceRoot,
                 originalBundleID: app.originalBundleIdentifier,
                 teamID: team.identifier,
-                targetMainBundleID: resolvedMainBundleID,
+                targetMainBundleID: targetBundleIdentifier,
                 preferredDisplayName: app.preferredDisplayName,
                 preferredIconData: preferredIconData
             )
@@ -974,78 +964,6 @@ actor ApplePortalSigningService {
             requestedEntitlements: requestedEntitlements,
             droppedExtensionBundleIdentifiers: Array(Set(droppedExtensionBundleIdentifiers))
         )
-    }
-
-
-    /// 生成带 1-3 位随机数后缀的 Bundle ID：com.xxx.seal -> com.xxx.seal7 / .seal42 / .seal365
-    private static func randomBundleIdentifier(_ identifier: String) -> String {
-        // 去掉末尾已有的数字后缀
-        var index = identifier.endIndex
-        while index > identifier.startIndex {
-            let prev = identifier.index(before: index)
-            if identifier[prev].isNumber {
-                index = prev
-            } else {
-                break
-            }
-        }
-        let base = String(identifier[..<index])
-        let suffix = Int.random(in: 0...999)
-        return "\(base)\(suffix)"
-    }
-
-    /// 在 prepare 前预创建主应用 App ID，被占用则自动换 1-3 位随机后缀
-    private func resolveMainAppBundleID(
-        requested: String?,
-        original: String,
-        displayName: String,
-        team: ALTTeam,
-        session: ALTAppleAPISession
-    ) async throws -> String {
-        let initial = requested ?? BundleIDPolicy.recommendedBundleIdentifier(for: original)
-        let existing = try await fetchAppIDs(team: team, session: session)
-        // 官方：7 天内最多 10 个 App ID，满了直接报错，不换后缀
-        if existing.count >= 10 {
-            throw ALTAppleAPIError.maximumAppIDLimitReached
-        }
-        var tried = Set<String>()
-        tried.insert(initial)
-        var current = initial
-        for attempt in 1...5 {
-            // 已存在则直接用
-            if existing.contains(where: {
-                $0.bundleIdentifier.caseInsensitiveCompare(current) == .orderedSame
-            }) {
-                return current
-            }
-            // 尝试创建
-            do {
-                let normalizedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-                let appIDNameSource = normalizedName.isEmpty ? current : normalizedName
-                let appIDName = String(appIDNameSource.prefix(50))
-                let box: LegacyBox<ALTAppID> = try await withCheckedThrowingContinuation { continuation in
-                    ALTAppleAPI.shared.addAppID(
-                        withName: appIDName,
-                        bundleIdentifier: current,
-                        team: team,
-                        session: session
-                    ) { created, error in
-                        Self.resume(continuation, value: created, error: error)
-                    }
-                }
-                _ = box.value
-                return current
-            } catch ALTAppleAPIError.maximumAppIDLimitReached {
-                throw ALTAppleAPIError.maximumAppIDLimitReached
-            } catch ALTAppleAPIError.bundleIdentifierUnavailable {
-                guard attempt < 5 else { throw ALTAppleAPIError.bundleIdentifierUnavailable }
-                repeat {
-                    current = Self.randomBundleIdentifier(initial)
-                } while tried.contains(current)
-                tried.insert(current)
-            }
-        }
-        throw ALTAppleAPIError.bundleIdentifierUnavailable
     }
 
     private func fetchAppIDs(

@@ -50,8 +50,10 @@ enum BundleIDPolicy {
 
     static func recommendedBundleIdentifier(for original: String) -> String {
         let value = normalized(original) ?? original
-        guard value.lowercased().hasSuffix(".seal") == false else { return value }
-        return value + ".seal"
+        let base = value.lowercased().hasSuffix(".seal") ? value : value + ".seal"
+        // 每次生成 0-999 随机后缀，同一 IPA 可签出多个不同 Bundle ID 的副本同时安装
+        let suffix = Int.random(in: 0...999)
+        return "\(base)\(suffix)"
     }
 
     static func isEditable(_ app: AppRecord) -> Bool {
