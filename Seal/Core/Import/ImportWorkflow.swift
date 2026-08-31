@@ -121,18 +121,15 @@ actor ImportWorkflow {
                 for: draft.parsedIPA,
                 in: records
             )
-            let existing = existingSeal == nil
-                ? Self.existingPendingImportRecord(
-                    for: draft.parsedIPA,
-                    in: records
-                )
-                : nil
+            // 同一个 IPA 允许导入多个副本，不查找待签名记录进行替换
+            // 每次导入都创建独立条目，用不同 Bundle ID 签名可同时安装
+            let existing: AppRecord? = nil
             let preferenceSource = Self.preferenceSource(
                 for: draft.parsedIPA,
                 in: records,
-                excluding: existing?.id
+                excluding: nil
             )
-            let commitAppID = existingSeal?.id ?? existing?.id ?? draft.appID
+            let commitAppID = existingSeal?.id ?? draft.appID
             let preferredIconData: Data?
             if let path = existingSeal?.preferredIconRelativePath
                 ?? existingSeal?.iconRelativePath

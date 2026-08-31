@@ -46,7 +46,9 @@ struct ImportedAppRow: View {
         if app.belongsInInstalledList || app.belongsInSignedList {
             return app.mappedBundleIdentifier ?? app.preferredBundleIdentifier ?? app.originalBundleIdentifier
         }
-        return app.preferredBundleIdentifier ?? BundleIDPolicy.recommendedBundleIdentifier(for: app.originalBundleIdentifier)
+        // 未签名的 app 列表中显示原始 Bundle ID
+        // 随机后缀只在打开签名抽屉时生成，不在列表中实时计算
+        return app.preferredBundleIdentifier ?? app.originalBundleIdentifier
     }
 
     @ViewBuilder
