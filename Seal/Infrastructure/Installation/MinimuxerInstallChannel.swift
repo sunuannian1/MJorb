@@ -262,6 +262,8 @@ actor MinimuxerInstallChannel: InstallChannel {
         #endif
     }
 
+    #endif
+
     #if !targetEnvironment(simulator)
     private func bindTunnelConfiguration() {
         Minimuxer.bindTunnelConfig(
