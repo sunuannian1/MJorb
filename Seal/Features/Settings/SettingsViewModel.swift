@@ -1390,8 +1390,6 @@ final class SettingsViewModel: ObservableObject {
     @discardableResult
     func importPairingAssistantInboxIfPresent() async -> Bool {
         guard let pairingStore else { return false }
-        guard let operationLease = acquireOperation(.resettingPairing) else { return false }
-        defer { releaseOperation(operationLease) }
         guard let documentsURL = FileManager.default.urls(
             for: .documentDirectory,
             in: .userDomainMask
@@ -1403,6 +1401,15 @@ final class SettingsViewModel: ObservableObject {
             Self.pairingAssistantInboxFileName,
             isDirectory: false
         )
+        guard FileManager.default.fileExists(atPath: inboxURL.path) else {
+            return false
+        }
+
+        // 只有文件确实存在时才获取锁，避免无意义的互斥冲突
+        guard let operationLease = acquireOperation(.resettingPairing) else { return false }
+        defer { releaseOperation(operationLease) }
+
+        // 二次检查，防止竞态条件
         guard FileManager.default.fileExists(atPath: inboxURL.path) else {
             return false
         }
