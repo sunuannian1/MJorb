@@ -1611,7 +1611,7 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    private func persistVerificationFailure(
+    /// 只检查配对+VPN+Minimuxer，不需要 Apple ID 账号`n    func testPairingConnection() async {`n        await load(force: true)`n        guard diagnosticState != .running, installChannel != nil else { return }`n        guard pairingRecord != nil else {`n            diagnosticState = .failed(`n                Self.failure(`n                    title: "设备未配对",`n                    reason: "尚未完成当前设备配对",`n                    recovery: "连接设备",`n                    code: "SEAL-PAIR-203"`n                )`n            )`n            return`n        }`n        await runInstallChannelCheck(successMessage: "设备连接正常")`n    }`n`n    private func persistVerificationFailure(
         _ reason: AccountVerificationFailureReason,
         for account: AppleAccountRecord
     ) async throws {

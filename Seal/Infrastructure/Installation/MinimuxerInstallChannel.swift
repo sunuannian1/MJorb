@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 @preconcurrency import Minimuxer
 
 actor MinimuxerInstallChannel: InstallChannel {
@@ -102,7 +102,7 @@ actor MinimuxerInstallChannel: InstallChannel {
             bindTunnelConfiguration()
 
             run(.vpnTunnel)
-            await waitForNetworkRefresh(rounds: 4, delay: .milliseconds(250))
+            await waitForNetworkRefresh(rounds: 2, delay: .milliseconds(250))
             let tunnelReachable = await onDemandActivator.probeTunnel()
             if tunnelReachable { pass(.vpnTunnel) }
 
@@ -133,9 +133,9 @@ actor MinimuxerInstallChannel: InstallChannel {
             } catch {
                 return fail(.minimuxer, Self.connectionFailure(error))
             }
-            // 优化：轮询检查设备，成功即退出，最多等待 20 秒
+            // 优化：轮询检查设备，成功即退出，最多等待 10 秒
             var resolvedUDID: String?
-            for _ in 0..<40 {
+            for _ in 0..<20 {
                 NetworkObserver.shared.refreshEndpoint()
                 resolvedUDID = try await readyDeviceIdentifier()
                 if resolvedUDID != nil { break }

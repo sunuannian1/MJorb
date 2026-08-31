@@ -76,7 +76,7 @@ struct PairingSettingsView: View {
         VStack(spacing: 0) {
             detailRow("配对类型", pairing.isRemotePairing ? "远程配对" : "本机配对")
             Divider()
-            detailRow("设备标识", deviceIdentifierText(pairing))
+            detailRow("设备 UDID", deviceIdentifierText(pairing))
             Divider()
             detailRow("配对状态", pairing.validationStatus.title)
         }
@@ -117,7 +117,7 @@ struct PairingSettingsView: View {
 
             Button(viewModel.pairingRecord == nil ? "检查配对状态" : "重新检查") {
                 Task {
-                    await viewModel.testConnection()
+                    await viewModel.testPairingConnection()
                 }
             }
             .sealOutlineAction(cornerRadius: 12)
@@ -184,6 +184,6 @@ struct PairingSettingsView: View {
     private func deviceIdentifierText(_ pairing: PairingRecord) -> String {
         if let id = pairing.validatedDeviceIdentifier, id.isEmpty == false { return id }
         if let id = pairing.deviceIdentifier, id.isEmpty == false { return id }
-        return "完整 UDID"
+        return "待验证"
     }
 }
