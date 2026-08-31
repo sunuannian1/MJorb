@@ -141,7 +141,8 @@ struct IPAParserService: Sendable {
         )
         let importWarnings = detectImportWarnings(
             appRoot: appRoot,
-            entries: entries
+            entries: entries,
+            archive: archive
         )
         let fileSize = try sourceFileSize(at: sourceURL)
 
@@ -361,9 +362,15 @@ struct IPAParserService: Sendable {
     /// 预检 IPA 中可能导致签名失败的问题，返回用户可读的警告
     private func detectImportWarnings(
         appRoot: String,
-        entries: [Entry]
+        entries: [Entry],
+        archive: Archive
     ) -> [String] {
         var warnings: [String] = []
+
+        // 检测加密 IPA（App Store 下载的加密 IPA 无法签名）
+        if isEncryptedBinary(appRoot: appRoot, entries: entries, archive: archive) {
+            warnings.append("主二进制已加密（App Store 版本），需要砸壳后才能签名")
+        }
 
         // 检测 Watch app（免费账号不支持）
         let hasWatchApp = entries.contains { entry in
@@ -408,6 +415,92 @@ struct IPAParserService: Sendable {
         }
 
         return warnings
+    }
+
+    /// 检测主二进制是否加密（App Store 下载的 IPA 是加密的，无法签名）
+    /// 解析 Mach-O 格式，检查 LC_ENCRYPTION_INFO_64 的 cryptid
+    private func isEncryptedBinary(
+        appRoot: String,
+        entries: [Entry],
+        archive: Archive
+    ) -> Bool {
+        // 主二进制文件名 = app 目录名（去掉 .app 后缀）
+        let appDirName = URL(filePath: appRoot).lastPathComponent
+        let binaryName = appDirName.replacingOccurrences(of: ".app", with: "")
+        let binaryPath = "\(appRoot)/\(binaryName)"
+
+        guard let binaryEntry = entries.first(where: {
+            $0.type == .file && $0.path == binaryPath
+        }) else {
+            return false
+        }
+
+        // 读取二进制前 4KB（足够解析 Mach-O 头部和加载命令）
+        var binaryData = Data()
+        binaryData.reserveCapacity(min(Int(binaryEntry.uncompressedSize), 4096))
+        do {
+            _ = try archive.extract(binaryEntry) { chunk in
+                if binaryData.count < 4096 {
+                    binaryData.append(chunk)
+                }
+            }
+        } catch {
+            return false
+        }
+
+        guard binaryData.count >= 32 else { return false }
+
+        // 读取魔数（小端序）
+        let magic = binaryData.withUnsafeBytes { $0.load(as: UInt32.self) }
+
+        // fat binary (0xCAFEBABE)：包含多架构，假设未加密（通常是砸壳后的）
+        if magic == 0xCAFEBABE || magic.bigEndian == 0xCAFEBABE {
+            return false
+        }
+
+        // 64位 Mach-O: 0xFEEDFACF (小端) 或 0xCFFAEDFE (大端读取)
+        let is64Bit = magic == 0xFEEDFACF || magic == 0x0100000C
+        guard is64Bit else {
+            // 32位 Mach-O 已很少见，跳过检测
+            return false
+        }
+
+        // 解析 64位 Mach-O 头部
+        // struct mach_header_64 { magic, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, reserved }
+        let ncmds = binaryData.withUnsafeBytes {
+            $0.load(fromByteOffset: 16, as: UInt32.self)
+        }
+        let sizeofcmds = binaryData.withUnsafeBytes {
+            $0.load(fromByteOffset: 20, as: UInt32.self)
+        }
+
+        var offset = 32  // mach_header_64 大小
+        let endOffset = min(32 + Int(sizeofcmds), binaryData.count)
+
+        // 遍历加载命令，找 LC_ENCRYPTION_INFO_64 (0x2C)
+        for _ in 0..<ncmds {
+            guard offset + 8 <= endOffset else { break }
+            let cmd = binaryData.withUnsafeBytes {
+                $0.load(fromByteOffset: offset, as: UInt32.self)
+            }
+            let cmdsize = binaryData.withUnsafeBytes {
+                $0.load(fromByteOffset: offset + 4, as: UInt32.self)
+            }
+
+            // LC_ENCRYPTION_INFO_64 = 0x2C
+            if cmd == 0x2C || cmd.bigEndian == 0x2C {
+                // struct encryption_info_command_64 { cmd, cmdsize, cryptoff, cryptsize, cryptid, pad }
+                guard offset + 20 <= binaryData.count else { break }
+                let cryptid = binaryData.withUnsafeBytes {
+                    $0.load(fromByteOffset: offset + 16, as: UInt32.self)
+                }
+                return cryptid != 0
+            }
+
+            offset += Int(cmdsize)
+        }
+
+        return false
     }
 
     private func sourceFileSize(at url: URL) throws -> Int64 {
