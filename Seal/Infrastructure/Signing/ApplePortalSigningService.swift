@@ -34,19 +34,44 @@ enum ApplePortalSigningFailure {
         let details: (title: String, reason: String, recovery: String, code: String)
         switch stage {
         case .account:
-            details = ("Apple 账户操作失败", "Apple 返回了无法分类的账户错误。账号状态未改变。", "重试", "SEAL-VERIFY-500")
+            details = (
+                "Apple 账户操作失败",
+                "Apple 返回了无法分类的账户错误。账号状态未改变。\nApple 返回：\(diagnostic)",
+                "重试",
+                "SEAL-VERIFY-500"
+            )
         case .device:
-            details = ("设备注册失败", "Apple 返回：设备注册未完成", "检查设备配对", "SEAL-DEVICE-203")
+            details = (
+                "设备注册失败",
+                "Apple 返回：设备注册未完成。\nApple 返回：\(diagnostic)",
+                "检查设备配对",
+                "SEAL-DEVICE-203"
+            )
         case .certificate:
             return certificateFailure(error: error, diagnostic: diagnostic)
         case .appID:
             return appIDFailure(error: error, diagnostic: diagnostic)
         case .provisioningProfile:
-            details = ("描述文件失败", "Apple 返回：描述文件生成失败", "重试", "SEAL-PROFILE-303")
+            details = (
+                "描述文件失败",
+                "Apple 返回：描述文件生成失败。\nApple 返回：\(diagnostic)",
+                "重试",
+                "SEAL-PROFILE-303"
+            )
         case .signing:
-            details = ("签名失败", "签名工具未能完成当前 IPA。", "重试", "SEAL-SIGN-501")
+            details = (
+                "签名失败",
+                "签名工具未能完成当前 IPA。\n详情：\(diagnostic)",
+                "重试",
+                "SEAL-SIGN-501"
+            )
         case .packaging:
-            details = ("打包失败", "签名后的 IPA 无法完成打包。", "重试", "SEAL-SIGN-502")
+            details = (
+                "打包失败",
+                "签名后的 IPA 无法完成打包。\n详情：\(diagnostic)",
+                "重试",
+                "SEAL-SIGN-502"
+            )
         }
         return ImportFailure(
             title: details.title,
@@ -138,9 +163,9 @@ enum ApplePortalSigningFailure {
         }
 
         return ImportFailure(
-            title: "证书准备失败",
-                reason: "Apple 服务器未能准备好签名证书。可能原因：网络不稳定、或该账号证书数量已达上限。",
-                recovery: "检查网络后重试；如持续失败请在「我的」中撤销旧证书后再试",
+            title: "证书准备失败"
+            reason: "Apple 服务器未能准备好签名证书。\nApple 返回：\(diagnostic)"
+            recovery: "检查网络后重试；如持续失败请在「我的」中撤销旧证书后再试"
             code: "SEAL-CERT-203"
         )
     }
