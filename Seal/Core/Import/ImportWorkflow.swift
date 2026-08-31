@@ -308,9 +308,10 @@ actor ImportWorkflow {
 
         let parsed = draft.parsedIPA
         let recordID = existing?.id ?? draft.appID
+        // 导入时保留原始 Bundle ID，不继承之前签名记录的 mappedBundleIdentifier
+        // 只有替换已存在的待签名记录时才保留用户设置的 preferredBundleIdentifier
+        // 打开签名抽屉时才生成推荐的随机后缀 Bundle ID
         let preferredBundleIdentifier = existing?.preferredBundleIdentifier
-            ?? preferenceSource?.mappedBundleIdentifier
-            ?? preferenceSource?.preferredBundleIdentifier
         let preferredDisplayName = existing?.preferredDisplayName
             ?? preferenceSource?.preferredDisplayName
         let preferredIconRelativePath = existing?.preferredIconRelativePath

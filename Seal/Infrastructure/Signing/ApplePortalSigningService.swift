@@ -857,9 +857,9 @@ actor ApplePortalSigningService {
                     do {
                         let createdBox: LegacyBox<ALTAppID> =
                             try await withCheckedThrowingContinuation { continuation in
-                                let normalizedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                let appIDNameSource = normalizedName.isEmpty ? mappedBundleID : normalizedName
-                                let appIDName = String(appIDNameSource.prefix(50))
+                                // App ID 名称必须是 ASCII，Apple 不允许中文等非 ASCII 字符（错误码 3009）
+                                // 官方 AltStore 用 Bundle ID 作为 App ID 名称，保证 ASCII 且唯一
+                                let appIDName = String(mappedBundleID.prefix(50))
                                 ALTAppleAPI.shared.addAppID(
                                     withName: appIDName,
                                     bundleIdentifier: mappedBundleID,
