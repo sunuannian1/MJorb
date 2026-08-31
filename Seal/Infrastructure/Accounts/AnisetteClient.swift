@@ -65,23 +65,47 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
                     clientInfo: clientInfo,
                     identity: identity
                 )
-            } catch AnisetteV3Error.staleProvisioning {
+            } catch AnisetteV3Error.staleProvisioning,
+                    AnisetteV3Error.invalidServerResponse,
+                    AnisetteV3Error.provisioningFailed {
+                // 本地 provisioning 失效或服务器响应异常，重置后重新 provision
                 try await store.remove()
             }
         }
 
-        let state = try await provision(
-            on: server,
-            clientInfo: clientInfo,
-            identity: identity
-        )
-        try await store.save(state)
-        return try await fetchHeaders(
-            from: server,
-            state: state,
-            clientInfo: clientInfo,
-            identity: identity
-        )
+        // provision 失败时重置 identity 重试一次
+        do {
+            let state = try await provision(
+                on: server,
+                clientInfo: clientInfo,
+                identity: identity
+            )
+            try await store.save(state)
+            return try await fetchHeaders(
+                from: server,
+                state: state,
+                clientInfo: clientInfo,
+                identity: identity
+            )
+        } catch AnisetteV3Error.invalidServerResponse,
+                AnisetteV3Error.provisioningFailed {
+            // 重置 identity 后重新 provision
+            try await store.removeIdentifier()
+            try await store.remove()
+            let newIdentity = try await loadIdentity()
+            let state = try await provision(
+                on: server,
+                clientInfo: clientInfo,
+                identity: newIdentity
+            )
+            try await store.save(state)
+            return try await fetchHeaders(
+                from: server,
+                state: state,
+                clientInfo: clientInfo,
+                identity: newIdentity
+            )
+        }
     }
 
     private func loadIdentity() async throws -> AnisetteV3Identity {

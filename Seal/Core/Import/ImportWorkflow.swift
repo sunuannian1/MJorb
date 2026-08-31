@@ -162,7 +162,9 @@ actor ImportWorkflow {
             )
             record.pendingFileTransactionID = transaction.id
             if existingSeal == nil {
-                databaseReplacedRecords = try await appStore.replaceImportedApp(record)
+                // 同一个 IPA 允许导入多个副本，用不同 Bundle ID 签名同时安装
+                // 不替换已存在的待签名记录，每次导入都创建独立条目
+                try await appStore.save(record)
             } else {
                 databaseReplacedRecords = [existingSeal].compactMap { $0 }
                 try await appStore.save(record)
