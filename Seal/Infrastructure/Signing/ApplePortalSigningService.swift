@@ -34,12 +34,21 @@ enum ApplePortalSigningFailure {
         let details: (title: String, reason: String, recovery: String, code: String)
         switch stage {
         case .account:
-            details = (
-                "Apple 账户操作失败",
-                "Apple 返回了无法分类的账户错误。账号状态未改变。\nApple 返回：\(diagnostic)",
-                "重试",
-                "SEAL-VERIFY-500"
-            )
+            if nsError.code == 1100 || diagnostic.contains("session has expired") || diagnostic.contains("1100") {
+                details = (
+                    "Apple 会话已过期",
+                    "当前 Apple ID 的登录状态已过期，需要重新登录后才能签名或续签。\nApple 返回：\(diagnostic)",
+                    "重新登录",
+                    "SEAL-AUTH-107"
+                )
+            } else {
+                details = (
+                    "Apple 账户操作失败",
+                    "Apple 返回了无法分类的账户错误。账号状态未改变。\nApple 返回：\(diagnostic)",
+                    "重试",
+                    "SEAL-VERIFY-500"
+                )
+            }
         case .device:
             details = (
                 "设备注册失败",

@@ -312,7 +312,7 @@ final class AppsViewModel: ObservableObject {
 
         do {
             try await Task.detached(priority: .userInitiated) {
-                try Minimuxer.JIT.debugApp(appId: bundleIdentifier)
+                try JIT.debugApp(appId: bundleIdentifier)
             }.value
 
             alertFailure = ImportFailure(
@@ -330,6 +330,7 @@ final class AppsViewModel: ObservableObject {
             )
         }
     }
+
     @discardableResult
     func refreshSigningChannel() async -> Bool {
         if let channelTask {
