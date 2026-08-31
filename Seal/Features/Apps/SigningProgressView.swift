@@ -308,7 +308,7 @@ struct SigningProgressView: View {
         if isAuthFailure(failure) { return "重新验证 Apple ID" }
         if isCertificateFailure(failure) { return "重新检查" }
         if isAppIDLimitFailure(failure) { return "知道了" }
-        if isAppIDFailure(failure) || failure.code.hasPrefix("SEAL-BUNDLE-") { return "修改 Bundle ID" }
+        if isAppIDFailure(failure) || failure.code.hasPrefix("SEAL-BUNDLE-") { return "重试" }
         if isPairingFailure(failure) { return "重新配对设备" }
         if failure.code.hasPrefix("SEAL-VPN-") { return "重新检查" }
         if failure.code == "SEAL-EXT-401" { return "移除扩展并重试" }
