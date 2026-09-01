@@ -16,6 +16,30 @@ struct SigningCertificateSettingsView: View {
                     .padding(.leading, 8)
 
                 certificateContent
+
+                // 导出证书给 LiveContainer（独立卡片，任何状态都可见）
+                VStack(alignment: .leading, spacing: 0) {
+                    Divider()
+                    Button {
+                        certificateExportHandler.exportToLiveContainer()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.subheadline.weight(.semibold))
+                            Text("导出证书给 LiveContainer")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(Color.sealTextSecondary)
+                        }
+                        .foregroundStyle(Color.sealAccent)
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 18)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassSurface(cornerRadius: 24)
             }
             .padding(20)
         }
@@ -111,25 +135,6 @@ struct SigningCertificateSettingsView: View {
                     value: usableAppIDCountText(health),
                     state: nil
                 )
-
-                Divider()
-
-                Button {
-                    certificateExportHandler.exportToLiveContainer()
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.subheadline.weight(.semibold))
-                        Text("导出证书给 LiveContainer")
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(Color.sealTextSecondary)
-                    }
-                    .foregroundStyle(Color.sealAccent)
-                    .padding(.vertical, 12)
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
