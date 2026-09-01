@@ -68,15 +68,19 @@ final class AppleAccountClient {
         }
     }
 
-    /// 自动重新登录（authToken 失效 1100 时使用），不需要用户输入验证码
-    /// 如果需要验证码，会抛出错误，此时需要用户手动重新添加账号
-    func reauthenticate(email: String, password: String) async throws -> AccountSecret {
+    /// 自动重新登录（authToken 失效 1100 时使用）
+    /// verificationCode 闭包在需要双重验证码时被调用，返回用户输入的验证码；返回 nil 表示取消
+    func reauthenticate(
+        email: String,
+        password: String,
+        verificationCode: @escaping @MainActor @Sendable () async -> String?
+    ) async throws -> AccountSecret {
         let anisetteData = try await anisetteProvider.fetch()
         let auth = try await authenticate(
             email: email,
             password: password,
             anisetteData: anisetteData,
-            verificationCode: { nil }
+            verificationCode: verificationCode
         ).value
         return AccountSecret(
             email: email,

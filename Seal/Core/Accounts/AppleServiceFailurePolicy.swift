@@ -47,9 +47,9 @@ enum AppleServiceFailurePolicy {
             return .localCredentialsMissing
         case "SEAL-AUTH-106":
             return .localCredentialsMismatch
-        case "SEAL-AUTH-107":
-            return .sessionExpired
         default:
+            // SEAL-AUTH-107（会话过期）不再标记 ID 失效：
+            // 已保存密码，下次签名会自动重登，不应因为一次会话过期就把 ID 标记为需要重新验证
             return nil
         }
     }

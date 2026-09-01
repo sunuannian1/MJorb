@@ -185,14 +185,17 @@ actor ApplePortalSigningService {
     private let anisetteProvider: any AnisetteProvider
     private let signingWorkspace: SigningWorkspace
     private let accountClient: AppleAccountClient
+    private let verificationCodeProvider: (@MainActor @Sendable () async -> String?)?
 
     init(
         anisetteProvider: any AnisetteProvider = AnisetteV3Client(),
-        signingWorkspace: SigningWorkspace = SigningWorkspace()
+        signingWorkspace: SigningWorkspace = SigningWorkspace(),
+        verificationCodeProvider: (@MainActor @Sendable () async -> String?)? = nil
     ) {
         self.anisetteProvider = anisetteProvider
         self.signingWorkspace = signingWorkspace
         self.accountClient = AppleAccountClient(anisetteProvider: anisetteProvider)
+        self.verificationCodeProvider = verificationCodeProvider
     }
 
     func sign(
@@ -236,10 +239,20 @@ actor ApplePortalSigningService {
             let currentSecret = await secretState.value()
             guard let password = currentSecret.password else { throw failure }
             do {
-                let newSecret = try await accountClient.reauthenticate(
-                    email: currentSecret.email,
-                    password: password
-                )
+                let newSecret: AccountSecret
+                if let verificationCodeProvider {
+                    newSecret = try await accountClient.reauthenticate(
+                        email: currentSecret.email,
+                        password: password,
+                        verificationCode: verificationCodeProvider
+                    )
+                } else {
+                    newSecret = try await accountClient.reauthenticate(
+                        email: currentSecret.email,
+                        password: password,
+                        verificationCode: { nil }
+                    )
+                }
                 try await persistSigningMaterial(newSecret, currentSecret.certificateSerialNumber ?? "")
                 await secretState.update(newSecret)
                 return try await signOnce(
