@@ -16,6 +16,9 @@ packages:
   AltSign:
     url: https://github.com/SideStore/AltSign
     revision: 55ba33ca500831279c3c702132a7515063029ed2
+  AnisetteKit:
+    url: https://github.com/mahee96/AnisetteKit
+    revision: 433084d91c1ddbca84f988f0e3b204eedc0fda27
   Minimuxer:
     path: Vendor/Minimuxer
 targets:
@@ -29,6 +32,7 @@ targets:
       - package: ZIPFoundation
       - package: AltSign
         product: AltSign-Static
+      - package: AnisetteKit
       - package: Minimuxer
       - target: DeviceSupport
       - target: SealTunnel

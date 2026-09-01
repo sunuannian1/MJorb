@@ -7,25 +7,40 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
     private let session: URLSession
     private let store: any AnisetteProvisioningStore
     private let serverStore: any AnisetteServerStore
+    private let onDevice: OnDeviceAnisetteGenerator
 
     init(
         servers: [AnisetteServer] = AnisetteServerCatalog.official,
         session: URLSession = .shared,
         store: any AnisetteProvisioningStore = KeychainAnisetteProvisioningStore(),
-        serverStore: any AnisetteServerStore = UserDefaultsAnisetteServerStore()
+        serverStore: any AnisetteServerStore = UserDefaultsAnisetteServerStore(),
+        onDevice: OnDeviceAnisetteGenerator = .shared
     ) {
         self.servers = servers
         self.session = session
         self.store = store
         self.serverStore = serverStore
+        self.onDevice = onDevice
     }
 
     func fetch() async throws -> ALTAnisetteData {
+        // 本地与远程共享同一套稳定设备标识（16 字节 → localUserID / deviceIdentifier），
+        // 无论走哪条路径，设备指纹都一致，不会因为通道切换导致 Apple 会话失效。
+        let identity = try await loadIdentity()
+
+        // 1. 优先使用设备本地 AnisetteKit 生成（指纹恒定，不依赖公共服务器）
+        do {
+            return try await onDevice.makeAnisetteData(identity: identity)
+        } catch {
+            // 本地内核尚未下载完成或生成失败时，降级到远程服务器轮询
+        }
+
+        // 2. 远程公共服务器降级路径
         var lastError: Error?
         for server in await prioritizedServers() where server.url.scheme == "https" {
             do {
                 try Task.checkCancellation()
-                return try await fetch(from: server.url)
+                return try await fetch(from: server.url, identity: identity)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -38,6 +53,7 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
     func resetProvisioning() async {
         try? await store.remove()
         try? await store.removeIdentifier()
+        await onDevice.resetProvisioning()
     }
 
     func availableServers() async -> [AnisetteServer] {
@@ -53,9 +69,8 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         await serverStore.saveSelectedServerID(id)
     }
 
-    private func fetch(from server: URL) async throws -> ALTAnisetteData {
+    private func fetch(from server: URL, identity: AnisetteV3Identity) async throws -> ALTAnisetteData {
         let clientInfo = try await fetchClientInfo(from: server)
-        let identity = try await loadIdentity()
 
         if let state = try await store.load() {
             do {
