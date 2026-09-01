@@ -2,6 +2,7 @@ import Foundation
 
 /// 启动更新通知检查器
 /// 从 GitHub Releases 拉取最新版本，有更新时弹窗提示
+/// 弹窗标题和内容来自 Release 的 name 和 body，可在 GitHub 发版时自定义
 struct UpdateChecker {
     static let shared = UpdateChecker()
 
@@ -10,8 +11,6 @@ struct UpdateChecker {
 
     /// 检查更新，返回需要展示的通知内容（无更新返回 nil）
     func check() async -> UpdateNotice? {
-        // 测试模式：每次启动都弹
-        return UpdateNotice(version: "test", title: "测试", message: "测试")
         guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
             return nil
         }
@@ -34,7 +33,6 @@ struct UpdateChecker {
 
             // 本地版本
             let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
-            let currentBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
 
             // 如果最新版本和当前版本相同，不提示
             if tagName == currentVersion || tagName == "v\(currentVersion)" {
@@ -50,10 +48,16 @@ struct UpdateChecker {
             // 标记已通知
             UserDefaults.standard.set(tagName, forKey: lastNotifiedVersionKey)
 
+            // 从 Release 读取标题和正文，发版时可自定义
+            let releaseName = json["name"] as? String ?? "发现新版本"
+            let releaseBody = (json["body"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = releaseBody?.isEmpty == false ? releaseBody! : "点击查看详情并更新"
+
             return UpdateNotice(
                 version: tagName,
-                title: "测试",
-                message: "测试"
+                title: releaseName,
+                message: message
             )
         } catch {
             return nil
