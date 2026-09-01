@@ -1,4 +1,4 @@
-﻿import Combine
+import Combine
 import Foundation
 @preconcurrency import Minimuxer
 
@@ -255,15 +255,24 @@ final class AppsViewModel: ObservableObject {
         signingSession = nil
     }
 
-    func beginRenewalDirectly(for app: AppRecord) async {
+    func beginRenewalDirectly(for app: AppRecord, overrideAccountID: UUID? = nil) async {
         guard app.belongsInInstalledList else {
             presentOperation(for: app)
             return
         }
-        // 宽松策略：应用没有记录签名账号时，自动使用当前活跃的 Apple ID，而不是拒绝续签
+        // 选择优先级：用户手动覆盖 > 记录账号 > Seal 按 Team 匹配 > 当前活跃账号 > 第一个可选账号
         let accountID: UUID
-        if let recordedAccountID = app.accountID {
+        if let overrideAccountID,
+           accounts.contains(where: { $0.id == overrideAccountID && AccountAvailabilityPolicy.isSelectable($0) }) {
+            accountID = overrideAccountID
+        } else if let recordedAccountID = app.accountID {
             accountID = recordedAccountID
+        } else if app.isSeal, let teamID = app.signingTeamID,
+                  let matchedID = accounts.first(where: {
+                      $0.teamID.caseInsensitiveCompare(teamID) == .orderedSame
+                          && AccountAvailabilityPolicy.isSelectable($0)
+                  })?.id {
+            accountID = matchedID
         } else if let activeID = activeAccountID, accounts.contains(where: { $0.id == activeID && AccountAvailabilityPolicy.isSelectable($0) }) {
             accountID = activeID
         } else if let fallbackID = accounts.first(where: { AccountAvailabilityPolicy.isSelectable($0) })?.id {
@@ -1380,6 +1389,11 @@ final class AppsViewModel: ObservableObject {
         allowDroppingExtensions: Bool
     ) async {
         guard let signingCoordinator else { return }
+        defer {
+            signingTask = nil
+            // 签名结束（无论成败）断开本地隧道，避免在纯蜂窝下常驻分流隧道影响外网
+            Task { @MainActor in await self.installChannel?.stop() }
+        }
         let isRenewal = app.belongsInInstalledList
         let operationKind: OperationCoordinator.Kind = isRenewal ? .renewing : .signing
         guard let operationLease = await acquireOperation(operationKind, appID: app.id) else {
@@ -1468,7 +1482,6 @@ final class AppsViewModel: ObservableObject {
             )
             await load(force: true)
         }
-        signingTask = nil
     }
 
     private func latestStoredApp(for fallback: AppRecord) async -> AppRecord {

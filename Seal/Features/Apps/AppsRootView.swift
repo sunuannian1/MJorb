@@ -77,11 +77,11 @@ struct AppsRootView: View {
                 InstalledAppActionSheet(
                     app: app,
                     viewModel: viewModel,
-                    onRenew: {
+                    onRenew: { overrideAccountID in
                         operationAppID = app.id
                         Task { @MainActor in
                             try? await Task.sleep(for: .milliseconds(250))
-                            await viewModel.beginRenewalDirectly(for: app)
+                            await viewModel.beginRenewalDirectly(for: app, overrideAccountID: overrideAccountID)
                         }
                     },
                     onShowDetail: {

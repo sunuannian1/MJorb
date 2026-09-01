@@ -44,6 +44,13 @@ actor SelfAppRegistrar {
            existing.ipaRelativePath.isEmpty == false,
            try await fileStore.exists(relativePath: existing.ipaRelativePath) {
             try await cleanupDuplicateSealRecords(records: records, keepID: existing.id)
+            // 版本一致也回补 Team/账号：首次未记录时，后续启动从自身描述文件补全，
+            // 避免续签时退化成"选第一个账号"导致 Bundle ID 被占用。
+            try await reconcileSealRecordBindingIfNeeded(
+                existing: existing,
+                metadata: metadata,
+                accounts: accounts
+            )
             return
         }
 
@@ -172,5 +179,28 @@ actor SelfAppRegistrar {
             try? await fileStore.removeApp(appID: record.id)
             try? await appStore.delete(id: record.id)
         }
+    }
+
+    /// 版本一致时的轻量回补：只更新 Team/账号绑定，不重打包 IPA。
+    /// 解决"首次启动未记录账号 → 之后版本不变永远未记录 → 续签错选第一个账号"的问题。
+    private func reconcileSealRecordBindingIfNeeded(
+        existing: AppRecord,
+        metadata: SelfAppMetadata,
+        accounts: [AppleAccountRecord]
+    ) async throws {
+        let resolvedTeamID = metadata.signingTeamIdentifier ?? existing.signingTeamID
+        let resolvedAccountID = SelfAppAccountBinding.resolvedAccountID(
+            teamIdentifier: resolvedTeamID,
+            accounts: accounts,
+            fallbackAccountID: existing.accountID
+        )
+        guard existing.signingTeamID != resolvedTeamID
+                || existing.accountID != resolvedAccountID else {
+            return
+        }
+        var updated = existing
+        updated.signingTeamID = resolvedTeamID
+        updated.accountID = resolvedAccountID
+        try await appStore.save(updated)
     }
 }

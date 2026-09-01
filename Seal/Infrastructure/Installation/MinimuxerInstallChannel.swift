@@ -224,6 +224,11 @@ actor MinimuxerInstallChannel: InstallChannel {
         #endif
     }
 
+    /// 签名/安装结束后主动断开 LocalDevVPN，避免在纯蜂窝下常驻分流隧道影响外网。
+    func stop() async {
+        await onDemandActivator.deactivate()
+    }
+
     /// 整体硬超时：先返回的结果胜出；超时即抛出，另一任务取消。
     /// 同步阻塞 FFI 无法被真正中断，会在后台自行结束，不再占用用户流程。
     private func withHardTimeout<T: Sendable>(

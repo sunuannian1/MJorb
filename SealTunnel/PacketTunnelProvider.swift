@@ -67,7 +67,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 subnetMask: subnetMask
             )
         ]
-        ipv4.excludedRoutes = [.default()]
+        // 不设置 excludedRoutes：部分隧道只需 includedRoutes 指定 10.7.0.0/24 进隧道，
+        // 其余流量自然走物理接口。excludedRoutes=[.default()] 在纯蜂窝下会干扰默认路由
+        // 回物理蜂窝接口，导致外网（添加 Apple ID / 签名请求）被黑洞。
         settings.ipv4Settings = ipv4
 
         setTunnelNetworkSettings(settings) { [weak self] error in

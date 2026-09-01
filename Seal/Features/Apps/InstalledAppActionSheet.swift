@@ -4,10 +4,11 @@ import UIKit
 struct InstalledAppActionSheet: View {
     let app: AppRecord
     @ObservedObject var viewModel: AppsViewModel
-    let onRenew: () -> Void
+    let onRenew: (UUID?) -> Void
     let onShowDetail: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedAccountID: UUID?
 
     var body: some View {
         SealDrawer(title: "应用操作") {
@@ -20,7 +21,7 @@ struct InstalledAppActionSheet: View {
             VStack(spacing: 10) {
                 Button("立即续签") {
                     dismiss()
-                    onRenew()
+                    onRenew(selectedAccountID)
                 }
                 .sealPrimaryAction(cornerRadius: 14)
 
@@ -49,7 +50,7 @@ struct InstalledAppActionSheet: View {
 
     private var signingSummaryCard: some View {
         VStack(spacing: 0) {
-            metadataRow("签名账户", accountSummary)
+            accountPickerRow
             Divider().padding(.leading, 14)
             metadataRow("Apple ID 证书", certificateSummary)
             Divider().padding(.leading, 14)
@@ -87,6 +88,46 @@ struct InstalledAppActionSheet: View {
         .padding(.vertical, 12)
     }
 
+    private var accountPickerRow: some View {
+        Menu {
+            Button("自动选择") { selectedAccountID = nil }
+            ForEach(selectableAccounts, id: \.id) { account in
+                Button {
+                    selectedAccountID = account.id
+                } label: {
+                    Label(
+                        title: { Text("\(viewModel.fullEmail(for: account)) · \(account.teamID)") },
+                        icon: { Image(systemName: selectedAccountID == account.id ? "checkmark" : "") }
+                    )
+                }
+            }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("签名账户")
+                    .foregroundStyle(.primary)
+                    .layoutPriority(1)
+                Spacer(minLength: 12)
+                Text(accountSummary)
+                    .foregroundStyle(accountSummaryColor)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.68)
+                    .allowsTightening(true)
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .trailing)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var selectableAccounts: [AppleAccountRecord] {
+        viewModel.accounts.filter { AccountAvailabilityPolicy.isSelectable($0) }
+    }
+
     @ViewBuilder
     private func icon(size: CGFloat) -> some View {
         Group {
@@ -109,10 +150,20 @@ struct InstalledAppActionSheet: View {
     }
 
     private var accountSummary: String {
-        guard let account = viewModel.accounts.first(where: { $0.id == app.accountID }) else {
-            return "未记录"
+        if let selectedAccountID,
+           let account = viewModel.accounts.first(where: { $0.id == selectedAccountID }) {
+            return viewModel.fullEmail(for: account)
         }
-        return viewModel.fullEmail(for: account)
+        if let account = viewModel.accounts.first(where: { $0.id == app.accountID }) {
+            return viewModel.fullEmail(for: account)
+        }
+        return "未记录·自动选择"
+    }
+
+    private var accountSummaryColor: Color {
+        if selectedAccountID != nil { return .primary }
+        if app.accountID != nil { return Color.sealTextSecondary }
+        return .secondary
     }
 
     private var certificateSummary: String {

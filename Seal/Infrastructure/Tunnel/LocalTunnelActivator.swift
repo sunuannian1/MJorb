@@ -32,6 +32,15 @@ actor LocalTunnelActivator: VPNOnDemandActivating {
         await reachability.probeTunnel()
     }
 
+    /// 签名/安装结束后主动断开隧道，避免在纯蜂窝下常驻分流隧道影响外网访问。
+    func deactivate() async {
+        #if targetEnvironment(simulator)
+        return
+        #else
+        await Self.stopTunnelOnMain(bundleID: providerBundleID)
+        #endif
+    }
+
     /// 主动连接隧道并在有限尝试次数内等待回环可达；隧道一旦可达会立即返回。
     /// - Returns: 隧道回环是否最终可达
     func ensureConnected(attempts: Int = 8, intervalMilliseconds: UInt64 = 1000) async -> Bool {
@@ -145,5 +154,26 @@ actor LocalTunnelActivator: VPNOnDemandActivating {
             }
         }
         return reloadedError == nil
+    }
+
+    @MainActor
+    private static func stopTunnelOnMain(bundleID: String) async {
+        nonisolated(unsafe) var loadedManagers: [NETunnelProviderManager]?
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            NETunnelProviderManager.loadAllFromPreferences { managers, _ in
+                loadedManagers = managers
+                continuation.resume()
+            }
+        }
+        let matching = (loadedManagers ?? []).first { manager in
+            (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == bundleID
+        }
+        guard let matching else { return }
+        switch matching.connection.status {
+        case .connected, .connecting, .reasserting:
+            matching.connection.stopVPNTunnel()
+        default:
+            break
+        }
     }
 }
