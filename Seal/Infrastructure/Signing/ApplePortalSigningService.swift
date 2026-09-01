@@ -257,7 +257,13 @@ actor ApplePortalSigningService {
                     progress: progress
                 )
             } catch {
-                throw failure
+                // 自动重登失败（可能需要验证码），提示用户手动重新登录，不标记ID失效
+                throw Self.failure(
+                    title: "需要重新验证 Apple ID",
+                    reason: "当前 Apple ID 的登录状态已过期，且自动重新登录需要双重验证码。请前往「我的」页面，重新验证该 Apple ID 后再签名。",
+                    recovery: "去验证 Apple ID",
+                    code: "SEAL-AUTH-107a"
+                )
             }
         } catch let failure as ImportFailure where Self.shouldRetryWithFreshSigningCertificate(failure) {
             var refreshedSecret = await secretState.value()
