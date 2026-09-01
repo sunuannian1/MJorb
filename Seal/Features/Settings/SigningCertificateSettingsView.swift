@@ -17,7 +17,6 @@ struct SigningCertificateSettingsView: View {
 
                 certificateContent
             }
-            }
             .padding(20)
         }
         .navigationTitle("签名证书")
