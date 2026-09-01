@@ -64,7 +64,7 @@ struct SigningWorkspace: Sendable {
             var mappings = [originalBundleID: mappedMain]
             try updateBundleIdentifier(at: appURL, to: mappedMain)
             // 参照 SideStore 官方逻辑：替换 URL Schemes，避免同 Bundle ID 不同后缀的 App 冲突
-            try updateURLSchemes(in: appURL, originalBundleID: originalBundleID, newBundleID: mappedMain)
+            // 不修改被签名 App 的 URL Scheme，避免破坏依赖自定义 scheme 的 App（如 LiveContainer）
             if let preferredDisplayName = normalizedDisplayName(preferredDisplayName) {
                 try updateDisplayName(at: appURL, to: preferredDisplayName)
             }
