@@ -44,6 +44,12 @@ final class CertificateExportHandler {
         return true
     }
 
+    /// 主动导出证书给 LiveContainer（免 JIT 模式），不需要 LiveContainer 有 SideStore 导入按钮
+    func exportToLiveContainer() {
+        let callbackTemplate = "livecontainer://certificate?cert=$(BASE64_CERT)&password=$(PASSWORD)"
+        presentExportDialog(callbackTemplate: callbackTemplate)
+    }
+
     // MARK: - Private
 
     private func presentExportDialog(callbackTemplate: String) {

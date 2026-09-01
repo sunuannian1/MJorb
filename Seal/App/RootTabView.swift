@@ -25,7 +25,8 @@ struct RootTabView: View {
 
             SettingsRootView(
                 viewModel: settingsViewModel,
-                relatedApps: appsViewModel.apps
+                relatedApps: appsViewModel.apps,
+                certificateExportHandler: certificateExportHandler
             )
             .tabItem {
                 Label(AppSection.settings.title, systemImage: AppSection.settings.systemImage)

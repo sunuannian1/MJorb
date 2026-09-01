@@ -3,6 +3,7 @@ import SwiftUI
 struct SigningCertificateSettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
     let relatedApps: [AppRecord]
+    let certificateExportHandler: CertificateExportHandler
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -110,6 +111,25 @@ struct SigningCertificateSettingsView: View {
                     value: usableAppIDCountText(health),
                     state: nil
                 )
+
+                Divider()
+
+                Button {
+                    certificateExportHandler.exportToLiveContainer()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.subheadline.weight(.semibold))
+                        Text("导出证书给 LiveContainer")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(Color.sealTextSecondary)
+                    }
+                    .foregroundStyle(Color.sealAccent)
+                    .padding(.vertical, 12)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -4,6 +4,7 @@ import UIKit
 struct SettingsRootView: View {
     @ObservedObject var viewModel: SettingsViewModel
     let relatedApps: [AppRecord]
+    let certificateExportHandler: CertificateExportHandler
 
     @State private var navigationPath = NavigationPath()
     @State private var isAddingAccount = false
@@ -136,7 +137,7 @@ struct SettingsRootView: View {
                 case .addAccount:
                     EmptyView()
                 case .certificates:
-                    SigningCertificateSettingsView(viewModel: viewModel, relatedApps: relatedApps)
+                    SigningCertificateSettingsView(viewModel: viewModel, relatedApps: relatedApps, certificateExportHandler: certificateExportHandler)
                 case .accountDetail(let id):
                     if let account = viewModel.accounts.first(where: { $0.id == id }) {
                         AppleAccountDetailView(
