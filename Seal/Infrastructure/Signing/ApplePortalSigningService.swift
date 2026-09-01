@@ -236,12 +236,10 @@ actor ApplePortalSigningService {
             let currentSecret = await secretState.value()
             guard let password = currentSecret.password else { throw failure }
             do {
-                let newSecret = try await MainActor.run {
-                    try await self.accountClient.reauthenticate(
-                        email: currentSecret.email,
-                        password: password
-                    )
-                }
+                let newSecret = try await accountClient.reauthenticate(
+                    email: currentSecret.email,
+                    password: password
+                )
                 try await persistSigningMaterial(newSecret, currentSecret.certificateSerialNumber ?? "")
                 await secretState.update(newSecret)
                 return try await signOnce(
