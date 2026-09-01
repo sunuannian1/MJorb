@@ -37,7 +37,7 @@ enum AppleAuthenticationFailure {
 final class AppleAccountClient {
     private let anisetteProvider: any AnisetteProvider
 
-    init(anisetteProvider: any AnisetteProvider = AnisetteV3Client()) {
+    nonisolated init(anisetteProvider: any AnisetteProvider = AnisetteV3Client()) {
         self.anisetteProvider = anisetteProvider
     }
 

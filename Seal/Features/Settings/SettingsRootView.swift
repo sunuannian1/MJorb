@@ -36,25 +36,6 @@ struct SettingsRootView: View {
                             )
                         }
                         sectionDivider
-
-                        Picker(selection: Binding(
-                            get: { viewModel.selectedAnisetteServerID ?? "" },
-                            set: { id in
-                                Task { await viewModel.selectAnisetteServer(id: id) }
-                            }
-                        )) {
-                            ForEach(viewModel.anisetteServers) { server in
-                                Text(server.displayName).tag(server.id)
-                            }
-                        } label: {
-                            settingsRow(
-                                title: "Anisette 服务器",
-                                value: viewModel.anisetteServers.first(where: { $0.id == viewModel.selectedAnisetteServerID })?.displayName,
-                                icon: "network",
-                                showsChevron: true
-                            )
-                        }
-                        .pickerStyle(.navigationLink)
                     }
 
                     settingsSection("到期提醒") {

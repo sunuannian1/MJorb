@@ -52,8 +52,6 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var notificationsEnabled = false
     @Published private(set) var reminderHours = 24
     @Published private(set) var notificationStatus = NotificationScheduleStatus.disabled
-    @Published private(set) var anisetteServers: [AnisetteServer] = []
-    @Published private(set) var selectedAnisetteServerID: String?
     @Published private(set) var storageUsage: SettingsStorageUsage = .empty
     @Published private(set) var logExportText = ""
     @Published var alertFailure: ImportFailure?
@@ -248,19 +246,6 @@ final class SettingsViewModel: ObservableObject {
                     self.logs = loadedLogs
                     self.signingHistory = loadedHistory
                     self.signingHistoryIconData = historyIcons
-                }
-
-                var loadedServers: [AnisetteServer] = await MainActor.run { self.anisetteServers }
-                var loadedSelectedServerID: String? = await MainActor.run { self.selectedAnisetteServerID }
-                if let anisetteEnvironment = self.anisetteEnvironment {
-                    async let availableServers = anisetteEnvironment.availableServers()
-                    async let selectedServerID = anisetteEnvironment.selectedServerID()
-                    loadedServers = await availableServers
-                    loadedSelectedServerID = (await selectedServerID) ?? loadedServers.first?.id
-                }
-                await MainActor.run {
-                    self.anisetteServers = loadedServers
-                    self.selectedAnisetteServerID = loadedSelectedServerID
                 }
 
                 var loadedNotificationsEnabled = await MainActor.run { self.notificationsEnabled }
@@ -1085,13 +1070,6 @@ final class SettingsViewModel: ObservableObject {
 
     func requestInitialPermissionsIfNeeded() async {
         // 通知权限只在用户主动开启“到期前 24 小时提醒”时请求。
-    }
-
-    func selectAnisetteServer(id: String) async {
-        guard let anisetteEnvironment,
-              anisetteServers.contains(where: { $0.id == id }) else { return }
-        await anisetteEnvironment.selectServer(id: id)
-        selectedAnisetteServerID = id
     }
 
     func resetSigningEnvironment() async {
