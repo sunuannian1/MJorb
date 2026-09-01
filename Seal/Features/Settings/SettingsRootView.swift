@@ -37,6 +37,16 @@ struct SettingsRootView: View {
                             )
                         }
                         sectionDivider
+
+                        settingsLink(value: SettingsRoute.certificates) {
+                            settingsRow(
+                                title: "签名证书",
+                                value: nil,
+                                icon: "rectangle.stack.person.crop",
+                                showsChevron: true
+                            )
+                        }
+                        sectionDivider
                     }
 
                     settingsSection("到期提醒") {
