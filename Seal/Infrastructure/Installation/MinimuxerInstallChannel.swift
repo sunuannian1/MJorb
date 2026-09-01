@@ -8,10 +8,13 @@ actor MinimuxerInstallChannel: InstallChannel {
     private var cachedDeviceIdentifier: String?
     private var lastSuccessfulStart: Date?
 
+    private static let startHardTimeoutSeconds: Double = 40
+    private static let blockingCallTimeoutSeconds: Double = 2.0
+
     init(
         pairingStore: PairingStore,
         logDirectory: URL,
-        onDemandActivator: any VPNOnDemandActivating = LocalDevVPNOnDemandActivator()
+        onDemandActivator: any VPNOnDemandActivating = LocalTunnelActivator()
     ) {
         self.pairingStore = pairingStore
         self.logDirectory = logDirectory
@@ -26,20 +29,27 @@ actor MinimuxerInstallChannel: InstallChannel {
            await isReady() {
             return cached
         }
-        // 宽松策略：通道诊断失败（VPN 抖动/Minimuxer 尚未就绪）时内部再试一次，
-        // 不把瞬时抖动直接抛给上层签名/续签流程
-        var diagnostics = await diagnose()
-        if diagnostics.failure != nil || diagnostics.deviceIdentifier == nil {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            diagnostics = await diagnose()
+        // 整体硬超时：主动拉起隧道 + 最多两轮诊断，避免纯蜂窝下永久停在“准备环境”。
+        return try await withHardTimeout(seconds: Self.startHardTimeoutSeconds) {
+            // 先主动把 LocalDevVPN 拉起来：纯蜂窝下 iOS 不会因一次探测就自动建隧道。
+            await onDemandActivator.activate()
+
+            var diagnostics = await diagnose()
+            if diagnostics.failure != nil || diagnostics.deviceIdentifier == nil {
+                // 第一轮失败：重置 Minimuxer、重新激活隧道后再诊断一次。
+                await reset()
+                await onDemandActivator.activate()
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                diagnostics = await diagnose()
+            }
+            if let failure = diagnostics.failure { throw failure }
+            guard let deviceIdentifier = diagnostics.deviceIdentifier else {
+                throw Self.channelNotReadyFailure
+            }
+            cachedDeviceIdentifier = deviceIdentifier
+            lastSuccessfulStart = Date()
+            return deviceIdentifier
         }
-        if let failure = diagnostics.failure { throw failure }
-        guard let deviceIdentifier = diagnostics.deviceIdentifier else {
-            throw Self.channelNotReadyFailure
-        }
-        cachedDeviceIdentifier = deviceIdentifier
-        lastSuccessfulStart = Date()
-        return deviceIdentifier
     }
 
     func diagnose() async -> InstallChannelDiagnostics {
@@ -129,7 +139,13 @@ actor MinimuxerInstallChannel: InstallChannel {
             run(.minimuxer)
             do {
                 let pairing = try await pairingStore.contents()
-                try Minimuxer.start(pairingFile: pairing, logPath: logDirectory.path)
+                let logPath = logDirectory.path
+                let startOutcome = await offThread(seconds: 4.0) {
+                    try Minimuxer.start(pairingFile: pairing, logPath: logPath)
+                }
+                if case .some(.failure(let startError)) = startOutcome {
+                    return fail(.minimuxer, Self.connectionFailure(startError))
+                }
             } catch {
                 return fail(.minimuxer, Self.connectionFailure(error))
             }
@@ -181,7 +197,11 @@ actor MinimuxerInstallChannel: InstallChannel {
         #if targetEnvironment(simulator)
         return true
         #else
-        return Minimuxer.ready()
+        let outcome = await offThread(seconds: Self.blockingCallTimeoutSeconds) {
+            Minimuxer.ready()
+        }
+        guard case .some(.success(let ready)) = outcome else { return false }
+        return ready
         #endif
     }
 
@@ -199,6 +219,47 @@ actor MinimuxerInstallChannel: InstallChannel {
         #endif
     }
 
+    /// 整体硬超时：先返回的结果胜出；超时即抛出，另一任务取消。
+    /// 同步阻塞 FFI 无法被真正中断，会在后台自行结束，不再占用用户流程。
+    private func withHardTimeout<T: Sendable>(
+        seconds: Double,
+        _ work: @Sendable @escaping () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await work() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw Self.channelTimeoutFailure
+            }
+            guard let result = try await group.next() else {
+                throw Self.channelNotReadyFailure
+            }
+            group.cancelAll()
+            return result
+        }
+    }
+
+    /// 在协作线程池中执行可能长时间阻塞的同步 Minimuxer FFI；
+    /// 超过 `seconds` 未返回则返回 nil（本次放弃），避免同步调用把整个通道拖成“假死”。
+    private func offThread<T: Sendable>(
+        seconds: Double,
+        _ work: @Sendable @escaping () throws -> T
+    ) async -> Result<T, Error>? {
+        await withTaskGroup(of: Result<T, Error>?.self) { group in
+            group.addTask { .some(Result(catching: work)) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            guard let outcome = await group.next() else {
+                group.cancelAll()
+                return nil
+            }
+            group.cancelAll()
+            return outcome
+        }
+    }
+
     func install(
         ipaData: Data,
         bundleID: String,
@@ -209,7 +270,12 @@ actor MinimuxerInstallChannel: InstallChannel {
         var lastInstallError: Error?
         for installAttempt in 1...3 {
             do {
-                try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
+                let pushOutcome = await offThread(seconds: 75) {
+                    try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
+                }
+                if case .some(.failure(let pushError)) = pushOutcome { throw pushError }
+                guard pushOutcome != nil else { throw Self.installTimeoutFailure }
+
                 if isSelfReplacement {
                     let installation = Task.detached(priority: .userInitiated) {
                         try Minimuxer.installIpa(bundleId: bundleID)
@@ -218,7 +284,11 @@ actor MinimuxerInstallChannel: InstallChannel {
                     await SelfReplacementController.returnToHomeScreen()
                     try await installation.value
                 } else {
-                    try Minimuxer.installIpa(bundleId: bundleID)
+                    let installOutcome = await offThread(seconds: 75) {
+                        try Minimuxer.installIpa(bundleId: bundleID)
+                    }
+                    if case .some(.failure(let installError)) = installOutcome { throw installError }
+                    guard installOutcome != nil else { throw Self.installTimeoutFailure }
                 }
                 return
             } catch {
@@ -289,7 +359,16 @@ actor MinimuxerInstallChannel: InstallChannel {
 
     private func readyDeviceIdentifier() async throws -> String? {
         guard await isReady() else { return nil }
-        guard let udid = Minimuxer.fetchUDID(), udid.isEmpty == false else {
+        let outcome = await offThread(seconds: Self.blockingCallTimeoutSeconds) {
+            () -> String? in
+            guard let udid = Minimuxer.fetchUDID(), udid.isEmpty == false else {
+                return nil
+            }
+            return udid
+        }
+        guard case .some(.success(let maybeUDID)) = outcome,
+              let udid = maybeUDID,
+              udid.isEmpty == false else {
             return nil
         }
         return udid
@@ -305,7 +384,7 @@ actor MinimuxerInstallChannel: InstallChannel {
             || normalized.contains("invalid host") {
             return ImportFailure(
                 title: "设备配对不可用",
-                reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
+                reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
                 recovery: "重新配对当前设备",
                 code: "SEAL-INSTALL-703"
             )
@@ -331,7 +410,7 @@ actor MinimuxerInstallChannel: InstallChannel {
         }
         return ImportFailure(
             title: "无法安装到手机",
-            reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
+            reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
             recovery: "重试",
             code: "SEAL-INSTALL-705"
         )
@@ -382,22 +461,36 @@ actor MinimuxerInstallChannel: InstallChannel {
 
     private static let vpnTunnelUnavailableFailure = ImportFailure(
         title: "无法安装到手机",
-        reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
+        reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
         recovery: "重试",
         code: "SEAL-INSTALL-701"
     )
 
     private static let deviceNotRespondingFailure = ImportFailure(
         title: "设备未响应",
-        reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
+        reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
         recovery: "重试",
         code: "SEAL-INSTALL-708"
     )
 
     private static let channelNotReadyFailure = ImportFailure(
         title: "无法安装到手机",
-        reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
+        reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
         recovery: "重试",
         code: "SEAL-INSTALL-706b"
+    )
+
+    private static let channelTimeoutFailure = ImportFailure(
+        title: "本地通道连接超时",
+        reason: "LocalDevVPN 隧道在限定时间内未就绪。蜂窝网络下建立隧道可能稍慢，已自动重试过；仍失败请确认 LocalDevVPN 处于连接状态后再试。",
+        recovery: "重新检查",
+        code: "SEAL-INSTALL-706t"
+    )
+
+    private static let installTimeoutFailure = ImportFailure(
+        title: "安装超时",
+        reason: "向设备传输并安装应用耗时过长，将自动重试。若多次出现，请确认 LocalDevVPN 连接稳定后再试。",
+        recovery: "重试",
+        code: "SEAL-INSTALL-702t"
     )
 }

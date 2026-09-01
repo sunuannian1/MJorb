@@ -1404,7 +1404,7 @@ final class SettingsViewModel: ObservableObject {
             )
             logs = (try? await logStore?.entries()) ?? logs
             refreshLogExportText()
-            await runInstallChannelCheck(successMessage: "Wi-Fi 和 LocalDevVPN 正常")
+            await runInstallChannelCheck(successMessage: "LocalDevVPN 通道正常（蜂窝 / Wi-Fi 均可）")
             return true
         } catch let failure as ImportFailure {
             try? FileManager.default.removeItem(at: inboxURL)
@@ -1460,7 +1460,7 @@ final class SettingsViewModel: ObservableObject {
             )
             logs = (try? await logStore?.entries()) ?? logs
             refreshLogExportText()
-            await runInstallChannelCheck(successMessage: "Wi-Fi 和 LocalDevVPN 正常")
+            await runInstallChannelCheck(successMessage: "LocalDevVPN 通道正常（蜂窝 / Wi-Fi 均可）")
             return true
         } catch let failure as ImportFailure {
             alertFailure = failure
@@ -1596,7 +1596,7 @@ final class SettingsViewModel: ObservableObject {
             diagnosticState = .failed(
                 Self.failure(
                     title: "连接通道未就绪",
-                    reason: "LocalDevVPN 未启动或未安装。请先打开 LocalDevVPN 并连接同一 Wi-Fi。",
+                    reason: "LocalDevVPN 未启动或未安装。请先打开并连接 LocalDevVPN（无需 Wi-Fi，蜂窝网络也可以）。",
                     recovery: "打开 LocalDevVPN 后重试",
                     code: "SEAL-PAIR-204"
                 )
@@ -2119,7 +2119,7 @@ final class SettingsViewModel: ObservableObject {
 
     private static let localDevVPNUnavailableFailure = ImportFailure(
         title: "LocalDevVPN 未就绪",
-        reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
+        reason: "LocalDevVPN 未就绪。请先连接 LocalDevVPN（无需 Wi-Fi，蜂窝网络也可以）。",
         recovery: "一键检测",
         code: "SEAL-INSTALL-706a"
     )

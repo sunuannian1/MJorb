@@ -187,7 +187,7 @@ struct BatchRefreshView: View {
         case .preparingSealUpdate:
             return "更新 Seal 时会暂时回到主屏幕，安装完成后请重新打开。"
         case .failed:
-            return "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。"
+            return "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。"
         case .completed, nil:
             return nil
         }

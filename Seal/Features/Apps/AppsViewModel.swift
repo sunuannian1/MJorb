@@ -1090,7 +1090,7 @@ final class AppsViewModel: ObservableObject {
         pendingVPNAction = action
         alertFailure = ImportFailure(
             title: "需要恢复连接",
-            reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
+            reason: "正在通过 LocalDevVPN 建立本地连接，无需连接 Wi-Fi，蜂窝网络也可以。若长时间无响应，请在设置中确认 LocalDevVPN 已连接后重试。",
             recovery: "恢复连接",
             code: "SEAL-INSTALL-706"
         )
@@ -1729,7 +1729,7 @@ final class AppsViewModel: ObservableObject {
 
     private static let connectionRecoveryFailure = ImportFailure(
         title: "需要恢复连接",
-        reason: "请确认 Wi-Fi 和 LocalDevVPN 已开启后重试。",
+        reason: "正在通过 LocalDevVPN 建立本地连接，无需连接 Wi-Fi，蜂窝网络也可以。若长时间无响应，请在设置中确认 LocalDevVPN 已连接后重试。",
         recovery: "重新检查",
         code: "SEAL-VPN-001"
     )
