@@ -10,6 +10,7 @@ struct RootTabView: View {
     @State private var lastLaunchCheckAt: Date?
     @AppStorage("appearance.mode") private var appearanceRawValue = SealAppearance.system.rawValue
     @AppStorage("appearance.accent") private var accentRawValue = SealAccentTheme.system.rawValue
+    @State private var updateNotice: UpdateNotice?
 
     var body: some View {
         TabView(selection: $selection) {
@@ -41,6 +42,9 @@ struct RootTabView: View {
         .task {
             await LocalNetworkPermissionPrimer.requestIfNeeded()
             await performLaunchCheck(force: true)
+            if let notice = await UpdateChecker.shared.check() {
+                updateNotice = notice
+            }
         }
         .onChange(of: appsViewModel.shouldOpenSettings) { shouldOpen in
             guard shouldOpen else { return }
@@ -64,6 +68,9 @@ struct RootTabView: View {
                     await settingsViewModel.testLocalDevVPN()
                     await appsViewModel.resumePendingVPNAction()
                     await performLaunchCheck(force: true)
+            if let notice = await UpdateChecker.shared.check() {
+                updateNotice = notice
+            }
                 }
                 return
             }
@@ -77,6 +84,13 @@ struct RootTabView: View {
             guard url.isFileURL else { return }
             selection = .apps
             Task { await appsViewModel.importSelectedFile(url) }
+        }
+        .alert(item: $updateNotice) { notice in
+            Alert(
+                title: Text(notice.title),
+                message: Text(notice.message),
+                dismissButton: .default(Text("知道了"))
+            )
         }
     }
 
