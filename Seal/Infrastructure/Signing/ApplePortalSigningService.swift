@@ -184,6 +184,7 @@ enum ApplePortalSigningFailure {
 actor ApplePortalSigningService {
     private let anisetteProvider: any AnisetteProvider
     private let signingWorkspace: SigningWorkspace
+    private let accountClient: AppleAccountClient
 
     init(
         anisetteProvider: any AnisetteProvider = AnisetteV3Client(),
@@ -191,6 +192,7 @@ actor ApplePortalSigningService {
     ) {
         self.anisetteProvider = anisetteProvider
         self.signingWorkspace = signingWorkspace
+        self.accountClient = AppleAccountClient(anisetteProvider: anisetteProvider)
     }
 
     func sign(
@@ -229,6 +231,36 @@ actor ApplePortalSigningService {
                 persistSigningMaterial: persistence,
                 progress: progress
             )
+        } catch let failure as ImportFailure where failure.code == "SEAL-AUTH-107" {
+            // Apple 会话过期（1100），如果保存了密码则自动重新登录
+            let currentSecret = await secretState.value()
+            guard let password = currentSecret.password else { throw failure }
+            do {
+                let newSecret = try await MainActor.run {
+                    try await self.accountClient.reauthenticate(
+                        email: currentSecret.email,
+                        password: password
+                    )
+                }
+                try await persistSigningMaterial(newSecret, currentSecret.certificateSerialNumber ?? "")
+                await secretState.update(newSecret)
+                return try await signOnce(
+                    app: app,
+                    account: account,
+                    secret: newSecret,
+                    deviceIdentifier: deviceIdentifier,
+                    originalIPAURL: originalIPAURL,
+                    workspaceRoot: workspaceRoot,
+                    targetBundleIdentifier: targetBundleIdentifier,
+                    preferredIconData: preferredIconData,
+                    selectedCertificateSerialNumber: selectedCertificateSerialNumber,
+                    allowDroppingExtensions: allowDroppingExtensions,
+                    persistSigningMaterial: persistence,
+                    progress: progress
+                )
+            } catch {
+                throw failure
+            }
         } catch let failure as ImportFailure where Self.shouldRetryWithFreshSigningCertificate(failure) {
             var refreshedSecret = await secretState.value()
             refreshedSecret.certificateP12 = nil
@@ -305,14 +337,7 @@ actor ApplePortalSigningService {
         do {
             try Task.checkCancellation()
             await progress(.preparingAccount)
-            // 优先用登录时保存的 Anisette 数据，必须与 authToken 绑定使用
-            // 否则 Apple 会返回 1100 会话过期（刚添加就过期的根因）
-            let anisette: ALTAnisetteData
-            if let saved = secret.savedAnisetteData {
-                anisette = saved
-            } else {
-                anisette = try await anisetteProvider.fetch()
-            }
+            let anisette = try await anisetteProvider.fetch()
             let session = ALTAppleAPISession(
                 dsid: secret.dsid,
                 authToken: secret.authToken,

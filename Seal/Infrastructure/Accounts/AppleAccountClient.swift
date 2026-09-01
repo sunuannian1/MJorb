@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 @preconcurrency import AltSign
 
 enum AppleAuthenticationStage: Sendable {
@@ -68,6 +68,25 @@ final class AppleAccountClient {
         }
     }
 
+    /// 自动重新登录（authToken 失效 1100 时使用），不需要用户输入验证码
+    /// 如果需要验证码，会抛出错误，此时需要用户手动重新添加账号
+    func reauthenticate(email: String, password: String) async throws -> AccountSecret {
+        let anisetteData = try await anisetteProvider.fetch()
+        let auth = try await authenticate(
+            email: email,
+            password: password,
+            anisetteData: anisetteData,
+            verificationCode: { nil }
+        ).value
+        return AccountSecret(
+            email: email,
+            accountIdentifier: auth.account.identifier,
+            dsid: auth.session.dsid,
+            authToken: auth.session.authToken,
+            password: password
+        )
+    }
+
     private func authenticateOnce(
         email: String,
         password: String,
@@ -116,8 +135,9 @@ final class AppleAccountClient {
                 email: email,
                 accountIdentifier: auth.account.identifier,
                 dsid: auth.session.dsid,
-                authToken: auth.session.authToken
-            ).withAnisetteData(anisetteData)
+                authToken: auth.session.authToken,
+                password: password
+            )
             return AuthenticatedAppleAccount(
                 maskedEmail: Self.mask(email),
                 accountIdentifier: auth.account.identifier,

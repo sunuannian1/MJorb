@@ -1,28 +1,28 @@
 import Foundation
-import AltSign
 
 struct AccountSecret: Codable, Equatable, Sendable {
     let email: String
     let accountIdentifier: String
     let dsid: String
     let authToken: String
+    /// Apple ID 密码，用于 authToken 失效（1100）时自动重新登录
+    /// 保存在钥匙串加密的 AccountSecret 中，参照 SideStore 官方做法
+    let password: String?
     var certificateP12: Data?
     var certificateSerialNumber: String?
     var certificateMachineIdentifier: String?
-    /// 登录时使用的 Anisette 数据，必须与 authToken 绑定使用，否则 Apple 返回 1100 会话过期
-    /// 以 NSKeyedArchiver 序列化后的 Data 形式保存
-    var anisetteData: Data?
 
-    /// 恢复登录时保存的 Anisette 数据
-    var savedAnisetteData: ALTAnisetteData? {
-        guard let data = anisetteData else { return nil }
-        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: ALTAnisetteData.self, from: data)
-    }
-
-    /// 用当前 Anisette 数据创建副本
-    func withAnisetteData(_ anisetteData: ALTAnisetteData) -> AccountSecret {
-        var copy = self
-        copy.anisetteData = try? NSKeyedArchiver.archivedData(withRootObject: anisetteData, requiringSecureCoding: false)
-        return copy
+    /// 用新的 authToken 和 dsid 创建副本（自动重登时使用）
+    func withNewSession(dsid: String, authToken: String) -> AccountSecret {
+        AccountSecret(
+            email: email,
+            accountIdentifier: accountIdentifier,
+            dsid: dsid,
+            authToken: authToken,
+            password: password,
+            certificateP12: certificateP12,
+            certificateSerialNumber: certificateSerialNumber,
+            certificateMachineIdentifier: certificateMachineIdentifier
+        )
     }
 }
