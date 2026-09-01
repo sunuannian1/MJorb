@@ -896,16 +896,20 @@ actor ApplePortalSigningService {
         var existing = try await fetchAppIDs(team: team, session: session)
 
         // 免费账号 App ID 上限预检：主 App 必须签，扩展签不了自动跳过
-
-
-
-
         // 宽松策略：主 App 必须签，扩展签不了就自动跳过，不直接报错
         if team.type == .free {
             let maximumFreeAppIDs = 10
+            // 已注册过的主 App 会在下方 Phase 1 直接复用、不占用新名额；
+            // 只有主 App 的 Bundle ID 确实需要“新建”且账号名额已满时，才真正无法签名。
+            let mainAlreadyRegistered = existing.contains {
+                ApplePortalAppIDResolver.matches(
+                    existingBundleIdentifier: $0.bundleIdentifier,
+                    requestedBundleIdentifier: mappedMainBundleID
+                )
+            }
             let availableAppIDs = max(0, maximumFreeAppIDs - existing.count)
-            // 主 App 都签不了才报错
-            if availableAppIDs < 1 {
+            // 主 App 已注册可复用、或仍有空余名额可新建，都放行；扩展名额不足由 Phase 1 自动跳过
+            if mainAlreadyRegistered == false, availableAppIDs < 1 {
                 let sortedExpirations = existing.compactMap { $0.expirationDate }.sorted()
                 let earliestExpiration = sortedExpirations.first
                 let expirationText = earliestExpiration.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? "未知"
