@@ -4,6 +4,7 @@ import Foundation
 struct AppContainer {
     let appsViewModel: AppsViewModel
     let settingsViewModel: SettingsViewModel
+    let certificateExportHandler: CertificateExportHandler
 
     static func live(
         arguments: [String] = ProcessInfo.processInfo.arguments
@@ -40,6 +41,10 @@ struct AppContainer {
             )
             let keychain = KeychainVault()
             let signingPreferenceStore = SigningPreferenceStore()
+            let certificateExportHandler = CertificateExportHandler(
+                keychain: keychain,
+                signingPreferenceStore: signingPreferenceStore
+            )
             let pairingStore = PairingStore(
                 fileURL: sealDirectory.appending(path: AppConfiguration.Paths.pairingFile)
             )
@@ -152,7 +157,8 @@ struct AppContainer {
                     anisetteEnvironment: anisetteProvider,
                     signingPreferenceStore: signingPreferenceStore,
                     operationCoordinator: operationCoordinator
-                )
+                ),
+                certificateExportHandler: certificateExportHandler
             )
         } catch {
             let failure = ImportFailure(
@@ -163,7 +169,11 @@ struct AppContainer {
             )
             return AppContainer(
                 appsViewModel: AppsViewModel(startupFailure: failure),
-                settingsViewModel: SettingsViewModel(startupFailure: failure)
+                settingsViewModel: SettingsViewModel(startupFailure: failure),
+                certificateExportHandler: CertificateExportHandler(
+                    keychain: KeychainVault(),
+                    signingPreferenceStore: SigningPreferenceStore()
+                )
             )
         }
     }

@@ -49,6 +49,7 @@ targets:
           - CFBundleURLName: com.mjorb.seal
             CFBundleURLSchemes:
               - seal
+              - sidestore
         CFBundleDocumentTypes:
           - CFBundleTypeName: IPA Archive
             CFBundleTypeRole: Viewer

@@ -17,7 +17,8 @@ struct SealApp: App {
         WindowGroup {
             RootTabView(
                 appsViewModel: container.appsViewModel,
-                settingsViewModel: container.settingsViewModel
+                settingsViewModel: container.settingsViewModel,
+                certificateExportHandler: container.certificateExportHandler
             )
         }
     }

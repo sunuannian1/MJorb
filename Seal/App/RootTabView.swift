@@ -3,6 +3,7 @@ import SwiftUI
 struct RootTabView: View {
     @ObservedObject var appsViewModel: AppsViewModel
     @ObservedObject var settingsViewModel: SettingsViewModel
+    let certificateExportHandler: CertificateExportHandler
     @Environment(\.scenePhase) private var scenePhase
     @State private var selection: AppSection = .apps
     @State private var launchCheckInProgress = false
@@ -63,6 +64,12 @@ struct RootTabView: View {
                     await appsViewModel.resumePendingVPNAction()
                     await performLaunchCheck(force: true)
                 }
+                return
+            }
+
+            // LiveContainer 等外部应用请求导出签名证书
+            if certificateExportHandler.canHandle(url) {
+                certificateExportHandler.handle(url)
                 return
             }
 
