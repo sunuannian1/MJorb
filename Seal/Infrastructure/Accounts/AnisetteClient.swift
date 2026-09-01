@@ -25,11 +25,7 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         for server in await prioritizedServers() where server.url.scheme == "https" {
             do {
                 try Task.checkCancellation()
-                let data = try await fetch(from: server.url)
-                // 成功后锁定该服务器，确保登录和后续操作用相同的 Anisette 服务器
-                // 否则 deviceDescription 不一致会导致 Apple 返回 1100 会话过期
-                await selectServer(id: server.id)
-                return data
+                return try await fetch(from: server.url)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
