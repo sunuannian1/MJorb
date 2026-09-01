@@ -31,25 +31,30 @@ actor MinimuxerInstallChannel: InstallChannel {
         }
         // 整体硬超时：主动拉起隧道 + 最多两轮诊断，避免纯蜂窝下永久停在“准备环境”。
         return try await withHardTimeout(seconds: Self.startHardTimeoutSeconds) {
-            // 先主动把 LocalDevVPN 拉起来：纯蜂窝下 iOS 不会因一次探测就自动建隧道。
-            await onDemandActivator.activate()
-
-            var diagnostics = await diagnose()
-            if diagnostics.failure != nil || diagnostics.deviceIdentifier == nil {
-                // 第一轮失败：重置 Minimuxer、重新激活隧道后再诊断一次。
-                await reset()
-                await onDemandActivator.activate()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                diagnostics = await diagnose()
-            }
-            if let failure = diagnostics.failure { throw failure }
-            guard let deviceIdentifier = diagnostics.deviceIdentifier else {
-                throw Self.channelNotReadyFailure
-            }
-            cachedDeviceIdentifier = deviceIdentifier
-            lastSuccessfulStart = Date()
-            return deviceIdentifier
+            try await self.startOnce()
         }
+    }
+
+    /// 一次完整的隧道激活与诊断流程；作为 actor 隔离方法，可直接读写自身缓存状态。
+    private func startOnce() async throws -> String {
+        // 先主动把 LocalDevVPN 拉起来：纯蜂窝下 iOS 不会因一次探测就自动建隧道。
+        await onDemandActivator.activate()
+
+        var diagnostics = await diagnose()
+        if diagnostics.failure != nil || diagnostics.deviceIdentifier == nil {
+            // 第一轮失败：重置 Minimuxer、重新激活隧道后再诊断一次。
+            await reset()
+            await onDemandActivator.activate()
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            diagnostics = await diagnose()
+        }
+        if let failure = diagnostics.failure { throw failure }
+        guard let deviceIdentifier = diagnostics.deviceIdentifier else {
+            throw Self.channelNotReadyFailure
+        }
+        cachedDeviceIdentifier = deviceIdentifier
+        lastSuccessfulStart = Date()
+        return deviceIdentifier
     }
 
     func diagnose() async -> InstallChannelDiagnostics {
