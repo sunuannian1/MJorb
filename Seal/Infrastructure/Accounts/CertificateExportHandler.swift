@@ -109,25 +109,13 @@ final class CertificateExportHandler {
         urlStr = urlStr
             .replacingOccurrences(of: "$(PASSWORD)", with: password, options: .literal)
 
-        // 7. 用分享面板打开 callback URL，让用户选择哪个 LiveContainer 接收（支持多 LiveContainer 共存）
+        // 7. 直接跳转 callback URL，把证书回传给外部应用
         guard let callbackURL = URL(string: urlStr) else {
             showToast("回调地址无效", in: viewController)
             return
         }
 
-        let activityVC = UIActivityViewController(
-            activityItems: [callbackURL],
-            applicationActivities: nil
-        )
-        activityVC.popoverPresentationController?.sourceView = viewController.view
-        activityVC.popoverPresentationController?.sourceRect = CGRect(
-            x: viewController.view.bounds.midX,
-            y: viewController.view.bounds.midY,
-            width: 0,
-            height: 0
-        )
-        activityVC.popoverPresentationController?.permittedArrowDirections = []
-        viewController.present(activityVC, animated: true)
+        await UIApplication.shared.open(callbackURL)
     }
 
     private func showToast(_ message: String, in viewController: UIViewController) {
