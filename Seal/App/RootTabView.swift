@@ -85,12 +85,14 @@ struct RootTabView: View {
             selection = .apps
             Task { await appsViewModel.importSelectedFile(url) }
         }
-        .alert(item: $updateNotice) { notice in
-            Alert(
-                title: Text(notice.title),
-                message: Text(notice.message),
-                dismissButton: .default(Text("知道了"))
-            )
+        .overlay {
+            if let notice = updateNotice {
+                UpdateNoticeView(notice: notice) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        updateNotice = nil
+                    }
+                }
+            }
         }
     }
 

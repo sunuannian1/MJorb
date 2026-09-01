@@ -10,6 +10,8 @@ struct UpdateChecker {
 
     /// 检查更新，返回需要展示的通知内容（无更新返回 nil）
     func check() async -> UpdateNotice? {
+        // 测试模式：每次启动都弹
+        return UpdateNotice(version: "test", title: "测试", message: "测试")
         guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
             return nil
         }
