@@ -109,7 +109,7 @@ final class CertificateExportHandler {
             return
         }
 
-        UIApplication.shared.open(callbackURL)
+        await UIApplication.shared.open(callbackURL)
     }
 
     private func showToast(_ message: String, in viewController: UIViewController) {
