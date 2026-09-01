@@ -12,7 +12,11 @@ struct AppContainer {
         if let testModel = AppsViewModel.uiTestModel(arguments: arguments) {
             return AppContainer(
                 appsViewModel: testModel,
-                settingsViewModel: .preview()
+                settingsViewModel: .preview(),
+                certificateExportHandler: CertificateExportHandler(
+                    keychain: KeychainVault(),
+                    signingPreferenceStore: SigningPreferenceStore()
+                )
             )
         }
 
