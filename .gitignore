@@ -19,3 +19,9 @@ PairingFile.plist
 *.log
 __pycache__/
 *.py[cod]
+
+# Build artifacts & logs
+build*.txt
+build_logs_*/
+artifacts*.json
+*.ipa

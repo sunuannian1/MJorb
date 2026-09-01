@@ -4,11 +4,6 @@ import Network
 protocol VPNOnDemandActivating: Sendable {
     func activate() async
     func probeTunnel() async -> Bool
-    func deactivate() async
-}
-
-extension VPNOnDemandActivating {
-    func deactivate() async {}
 }
 
 struct LocalDevVPNOnDemandActivator: VPNOnDemandActivating {

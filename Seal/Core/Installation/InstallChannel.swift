@@ -8,12 +8,10 @@ protocol InstallChannel: Actor {
     func reset() async
     func install(ipaData: Data, bundleID: String, isSelfReplacement: Bool) async throws
     func verifyInstalled(bundleID: String) async throws
-    func stop() async
 }
 
 
 extension InstallChannel {
     func storedDeviceIdentifier() async -> String? { nil }
     func reset() async {}
-    func stop() async {}
 }

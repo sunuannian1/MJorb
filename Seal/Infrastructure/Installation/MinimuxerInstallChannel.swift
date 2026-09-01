@@ -14,7 +14,7 @@ actor MinimuxerInstallChannel: InstallChannel {
     init(
         pairingStore: PairingStore,
         logDirectory: URL,
-        onDemandActivator: any VPNOnDemandActivating = LocalTunnelActivator()
+        onDemandActivator: any VPNOnDemandActivating = LocalDevVPNOnDemandActivator()
     ) {
         self.pairingStore = pairingStore
         self.logDirectory = logDirectory
@@ -29,22 +29,18 @@ actor MinimuxerInstallChannel: InstallChannel {
            await isReady() {
             return cached
         }
-        // 整体硬超时：主动拉起隧道 + 最多两轮诊断，避免纯蜂窝下永久停在“准备环境”。
+        // 整体硬超时：最多两轮诊断，避免永久停在"准备环境"。
         return try await withHardTimeout(seconds: Self.startHardTimeoutSeconds) {
             try await self.startOnce()
         }
     }
 
-    /// 一次完整的隧道激活与诊断流程；作为 actor 隔离方法，可直接读写自身缓存状态。
+    /// 一次完整的隧道诊断流程；作为 actor 隔离方法，可直接读写自身缓存状态。
     private func startOnce() async throws -> String {
-        // 先主动把 LocalDevVPN 拉起来：纯蜂窝下 iOS 不会因一次探测就自动建隧道。
-        await onDemandActivator.activate()
-
         var diagnostics = await diagnose()
         if diagnostics.failure != nil || diagnostics.deviceIdentifier == nil {
-            // 第一轮失败：重置 Minimuxer、重新激活隧道后再诊断一次。
+            // 第一轮失败：重置 Minimuxer 后再诊断一次。
             await reset()
-            await onDemandActivator.activate()
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             diagnostics = await diagnose()
         }
@@ -222,11 +218,6 @@ actor MinimuxerInstallChannel: InstallChannel {
         #if !targetEnvironment(simulator)
         Minimuxer.reset()
         #endif
-    }
-
-    /// 签名/安装结束后主动断开 LocalDevVPN，避免在纯蜂窝下常驻分流隧道影响外网。
-    func stop() async {
-        await onDemandActivator.deactivate()
     }
 
     /// 整体硬超时：先返回的结果胜出；超时即抛出，另一任务取消。

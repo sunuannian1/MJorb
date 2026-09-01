@@ -1389,11 +1389,7 @@ final class AppsViewModel: ObservableObject {
         allowDroppingExtensions: Bool
     ) async {
         guard let signingCoordinator else { return }
-        defer {
-            signingTask = nil
-            // 签名结束（无论成败）断开本地隧道，避免在纯蜂窝下常驻分流隧道影响外网
-            Task { @MainActor in await self.installChannel?.stop() }
-        }
+        defer { signingTask = nil }
         let isRenewal = app.belongsInInstalledList
         let operationKind: OperationCoordinator.Kind = isRenewal ? .renewing : .signing
         guard let operationLease = await acquireOperation(operationKind, appID: app.id) else {
