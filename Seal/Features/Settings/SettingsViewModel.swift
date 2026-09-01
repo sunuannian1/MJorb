@@ -1,4 +1,4 @@
-﻿import Combine
+import Combine
 import Foundation
 @preconcurrency import AltSign
 
@@ -763,7 +763,8 @@ final class SettingsViewModel: ObservableObject {
 
         do {
             guard let secret = try await keychain.load(accountID: account.id) else {
-                try await persistVerificationFailure(.localCredentialsMissing, for: account)
+                // 后台同步不改变账号验证状态：Keychain 瞬时不可读不应把 ID 标为失效。
+                // 凭据缺失只记录同步失败，用户主动验证时才会标记 needsVerification。
                 throw Self.failure(
                     title: "Apple ID 同步失败",
                     reason: "本机没有此 Apple ID 的登录凭据。",
@@ -824,7 +825,7 @@ final class SettingsViewModel: ObservableObject {
 
         do {
             guard let secret = try await keychain.load(accountID: account.id) else {
-                try await persistVerificationFailure(.localCredentialsMissing, for: account)
+                // 后台同步不改变账号验证状态，同上。
                 throw Self.failure(
                     title: "Apple 侧同步失败",
                     reason: "本机没有此 Apple ID 的登录凭据。",
@@ -1404,7 +1405,7 @@ final class SettingsViewModel: ObservableObject {
             )
             logs = (try? await logStore?.entries()) ?? logs
             refreshLogExportText()
-            await runInstallChannelCheck(successMessage: "LocalDevVPN 通道正常（蜂窝 / Wi-Fi 均可）")
+            await runInstallChannelCheck(successMessage: "LocalDevVPN 通道正常（需连接 Wi-Fi）")
             return true
         } catch let failure as ImportFailure {
             try? FileManager.default.removeItem(at: inboxURL)
@@ -1460,7 +1461,7 @@ final class SettingsViewModel: ObservableObject {
             )
             logs = (try? await logStore?.entries()) ?? logs
             refreshLogExportText()
-            await runInstallChannelCheck(successMessage: "LocalDevVPN 通道正常（蜂窝 / Wi-Fi 均可）")
+            await runInstallChannelCheck(successMessage: "LocalDevVPN 通道正常（需连接 Wi-Fi）")
             return true
         } catch let failure as ImportFailure {
             alertFailure = failure
@@ -1596,7 +1597,7 @@ final class SettingsViewModel: ObservableObject {
             diagnosticState = .failed(
                 Self.failure(
                     title: "连接通道未就绪",
-                    reason: "LocalDevVPN 未启动或未安装。请先打开并连接 LocalDevVPN（无需 Wi-Fi，蜂窝网络也可以）。",
+                    reason: "LocalDevVPN 未启动或未安装。请先连接 Wi-Fi 并打开 LocalDevVPN。",
                     recovery: "打开 LocalDevVPN 后重试",
                     code: "SEAL-PAIR-204"
                 )
@@ -2119,7 +2120,7 @@ final class SettingsViewModel: ObservableObject {
 
     private static let localDevVPNUnavailableFailure = ImportFailure(
         title: "LocalDevVPN 未就绪",
-        reason: "LocalDevVPN 未就绪。请先连接 LocalDevVPN（无需 Wi-Fi，蜂窝网络也可以）。",
+        reason: "LocalDevVPN 未就绪。请先连接 Wi-Fi 并确认 LocalDevVPN 已连接。",
         recovery: "一键检测",
         code: "SEAL-INSTALL-706a"
     )

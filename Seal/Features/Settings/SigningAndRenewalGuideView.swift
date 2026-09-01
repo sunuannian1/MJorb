@@ -63,7 +63,7 @@ private enum SigningGuideSection: String, CaseIterable, Identifiable {
         switch self {
         case .requirements:
             return [
-                "确保联网（蜂窝或 Wi-Fi 均可）",
+                "确保连接 Wi-Fi",
                 "开启 LocalDevVPN",
                 "添加 Apple ID",
                 "完成设备配对"

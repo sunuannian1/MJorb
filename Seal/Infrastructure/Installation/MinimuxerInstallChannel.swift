@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 @preconcurrency import Minimuxer
 
 actor MinimuxerInstallChannel: InstallChannel {
@@ -394,7 +394,7 @@ actor MinimuxerInstallChannel: InstallChannel {
             || normalized.contains("invalid host") {
             return ImportFailure(
                 title: "设备配对不可用",
-                reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
+                reason: "请确认已连接 Wi-Fi 且 LocalDevVPN 已连接后重试。",
                 recovery: "重新配对当前设备",
                 code: "SEAL-INSTALL-703"
             )
@@ -420,7 +420,7 @@ actor MinimuxerInstallChannel: InstallChannel {
         }
         return ImportFailure(
             title: "无法安装到手机",
-            reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
+            reason: "请确认已连接 Wi-Fi 且 LocalDevVPN 已连接后重试。",
             recovery: "重试",
             code: "SEAL-INSTALL-705"
         )
@@ -471,28 +471,28 @@ actor MinimuxerInstallChannel: InstallChannel {
 
     private static let vpnTunnelUnavailableFailure = ImportFailure(
         title: "无法安装到手机",
-        reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
+        reason: "请确认已连接 Wi-Fi 且 LocalDevVPN 已连接后重试。",
         recovery: "重试",
         code: "SEAL-INSTALL-701"
     )
 
     private static let deviceNotRespondingFailure = ImportFailure(
         title: "设备未响应",
-        reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
+        reason: "请确认已连接 Wi-Fi 且 LocalDevVPN 已连接后重试。",
         recovery: "重试",
         code: "SEAL-INSTALL-708"
     )
 
     private static let channelNotReadyFailure = ImportFailure(
         title: "无法安装到手机",
-        reason: "请确认 LocalDevVPN 已连接后重试（无需 Wi-Fi，蜂窝网络也可以）。",
+        reason: "请确认已连接 Wi-Fi 且 LocalDevVPN 已连接后重试。",
         recovery: "重试",
         code: "SEAL-INSTALL-706b"
     )
 
     private static let channelTimeoutFailure = ImportFailure(
         title: "本地通道连接超时",
-        reason: "LocalDevVPN 隧道在限定时间内未就绪。蜂窝网络下建立隧道可能稍慢，已自动重试过；仍失败请确认 LocalDevVPN 处于连接状态后再试。",
+        reason: "LocalDevVPN 隧道在限定时间内未就绪。已自动重试过；仍失败请确认已连接 Wi-Fi 且 LocalDevVPN 处于连接状态后再试。",
         recovery: "重新检查",
         code: "SEAL-INSTALL-706t"
     )
