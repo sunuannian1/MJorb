@@ -387,16 +387,17 @@ struct SigningWorkspace: Sendable {
     private func updateURLSchemes(in appURL: URL, originalBundleID: String, newBundleID: String) throws {
         let infoURL = appURL.appendingPathComponent("Info.plist")
         try mutateInfoPlist(at: infoURL) { info in
-            var urlTypes = info["CFBundleURLTypes"] as? [[String: Any]] ?? []
-            // 移除包含原始 Bundle ID 的 URL Scheme，避免冲突
-            urlTypes.removeAll { urlType in
-                guard let schemes = urlType["CFBundleURLSchemes"] as? [String] else { return false }
-                return schemes.contains { scheme in
-                    scheme.contains(originalBundleID) || scheme == originalBundleID
-                }
+            // 原始没有 CFBundleURLTypes 或格式不符时，不修改，保留原始状态
+            guard var urlTypes = info["CFBundleURLTypes"] as? [[String: Any]], !urlTypes.isEmpty else {
+                return
             }
-            // 添加基于新 Bundle ID 的 URL Scheme
             let newScheme = newBundleID.replacingOccurrences(of: ".", with: "-")
+            // 已有相同 scheme 则不重复添加
+            let alreadyExists = urlTypes.contains { urlType in
+                (urlType["CFBundleURLSchemes"] as? [String])?.contains(newScheme) ?? false
+            }
+            guard !alreadyExists else { return }
+            // 新 scheme 追加到末尾，确保原始第一个 scheme（如 livecontainer）保持在第一位
             urlTypes.append([
                 "CFBundleTypeRole": "Editor",
                 "CFBundleURLName": newBundleID,
