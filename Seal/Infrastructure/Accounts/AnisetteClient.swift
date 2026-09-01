@@ -77,39 +77,21 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
             }
         }
 
-        // provision 失败时重置 identity 重试一次
-        do {
-            let state = try await provision(
-                on: server,
-                clientInfo: clientInfo,
-                identity: identity
-            )
-            try await store.save(state)
-            return try await fetchHeaders(
-                from: server,
-                state: state,
-                clientInfo: clientInfo,
-                identity: identity
-            )
-        } catch AnisetteV3Error.invalidServerResponse,
-                AnisetteV3Error.provisioningFailed {
-            // 重置 identity 后重新 provision
-            try await store.removeIdentifier()
-            try await store.remove()
-            let newIdentity = try await loadIdentity()
-            let state = try await provision(
-                on: server,
-                clientInfo: clientInfo,
-                identity: newIdentity
-            )
-            try await store.save(state)
-            return try await fetchHeaders(
-                from: server,
-                state: state,
-                clientInfo: clientInfo,
-                identity: newIdentity
-            )
-        }
+        // provision 失败时只报错，不重置 identity
+        // identity 是设备标识（deviceUniqueIdentifier/localUserID），与 authToken 绑定
+        // 重置会导致所有已登录 Apple ID 全部失效（1100 会话过期）
+        let state = try await provision(
+            on: server,
+            clientInfo: clientInfo,
+            identity: identity
+        )
+        try await store.save(state)
+        return try await fetchHeaders(
+            from: server,
+            state: state,
+            clientInfo: clientInfo,
+            identity: identity
+        )
     }
 
     private func loadIdentity() async throws -> AnisetteV3Identity {
