@@ -23,7 +23,6 @@ actor OnDeviceAnisetteGenerator {
     private let provisioningDirectory: URL
     private let keychain: OnDeviceAnisetteKeychain
 
-    private var cachedProvider: LocalAnisetteProvider?
     private var isPreparingLibraries = false
 
     init(fileManager: FileManager = .default) {
@@ -47,13 +46,15 @@ actor OnDeviceAnisetteGenerator {
     /// 生成本地 Anisette 数据。
     /// - Parameter identity: 与远程方案共享的稳定设备标识
     func makeAnisetteData(identity: AnisetteV3Identity) async throws -> ALTAnisetteData {
-        let provider = try await ensureProvider()
+        try await ensureLibrariesReady()
         let identifierUUID = try Self.uuid(fromBase64Identifier: identity.encodedIdentifier)
 
         let existingBlob = try? await keychain.loadAdiBlob()
-        let (headers, newBlob) = try await provider.getHeaders(
+        let (headers, newBlob) = try await Self.generateHeaders(
+            provisioningDirectory: provisioningDirectory,
+            librariesDirectory: libsDirectory,
             identifier: identifierUUID,
-            storage: .memory(existingBlob: existingBlob)
+            existingBlob: existingBlob
         )
         if let newBlob, newBlob.isEmpty == false {
             try await keychain.saveAdiBlob(newBlob)
@@ -68,8 +69,9 @@ actor OnDeviceAnisetteGenerator {
         let routingInfo = headers["X-Apple-I-MD-RINFO"]
             ?? LocalAnisetteProvider.defaultRoutingInfo
 
-        var formatted: [String: String] = [
-            "deviceSerialNumber": "0",
+        let formatted: [String: String] = [
+            "deviceSerialNumber": headers["X-Apple-I-SRL-NO"]?.isEmpty == false
+                ? headers["X-Apple-I-SRL-NO"]! : "0",
             "deviceDescription": LocalAnisetteProvider.defaultClientInfo,
             // 优先使用共享 identity 推导出的稳定标识，保证本地/远程指纹完全一致
             "localUserID": identity.localUserID,
@@ -81,9 +83,6 @@ actor OnDeviceAnisetteGenerator {
             "oneTimePassword": oneTimePassword,
             "routingInfo": routingInfo
         ]
-        if let serial = headers["X-Apple-I-SRL-NO"], serial.isEmpty == false {
-            formatted["deviceSerialNumber"] = serial
-        }
 
         guard let anisetteData = ALTAnisetteData(json: formatted) else {
             throw OnDeviceAnisetteError.invalidHeaders
@@ -94,14 +93,32 @@ actor OnDeviceAnisetteGenerator {
     /// 清除本地 provisioning（adi.pb），保留设备标识与已下载的库
     func resetProvisioning() async {
         try? await keychain.removeAdiBlob()
-        cachedProvider = nil
+    }
+
+    /// 在非隔离上下文创建并调用 `LocalAnisetteProvider`。
+    ///
+    /// `LocalAnisetteProvider` 是未标注 Sendable 的 class，在 Swift 6 严格并发下
+    /// 不能从 actor 隔离域跨 await 发送。这里把它的创建与调用完全封闭在一个
+    /// `nonisolated` 静态函数内，入参/返回值均为 Sendable，由调用方 actor 串行保证安全。
+    private nonisolated static func generateHeaders(
+        provisioningDirectory: URL,
+        librariesDirectory: URL,
+        identifier: UUID,
+        existingBlob: Data?
+    ) async throws -> (headers: [String: String], newBlob: Data?) {
+        let provider = try LocalAnisetteProvider(
+            provisioningDir: provisioningDirectory,
+            clientInfo: LocalAnisetteProvider.defaultClientInfo
+        ) { librariesDirectory }
+        return try await provider.getHeaders(
+            identifier: identifier,
+            storage: .memory(existingBlob: existingBlob)
+        )
     }
 
     // MARK: - Provider / Libraries
 
-    private func ensureProvider() async throws -> LocalAnisetteProvider {
-        if let cachedProvider { return cachedProvider }
-
+    private func ensureLibrariesReady() async throws {
         try FileManager.default.createDirectory(
             at: libsDirectory,
             withIntermediateDirectories: true
@@ -114,15 +131,6 @@ actor OnDeviceAnisetteGenerator {
         if !LocalAnisetteProvider.validateLibrariesExist(at: libsDirectory) {
             try await prepareLibraries()
         }
-
-        let provider = try LocalAnisetteProvider(
-            provisioningDir: provisioningDirectory,
-            clientInfo: LocalAnisetteProvider.defaultClientInfo
-        ) { [libsDirectory] in
-            libsDirectory
-        }
-        cachedProvider = provider
-        return provider
     }
 
     private func prepareLibraries() async throws {
