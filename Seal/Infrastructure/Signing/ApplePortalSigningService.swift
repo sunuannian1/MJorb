@@ -181,6 +181,26 @@ enum ApplePortalSigningFailure {
 
 }
 
+/// AltSign 回调式 API 的 async 包装 + 超时保护。
+/// AltSign 内部 URLSession 没有设置超时，Apple 服务器不响应时回调永远不触发，UI 会永久卡住。
+private func withAppleTimeout<T: Sendable>(
+    _ seconds: UInt64 = 20,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask(operation: operation)
+        group.addTask {
+            try await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+            throw URLError(.timedOut, userInfo: [
+                NSLocalizedDescriptionKey: "Apple 服务器响应超时（\(seconds) 秒），请检查网络或代理后重试"
+            ])
+        }
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
+    }
+}
+
 actor ApplePortalSigningService {
     private let anisetteProvider: any AnisetteProvider
     private let signingWorkspace: SigningWorkspace
@@ -198,25 +218,6 @@ actor ApplePortalSigningService {
         self.verificationCodeProvider = verificationCodeProvider
     }
 
-    /// AltSign 回调式 API 的 async 包装 + 超时保护。
-    /// AltSign 内部 URLSession 没有设置超时，Apple 服务器不响应时回调永远不触发，UI 会永久卡住。
-    nonisolated private func withAppleTimeout<T: Sendable>(
-        _ seconds: UInt64 = 20,
-        operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask(operation: operation)
-            group.addTask {
-                try await Task.sleep(nanoseconds: seconds * 1_000_000_000)
-                throw URLError(.timedOut, userInfo: [
-                    NSLocalizedDescriptionKey: "Apple 服务器响应超时（\(seconds) 秒），请检查网络或代理后重试"
-                ])
-            }
-            let result = try await group.next()!
-            group.cancelAll()
-            return result
-        }
-    }
 
     func sign(
         app: AppRecord,
@@ -872,11 +873,12 @@ actor ApplePortalSigningService {
         session: ALTAppleAPISession,
         deviceName: String
     ) async throws -> ALTCertificate {
+        let machineName = certificateMachineName(team: team, deviceName: deviceName)
         let box: LegacyBox<ALTCertificate> = try await withAppleTimeout(30) {
             try await withCheckedThrowingContinuation {
                 continuation in
                 ALTAppleAPI.shared.addCertificate(
-                    machineName: certificateMachineName(team: team, deviceName: deviceName),
+                    machineName: machineName,
                     to: team,
                     session: session
                 ) { certificate, error in
@@ -901,16 +903,18 @@ actor ApplePortalSigningService {
         team: ALTTeam,
         session: ALTAppleAPISession
     ) async throws {
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, any Error>) in
-            ALTAppleAPI.shared.revoke(certificate, for: team, session: session) {
-                success, error in
-                if success {
-                    continuation.resume()
-                } else {
-                    continuation.resume(
-                        throwing: error ?? URLError(.badServerResponse)
-                    )
+        try await withAppleTimeout {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                ALTAppleAPI.shared.revoke(certificate, for: team, session: session) {
+                    success, error in
+                    if success {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(
+                            throwing: error ?? URLError(.badServerResponse)
+                        )
+                    }
                 }
             }
         }
@@ -989,17 +993,19 @@ actor ApplePortalSigningService {
                 } else {
                     do {
                         let createdBox: LegacyBox<ALTAppID> =
-                            try await withCheckedThrowingContinuation { continuation in
-                                // App ID 名称必须是 ASCII，Apple 不允许中文等非 ASCII 字符（错误码 3009）
-                                // 官方 AltStore 用 Bundle ID 作为 App ID 名称，保证 ASCII 且唯一
-                                let appIDName = String(mappedBundleID.prefix(50))
-                                ALTAppleAPI.shared.addAppID(
-                                    withName: appIDName,
-                                    bundleIdentifier: mappedBundleID,
-                                    team: team,
-                                    session: session
-                                ) { created, error in
-                                    Self.resume(continuation, value: created, error: error)
+                            try await withAppleTimeout {
+                                try await withCheckedThrowingContinuation { continuation in
+                                    // App ID 名称必须是 ASCII，Apple 不允许中文等非 ASCII 字符（错误码 3009）
+                                    // 官方 AltStore 用 Bundle ID 作为 App ID 名称，保证 ASCII 且唯一
+                                    let appIDName = String(mappedBundleID.prefix(50))
+                                    ALTAppleAPI.shared.addAppID(
+                                        withName: appIDName,
+                                        bundleIdentifier: mappedBundleID,
+                                        team: team,
+                                        session: session
+                                    ) { created, error in
+                                        Self.resume(continuation, value: created, error: error)
+                                    }
                                 }
                             }
                         appID = createdBox.value
@@ -1134,10 +1140,12 @@ actor ApplePortalSigningService {
         team: ALTTeam,
         session: ALTAppleAPISession
     ) async throws -> [ALTAppID] {
-        let box: LegacyBox<[ALTAppID]> = try await withCheckedThrowingContinuation {
-            continuation in
-            ALTAppleAPI.shared.fetchAppIDs(for: team, session: session) { appIDs, error in
-                Self.resume(continuation, value: appIDs, error: error)
+        let box: LegacyBox<[ALTAppID]> = try await withAppleTimeout {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                ALTAppleAPI.shared.fetchAppIDs(for: team, session: session) { appIDs, error in
+                    Self.resume(continuation, value: appIDs, error: error)
+                }
             }
         }
         return box.value
@@ -1148,15 +1156,17 @@ actor ApplePortalSigningService {
         team: ALTTeam,
         session: ALTAppleAPISession
     ) async throws -> ALTProvisioningProfile {
-        let box: LegacyBox<ALTProvisioningProfile> = try await withCheckedThrowingContinuation {
-            continuation in
-            ALTAppleAPI.shared.fetchProvisioningProfile(
-                for: appID,
-                deviceType: .iphone,
-                team: team,
-                session: session
-            ) { profile, error in
-                Self.resume(continuation, value: profile, error: error)
+        let box: LegacyBox<ALTProvisioningProfile> = try await withAppleTimeout(30) {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                ALTAppleAPI.shared.fetchProvisioningProfile(
+                    for: appID,
+                    deviceType: .iphone,
+                    team: team,
+                    session: session
+                ) { profile, error in
+                    Self.resume(continuation, value: profile, error: error)
+                }
             }
         }
         return box.value
@@ -1247,14 +1257,16 @@ actor ApplePortalSigningService {
         team: ALTTeam,
         session: ALTAppleAPISession
     ) async throws -> ALTAppID {
-        let box: LegacyBox<ALTAppID> = try await withCheckedThrowingContinuation {
-            continuation in
-            ALTAppleAPI.shared.update(
-                updated,
-                team: team,
-                session: session
-            ) { appID, error in
-                Self.resume(continuation, value: appID, error: error)
+        let box: LegacyBox<ALTAppID> = try await withAppleTimeout {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                ALTAppleAPI.shared.update(
+                    updated,
+                    team: team,
+                    session: session
+                ) { appID, error in
+                    Self.resume(continuation, value: appID, error: error)
+                }
             }
         }
         return box.value
@@ -1283,10 +1295,12 @@ actor ApplePortalSigningService {
             )
         }
         let fetchedBox: LegacyBox<[ALTAppGroup]> =
-            try await withCheckedThrowingContinuation { continuation in
-                ALTAppleAPI.shared.fetchAppGroups(for: team, session: session) {
-                    groups, error in
-                    Self.resume(continuation, value: groups, error: error)
+            try await withAppleTimeout {
+                try await withCheckedThrowingContinuation { continuation in
+                    ALTAppleAPI.shared.fetchAppGroups(for: team, session: session) {
+                        groups, error in
+                        Self.resume(continuation, value: groups, error: error)
+                    }
                 }
             }
         var available = fetchedBox.value
@@ -1301,34 +1315,38 @@ actor ApplePortalSigningService {
             }
             let suffix = identifier.split(separator: ".").last.map(String.init) ?? "Group"
             let createdBox: LegacyBox<ALTAppGroup> =
-                try await withCheckedThrowingContinuation { continuation in
-                    ALTAppleAPI.shared.addAppGroup(
-                        withName: "Seal Group \(suffix)",
-                        groupIdentifier: identifier,
-                        team: team,
-                        session: session
-                    ) { group, error in
-                        Self.resume(continuation, value: group, error: error)
+                try await withAppleTimeout {
+                    try await withCheckedThrowingContinuation { continuation in
+                        ALTAppleAPI.shared.addAppGroup(
+                            withName: "Seal Group \(suffix)",
+                            groupIdentifier: identifier,
+                            team: team,
+                            session: session
+                        ) { group, error in
+                            Self.resume(continuation, value: group, error: error)
+                        }
                     }
                 }
             available.append(createdBox.value)
             assigned.append(createdBox.value)
         }
 
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, any Error>) in
-            ALTAppleAPI.shared.assign(
-                appID,
-                to: assigned,
-                team: team,
-                session: session
-            ) { success, error in
-                if success {
-                    continuation.resume()
-                } else {
-                    continuation.resume(
-                        throwing: error ?? URLError(.badServerResponse)
-                    )
+        try await withAppleTimeout {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                ALTAppleAPI.shared.assign(
+                    appID,
+                    to: assigned,
+                    team: team,
+                    session: session
+                ) { success, error in
+                    if success {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(
+                            throwing: error ?? URLError(.badServerResponse)
+                        )
+                    }
                 }
             }
         }
