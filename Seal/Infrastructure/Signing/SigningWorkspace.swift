@@ -92,7 +92,9 @@ struct SigningWorkspace: Sendable {
                 try updateBundleIdentifier(at: extensionURL, to: mapped)
                 mappings[original] = mapped
             }
-            try removeOldSignatures(in: appURL)
+            // 注意：不移除旧签名，避免 Mach-O 残留 LC_CODE_SIGNATURE load command 但签名数据缺失导致 ldid 崩溃
+            // ALTSigner 签名时会自动覆盖旧签名
+            // try removeOldSignatures(in: appURL)
 
             return PreparedSigningWorkspace(
                 rootURL: workspaceRoot,
