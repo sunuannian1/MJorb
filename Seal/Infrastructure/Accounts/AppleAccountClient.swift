@@ -70,10 +70,12 @@ final class AppleAccountClient {
                     verificationCode: verificationCode
                 )
             } catch let error where Self.shouldRetryWithRemoteAnisette(error) {
-                // 本地 Anisette 指纹被 Apple 拒绝（返回 HTML/plist 解析失败）或被判无效：
+                // 本地 Anisette 指纹被 Apple 拒绝（返回 HTML/plist 解析失败/503）或被判无效：
                 // 清掉本地 provisioning，下一次强制走远程公共服务器换一套指纹，仅自动重试一次
                 await self.anisetteProvider.resetProvisioning()
                 await self.anisetteProvider.preferRemoteOnNextFetch()
+                // 503 等服务端错误稍等再试，避免立即撞同一个失败状态
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
                 do {
                     return try await self.authenticateOnce(
                         email: email,
@@ -96,6 +98,8 @@ final class AppleAccountClient {
         let ns = error as NSError
         if ns.domain == NSCocoaErrorDomain, ns.code == 3840 { return true }
         if let urlError = error as? URLError, urlError.code == .badServerResponse { return true }
+        // AltSign invalidResponse（Apple 返回 503/HTML 等非 plist 响应）也换远程 Anisette 重试
+        if ns.domain == "AltSign.ALTServerError", ns.code == 1 { return true }
         if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
            underlying.domain == NSCocoaErrorDomain, underlying.code == 3840 { return true }
         return false
