@@ -187,21 +187,23 @@ final class AppleAccountClient {
                 recovery: "重试",
                 code: "SEAL-AUTH-102a"
             )
-        } catch ALTAppleAPIError.authenticationHandshakeFailed {
-            // Apple 拒绝认证握手，通常与 Anisette 设备环境数据无效有关，
-            // 而不是用户网络问题，必须与“验证失败/网络”区分开。
-            let underlying = (error as NSError).localizedDescription
-            throw ImportFailure(
-                title: "无法添加账号",
-                reason: "Apple 拒绝了本次认证请求。常见原因：设备环境数据（Anisette）无效或系统时间偏差。\n底层错误：\(underlying)",
-                recovery: "稍后重试；如持续失败，尝试更换网络或核对系统时间",
-                code: "SEAL-AUTH-107h"
-            )
         } catch ALTAppleAPIError.invalidAnisetteData {
             throw ALTAppleAPIError(.invalidAnisetteData)
         } catch let failure as ImportFailure {
             throw failure
         } catch {
+            // Apple 拒绝认证握手，通常与 Anisette 设备环境数据无效有关，
+            // 而不是用户网络问题，必须与“验证失败/网络”区分开。
+            if let apiError = error as? ALTAppleAPIError,
+               case .authenticationHandshakeFailed = apiError {
+                let underlying = (apiError as NSError).localizedDescription
+                throw ImportFailure(
+                    title: "无法添加账号",
+                    reason: "Apple 拒绝了本次认证请求。常见原因：设备环境数据（Anisette）无效或系统时间偏差。\n底层错误：\(underlying)",
+                    recovery: "稍后重试；如持续失败，尝试更换网络或核对系统时间",
+                    code: "SEAL-AUTH-107h"
+                )
+            }
             if error is AnisetteV3Error {
                 throw Self.failure(from: error)
             }
@@ -449,7 +451,9 @@ final class AppleAccountClient {
         return box.value
     }
 
-    private static func failure(from error: Error) -> ImportFailure {
+    /// 纯函数：只做错误分类，不加锁不碰 UI 状态；
+    /// 需要 nonisolated 以便从 withTimeout 的 @Sendable 闭包调用
+    private nonisolated static func failure(from error: Error) -> ImportFailure {
         if let anisetteError = error as? AnisetteV3Error {
             let code: String
             switch anisetteError {
