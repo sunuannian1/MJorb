@@ -23,10 +23,6 @@ extension ImportFailure {
     }
 
     var userMessage: String {
-        let action = recovery.trimmingCharacters(in: .whitespacesAndNewlines)
-        if action.isEmpty || action == "知道了" {
-            return userReason
-        }
-        return "\(userReason)\n\(action)"
+        userReason
     }
 }

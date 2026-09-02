@@ -554,25 +554,46 @@ actor SigningCoordinator {
             return updated
         }
 
-        try await installChannel.install(
-            ipaData: signedData,
-            bundleID: bundleIdentifier,
-            isSelfReplacement: false
-        )
+        do {
+            try await installChannel.install(
+                ipaData: signedData,
+                bundleID: bundleIdentifier,
+                isSelfReplacement: false
+            )
 
-        try await updateState(appID: app.id, stage: .verifying)
-        await progress(.verifying)
-        try await installChannel.verifyInstalled(bundleID: bundleIdentifier)
+            try await updateState(appID: app.id, stage: .verifying)
+            await progress(.verifying)
+            try await installChannel.verifyInstalled(bundleID: bundleIdentifier)
 
-        updated.state = .installed
-        updated.signedArtifactStatus = .installed
-        updated.lastInstallFailureCode = nil
-        updated.lastInstallFailureReason = nil
-        updated.hasPendingSelfUpdateSource = false
-        updated.expiryDate = expirationDate
-        updated.lastInstalledAt = Date()
-        try await appStore.save(updated)
-        return updated
+            updated.state = .installed
+            updated.signedArtifactStatus = .installed
+            updated.lastInstallFailureCode = nil
+            updated.lastInstallFailureReason = nil
+            updated.hasPendingSelfUpdateSource = false
+            updated.expiryDate = expirationDate
+            updated.lastInstalledAt = Date()
+            try await appStore.save(updated)
+            return updated
+        } catch {
+            // 安装/验证断连（如 NoDevice）时，应用可能实际已装到设备上。
+            // 延迟后主动查设备状态，已装则静默标记为已安装，不弹失败。
+            try? await Task.sleep(for: .seconds(3))
+            let deviceHasApp = (try? await InstalledAppDeviceVerifier.isInstalled(
+                bundleIdentifier: bundleIdentifier
+            )) ?? false
+            if deviceHasApp {
+                updated.state = .installed
+                updated.signedArtifactStatus = .installed
+                updated.lastInstallFailureCode = nil
+                updated.lastInstallFailureReason = nil
+                updated.hasPendingSelfUpdateSource = false
+                updated.expiryDate = expirationDate
+                updated.lastInstalledAt = Date()
+                try? await appStore.save(updated)
+                return updated
+            }
+            throw error
+        }
     }
 
     private func validateAccountSession(

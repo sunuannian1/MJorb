@@ -130,6 +130,12 @@ struct ImportConfirmationView: View {
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
+            if failure.recovery.isEmpty == false {
+                Text(failure.recovery)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.sealSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
