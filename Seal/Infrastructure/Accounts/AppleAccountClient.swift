@@ -73,9 +73,13 @@ final class AppleAccountClient {
     }
 
     /// 给异步操作加超时，超时后抛出超时错误
-    private func withTimeout<T: Sendable>(seconds: TimeInterval, operation: @escaping @Sendable () async throws -> T) async throws -> T {
+    private func withTimeout<T: Sendable>(seconds: TimeInterval, operation: @escaping @MainActor () async throws -> T) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
+            group.addTask {
+                try await Task { @MainActor in
+                    try await operation()
+                }.value
+            }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                 throw AppleAuthenticationTimeoutError()
