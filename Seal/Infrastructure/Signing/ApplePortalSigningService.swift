@@ -1411,7 +1411,8 @@ actor ApplePortalSigningService {
         let bundleID = (try? NSDictionary(contentsOf: infoURL))?["CFBundleIdentifier"] as? String ?? ""
 
         // 3. 给主应用嵌入描述文件
-        if let mainProfile = profiles.first(where: { $0.bundleIdentifier == bundleID }) ?? profiles.first {
+        let mainProfile = profiles.first(where: { $0.bundleIdentifier == bundleID }) ?? profiles.first
+        if let mainProfile {
             let profileURL = appURL.appendingPathComponent("embedded.mobileprovision")
             try mainProfile.data.write(to: profileURL)
         }
@@ -1420,7 +1421,8 @@ actor ApplePortalSigningService {
         try MachOFullSigner.signAllBinaries(
             in: appURL,
             certificateP12: p12Data,
-            teamID: team.teamID
+            teamID: team.identifier,
+            bundleID: bundleID
         )
 
         // 5. 给 PlugIns 中的 appex 也嵌入描述文件并签名
@@ -1430,16 +1432,16 @@ actor ApplePortalSigningService {
             for pluginURL in pluginFiles where pluginURL.pathExtension == "appex" {
                 let pluginInfoURL = pluginURL.appendingPathComponent("Info.plist")
                 let pluginBundleID = (try? NSDictionary(contentsOf: pluginInfoURL))?["CFBundleIdentifier"] as? String ?? ""
-                if let pluginProfile = profiles.first(where: {
-                    $0.bundleIdentifier == pluginBundleID
-                }) {
+                let pluginProfile = profiles.first(where: { $0.bundleIdentifier == pluginBundleID })
+                if let pluginProfile {
                     let profileURL = pluginURL.appendingPathComponent("embedded.mobileprovision")
                     try pluginProfile.data.write(to: profileURL)
                 }
                 try MachOFullSigner.signAllBinaries(
                     in: pluginURL,
                     certificateP12: p12Data,
-                    teamID: team.teamID
+                    teamID: team.identifier,
+                    bundleID: pluginBundleID
                 )
             }
         }

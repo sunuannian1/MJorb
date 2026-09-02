@@ -14,7 +14,9 @@ enum MachOFullSigner {
     static func signAllBinaries(
         in appURL: URL,
         certificateP12: Data,
-        teamID: String
+        teamID: String,
+        bundleID: String = "ad-hoc",
+        entitlements: Data? = nil
     ) throws {
         let enumerator = FileManager.default.enumerator(
             at: appURL,
@@ -41,22 +43,24 @@ enum MachOFullSigner {
         }
 
         for url in machOFiles {
-            try signMachO(at: url, certificateP12: certificateP12, teamID: teamID)
+            try signMachO(at: url, certificateP12: certificateP12, teamID: teamID, bundleID: bundleID, entitlements: entitlements)
         }
     }
 
     private static func signMachO(
         at url: URL,
         certificateP12: Data,
-        teamID: String
+        teamID: String,
+        bundleID: String,
+        entitlements: Data?
     ) throws {
         let data = try Data(contentsOf: url)
         let magic = data.withUnsafeBytes { $0.load(as: UInt32.self) }
 
         if magic == 0xCAFEBABE || magic == 0xBEBAFECA {
-            try signFAT(data: data, url: url, certificateP12: certificateP12, teamID: teamID)
+            try signFAT(data: data, url: url, certificateP12: certificateP12, teamID: teamID, bundleID: bundleID, entitlements: entitlements)
         } else {
-            let signed = try signThin(data: data, certificateP12: certificateP12, teamID: teamID)
+            let signed = try signThin(data: data, certificateP12: certificateP12, teamID: teamID, bundleID: bundleID, entitlements: entitlements)
             try signed.write(to: url, options: .atomic)
         }
     }
@@ -75,7 +79,9 @@ enum MachOFullSigner {
         data: Data,
         url: URL,
         certificateP12: Data,
-        teamID: String
+        teamID: String,
+        bundleID: String,
+        entitlements: Data?
     ) throws {
         let isBigEndian = data.withUnsafeBytes { $0.load(as: UInt32.self) } == 0xCAFEBABE
         let nfatArch = data.withUnsafeBytes {
@@ -107,7 +113,7 @@ enum MachOFullSigner {
         var signedArchs: [Data] = []
         for arch in archs {
             let archData = data.subdata(in: Int(arch.offset)..<Int(arch.offset + arch.size))
-            let signed = try signThin(data: archData, certificateP12: certificateP12, teamID: teamID)
+            let signed = try signThin(data: archData, certificateP12: certificateP12, teamID: teamID, bundleID: bundleID, entitlements: entitlements)
             signedArchs.append(signed)
         }
 
@@ -140,7 +146,9 @@ enum MachOFullSigner {
     private static func signThin(
         data: Data,
         certificateP12: Data,
-        teamID: String
+        teamID: String,
+        bundleID: String,
+        entitlements: Data?
     ) throws -> Data {
         // 解析 load commands，找到 __LINKEDIT 和 LC_CODE_SIGNATURE
         let ncmds = data.withUnsafeBytes { $0.load(fromByteOffset: 16, as: UInt32.self) }
@@ -191,6 +199,7 @@ enum MachOFullSigner {
             pageHashes: pageHashes,
             codeLimit: codeLimit,
             teamID: teamID,
+            bundleID: bundleID,
             certificateData: certificateData,
             data: data
         )
@@ -202,7 +211,8 @@ enum MachOFullSigner {
         let superBlob = makeSuperBlob(
             codeDirectory: codeDirectory,
             certificateData: certificateData,
-            signature: signature
+            signature: signature,
+            entitlements: entitlements
         )
 
         // 写入 Mach-O
@@ -302,11 +312,12 @@ enum MachOFullSigner {
         pageHashes: [SHA256.Digest],
         codeLimit: Int,
         teamID: String,
+        bundleID: String,
         certificateData: Data,
         data: Data
     ) throws -> Data {
         let headerSize = 108
-        let identifier = "ad-hoc".data(using: .utf8)! + Data([0])
+        let identifier = bundleID.data(using: .utf8)! + Data([0])
         let teamIDData = teamID.data(using: .utf8)! + Data([0])
         let hashOffset = headerSize + identifier.count + teamIDData.count
         let codeDirectorySize = headerSize + identifier.count + teamIDData.count + pageHashes.count * 32
@@ -388,7 +399,8 @@ enum MachOFullSigner {
     private static func makeSuperBlob(
         codeDirectory: Data,
         certificateData: Data,
-        signature: Data
+        signature: Data,
+        entitlements: Data?
     ) -> Data {
         let codeDirPadded = codeDirectory.count
         let certBlob = makeBlobWrapper(data: certificateData)
@@ -396,31 +408,35 @@ enum MachOFullSigner {
         let sigBlob = makeBlobWrapper(data: signature)
         let sigPadded = sigBlob.count
 
+        var slots: [(type: UInt32, data: Data)] = [
+            (0x00000000, codeDirectory),  // CodeDirectory
+            (0x00000002, certBlob),        // 证书链
+            (0x00001000, sigBlob),         // 签名
+        ]
+        if let entitlements {
+            let entBlob = makeBlobWrapper(data: entitlements)
+            slots.append((0x00000005, entBlob)) // entitlements
+        }
+
         let headerSize = 12
-        let indexSize = 3 * 8 // 3 个 slot，每个 8 字节
-        let cdOffset = headerSize + indexSize
-        let certOffset = cdOffset + codeDirPadded
-        let sigOffset = certOffset + certPadded
-        let totalSize = sigOffset + sigPadded
+        let indexSize = slots.count * 8
+        var currentOffset = headerSize + indexSize
+        var indexData = Data()
+        var blobData = Data()
+        for slot in slots {
+            indexData.append(contentsOf: withUnsafeBytes(of: slot.type.bigEndian) { Data($0) })
+            indexData.append(contentsOf: withUnsafeBytes(of: UInt32(currentOffset).bigEndian) { Data($0) })
+            blobData.append(slot.data)
+            currentOffset += slot.data.count
+        }
+        let totalSize = currentOffset
 
         var blob = Data(capacity: totalSize)
         blob.append(contentsOf: withUnsafeBytes(of: csMagicEmbeddedSignature.bigEndian) { Data($0) })
         blob.append(contentsOf: withUnsafeBytes(of: UInt32(totalSize).bigEndian) { Data($0) })
-        blob.append(contentsOf: withUnsafeBytes(of: UInt32(3).bigEndian) { Data($0) }) // count
-
-        // index[0]: CodeDirectory
-        blob.append(contentsOf: withUnsafeBytes(of: UInt32(0x00000000).bigEndian) { Data($0) })
-        blob.append(contentsOf: withUnsafeBytes(of: UInt32(cdOffset).bigEndian) { Data($0) })
-        // index[1]: 证书链
-        blob.append(contentsOf: withUnsafeBytes(of: UInt32(0x00000002).bigEndian) { Data($0) })
-        blob.append(contentsOf: withUnsafeBytes(of: UInt32(certOffset).bigEndian) { Data($0) })
-        // index[2]: 签名
-        blob.append(contentsOf: withUnsafeBytes(of: UInt32(0x00001000).bigEndian) { Data($0) })
-        blob.append(contentsOf: withUnsafeBytes(of: UInt32(sigOffset).bigEndian) { Data($0) })
-
-        blob.append(codeDirectory)
-        blob.append(certBlob)
-        blob.append(sigBlob)
+        blob.append(contentsOf: withUnsafeBytes(of: UInt32(slots.count).bigEndian) { Data($0) })
+        blob.append(indexData)
+        blob.append(blobData)
         return blob
     }
 
