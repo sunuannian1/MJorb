@@ -602,7 +602,7 @@ actor ApplePortalSigningService {
 
     private func createSigningIdentity(
         secret: AccountSecret,
-        certificates: [ALTCertificate],
+        certificates: [ALTX509Certificate],
         team: ALTTeam,
         session: ALTAppleAPISession,
         deviceName: String,
@@ -683,7 +683,7 @@ actor ApplePortalSigningService {
         serialNumber: String,
         team: ALTTeam,
         session: ALTAppleAPISession
-    ) async throws -> ALTCertificate? {
+    ) async throws -> ALTX509Certificate? {
         let maxAttempts = 10
         let retryDelayNanoseconds: UInt64 = 500_000_000
         var lastFetchError: Error?
@@ -718,7 +718,7 @@ actor ApplePortalSigningService {
         return nil
     }
     private func recoverCertificateCapacityAndCreate(
-        initialCertificates: [ALTCertificate],
+        initialCertificates: [ALTX509Certificate],
         protectedSerialNumber: String?,
         team: ALTTeam,
         session: ALTAppleAPISession,
