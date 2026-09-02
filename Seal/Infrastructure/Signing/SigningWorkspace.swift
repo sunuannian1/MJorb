@@ -535,12 +535,44 @@ struct SigningWorkspace: Sendable {
 
             guard found, arm64Size > 0 else { continue }
 
-            // 读取 arm64 架构数据并写回
-            try? handle?.seek(toOffset: UInt64(arm64Offset))
-            guard let arm64Data = try? handle?.read(upToCount: Int(arm64Size)),
-                  arm64Data.count == Int(arm64Size) else { continue }
+            // 分块流式写入，避免一次性加载大文件到内存导致崩溃
+            let tempURL = url.deletingLastPathComponent()
+                .appendingPathComponent(".\(url.lastPathComponent).arm64tmp")
+            try? fileManager.removeItem(at: tempURL)
+            guard fileManager.createFile(atPath: tempURL.path, contents: nil) else { continue }
 
-            try arm64Data.write(to: url, options: .atomic)
+            let writeHandle = try? FileHandle(forWritingTo: tempURL)
+            defer { try? writeHandle?.close() }
+
+            try? handle?.seek(toOffset: UInt64(arm64Offset))
+            var remaining = Int(arm64Size)
+            let chunkSize = 10 * 1024 * 1024 // 10MB
+            var success = true
+
+            while remaining > 0 {
+                let readSize = min(chunkSize, remaining)
+                guard let chunk = try? handle?.read(upToCount: readSize),
+                      chunk.count > 0 else {
+                    success = false
+                    break
+                }
+                try? writeHandle?.write(contentsOf: chunk)
+                remaining -= chunk.count
+            }
+
+            guard success, remaining == 0 else {
+                try? fileManager.removeItem(at: tempURL)
+                continue
+            }
+
+            try? writeHandle?.close()
+            // 用临时文件替换原文件
+            do {
+                try fileManager.removeItem(at: url)
+                try fileManager.moveItem(at: tempURL, to: url)
+            } catch {
+                try? fileManager.removeItem(at: tempURL)
+            }
         }
     }
 
