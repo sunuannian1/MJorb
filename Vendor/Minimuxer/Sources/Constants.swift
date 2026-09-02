@@ -17,7 +17,7 @@ public enum MuxerConstants {
     public static let usbmuxdSocket = "\(usbmuxdHost):\(usbmuxdPort)"
     
     public static let heartbeatTimeoutMs: UInt32 = 12000
-    public static let deviceFetchTimeoutMs: UInt16 = 5000
+    public static let deviceFetchTimeoutMs: UInt16 = 15000
     public static let deviceFetchSleepMs: UInt32 = 250
     
     public static let pkgPath = "PublicStaging"

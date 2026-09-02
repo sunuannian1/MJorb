@@ -9,7 +9,7 @@ actor MinimuxerInstallChannel: InstallChannel {
     private var lastSuccessfulStart: Date?
 
     private static let startHardTimeoutSeconds: Double = 40
-    private static let blockingCallTimeoutSeconds: Double = 2.0
+    private static let blockingCallTimeoutSeconds: Double = 5.0
 
     init(
         pairingStore: PairingStore,
