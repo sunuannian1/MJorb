@@ -50,15 +50,15 @@ final class AppleAccountClient {
     ) async throws -> AuthenticatedAppleAccount {
         try await withTimeout(seconds: 120) {
             do {
-                return try await authenticateOnce(
+                return try await self.authenticateOnce(
                     email: email,
                     password: password,
                     verificationCode: verificationCode
                 )
             } catch ALTAppleAPIError.invalidAnisetteData {
-                await anisetteProvider.resetProvisioning()
+                await self.anisetteProvider.resetProvisioning()
                 do {
-                    return try await authenticateOnce(
+                    return try await self.authenticateOnce(
                         email: email,
                         password: password,
                         verificationCode: verificationCode
@@ -73,7 +73,7 @@ final class AppleAccountClient {
     }
 
     /// 给异步操作加超时，超时后抛出超时错误
-    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+    private func withTimeout<T: Sendable>(seconds: TimeInterval, operation: @escaping @Sendable () async throws -> T) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask { try await operation() }
             group.addTask {
@@ -86,7 +86,7 @@ final class AppleAccountClient {
         }
     }
 
-    private struct AppleAuthenticationTimeoutError: Error, LocalizedError {
+    private struct AppleAuthenticationTimeoutError: Error, LocalizedError, Sendable {
         var errorDescription: String? { "认证超时，请检查网络后重试" }
     }
 
