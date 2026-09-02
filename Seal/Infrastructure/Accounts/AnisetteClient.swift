@@ -1,13 +1,21 @@
 import CryptoKit
 import Foundation
+import os
 @preconcurrency import AltSign
 
 struct AnisetteV3Client: AnisetteEnvironmentManaging {
+    private static let logger = Logger(subsystem: "com.mjorb.seal", category: "anisette")
+
     private let servers: [AnisetteServer]
     private let session: URLSession
     private let store: any AnisetteProvisioningStore
     private let serverStore: any AnisetteServerStore
     private let onDevice: OnDeviceAnisetteGenerator
+
+    /// 本地 ADI 模拟（Unicorn TCI）可能卡死且无法协作取消，超时后必须遗弃而不是等待
+    private static let localGenerationTimeoutSeconds: TimeInterval = 45
+    /// 远程降级的总时长预算：避免服务器逐个重试把添加账号拖到数分钟
+    private static let remoteFallbackBudgetSeconds: TimeInterval = 120
 
     init(
         servers: [AnisetteServer] = AnisetteServerCatalog.official,
@@ -29,31 +37,32 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         let identity = try await loadIdentity()
 
         // 1. 优先使用设备本地 AnisetteKit 生成（指纹恒定，不依赖公共服务器）
-        // 本地首次生成需初始化 Unicorn 引擎，最慢约 30 秒；超过 45 秒则降级远程
+        // 本地首次生成需初始化 Unicorn(TCI) 引擎，最慢约 30 秒；超过 45 秒遗弃本地任务，降级远程
         do {
-            return try await withThrowingTaskGroup(of: ALTAnisetteData.self) { group in
-                group.addTask { try await onDevice.makeAnisetteData(identity: identity) }
-                group.addTask {
-                    try await Task.sleep(nanoseconds: 45 * 1_000_000_000)
-                    throw AnisetteV3Error.unavailable
-                }
-                let result = try await group.next()!
-                group.cancelAll()
-                return result
+            return try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
+                try await onDevice.makeAnisetteData(identity: identity)
             }
+        } catch let error as HardTimeout.TimeoutError {
+            Self.logger.error("本地 Anisette 生成超时（\(Int(error.seconds))s），降级远程服务器")
         } catch {
-            // 本地内核尚未下载完成或生成失败/超时时，降级到远程服务器轮询
+            Self.logger.error("本地 Anisette 生成失败，降级远程服务器：\(String(describing: error), privacy: .public)")
         }
 
-        // 2. 远程公共服务器降级路径
+        // 2. 远程公共服务器降级路径（带总时长预算，避免逐个服务器重试拖到数分钟）
+        let fallbackDeadline = Date().addingTimeInterval(Self.remoteFallbackBudgetSeconds)
         var lastError: Error?
         for server in await prioritizedServers() where server.url.scheme == "https" {
+            if Date() > fallbackDeadline {
+                Self.logger.error("远程 Anisette 降级预算耗尽（\(Int(Self.remoteFallbackBudgetSeconds))s），停止尝试剩余服务器")
+                break
+            }
             do {
                 try Task.checkCancellation()
                 return try await fetch(from: server.url, identity: identity)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                Self.logger.error("Anisette 服务器 \(server.displayName, privacy: .public) 失败：\(String(describing: error), privacy: .public)")
                 lastError = error
             }
         }
@@ -176,9 +185,8 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         defer { socket.cancel(with: .normalClosure, reason: nil) }
 
         while true {
-            let message = try await socket.receive()
-            guard let json = Self.jsonObject(from: message),
-                  let result = json["result"] as? String else {
+            let json = try await receiveJSON(from: socket)
+            guard let result = json["result"] as? String else {
                 throw AnisetteV3Error.provisioningFailed
             }
 
@@ -441,19 +449,39 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         try await socket.send(.string(string))
     }
 
-    private static func jsonObject(
-        from message: URLSessionWebSocketTask.Message
-    ) -> [String: Any]? {
-        switch message {
-        case .string(let string):
-            return try? JSONSerialization.jsonObject(
-                with: Data(string.utf8)
-            ) as? [String: Any]
-        case .data(let data):
-            return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        @unknown default:
-            return nil
+    /// 单次 WebSocket 接收超时并解析为 JSON。
+    /// request.timeoutInterval 只约束建连，receive 本身可以无限期挂起；
+    /// 挂起时按 provisioning 失败处理，换下一个服务器。
+    private func receiveJSON(
+        from socket: URLSessionWebSocketTask
+    ) async throws -> [String: Any] {
+        // URLSessionWebSocketTask 的 Sendable 标注随 SDK 版本不一，用 @unchecked 包装
+        // 穿过竞速边界；URLSessionWebSocketTask 本身线程安全。
+        final class SendableSocket: @unchecked Sendable {
+            let task: URLSessionWebSocketTask
+            init(_ task: URLSessionWebSocketTask) { self.task = task }
         }
+        let boxed = SendableSocket(socket)
+        let text: String
+        do {
+            text = try await HardTimeout.run(seconds: 20) {
+                let message = try await boxed.task.receive()
+                switch message {
+                case .string(let string):
+                    return string
+                case .data(let data):
+                    return String(decoding: data, as: UTF8.self)
+                @unknown default:
+                    return ""
+                }
+            }
+        } catch is HardTimeout.TimeoutError {
+            throw AnisetteV3Error.provisioningFailed
+        }
+        guard let json = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else {
+            throw AnisetteV3Error.provisioningFailed
+        }
+        return json
     }
 
     private static func currentDateString() -> String {

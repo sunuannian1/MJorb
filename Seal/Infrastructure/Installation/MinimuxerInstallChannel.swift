@@ -220,44 +220,39 @@ actor MinimuxerInstallChannel: InstallChannel {
         #endif
     }
 
-    /// 整体硬超时：先返回的结果胜出；超时即抛出，另一任务取消。
-    /// 同步阻塞 FFI 无法被真正中断，会在后台自行结束，不再占用用户流程。
+    /// 整体硬超时：超时先到直接抛出；同步阻塞 FFI 无法被真正中断，
+    /// 会在后台自行结束（结果被遗弃丢弃），不再阻塞用户流程。
     private func withHardTimeout<T: Sendable>(
         seconds: Double,
         _ work: @Sendable @escaping () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await work() }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw Self.channelTimeoutFailure
-            }
-            guard let result = try await group.next() else {
-                throw Self.channelNotReadyFailure
-            }
-            group.cancelAll()
-            return result
+        do {
+            return try await HardTimeout.run(seconds: seconds, work)
+        } catch is HardTimeout.TimeoutError {
+            throw Self.channelTimeoutFailure
         }
     }
 
-    /// 在协作线程池中执行可能长时间阻塞的同步 Minimuxer FFI；
-    /// 超过 `seconds` 未返回则返回 nil（本次放弃），避免同步调用把整个通道拖成“假死”。
+    /// Result 的 Failure 侧（any Error）不保证 Sendable，用 @unchecked 包装穿过竞速边界
+    private struct OffThreadOutcome<T: Sendable>: @unchecked Sendable {
+        let result: Result<T, Error>
+    }
+
+    /// 在后台线程执行可能长时间阻塞的同步 Minimuxer FFI；
+    /// 超过 `seconds` 未返回则返回 nil（本次放弃），FFI 在后台自行结束后结果被丢弃，
+    /// 避免同步调用把整个通道拖成“假死”。
     private func offThread<T: Sendable>(
         seconds: Double,
         _ work: @Sendable @escaping () throws -> T
     ) async -> Result<T, Error>? {
-        await withTaskGroup(of: Result<T, Error>?.self) { group in
-            group.addTask { .some(Result(catching: work)) }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                return nil
+        // 抛错只可能是超时（工作结果/错误都装在 Result 里返回），统一映射为 nil
+        do {
+            let outcome: OffThreadOutcome<T> = try await HardTimeout.run(seconds: seconds) {
+                OffThreadOutcome(result: Result(catching: work))
             }
-            guard let outcome = await group.next() else {
-                group.cancelAll()
-                return nil
-            }
-            group.cancelAll()
-            return outcome
+            return outcome.result
+        } catch {
+            return nil
         }
     }
 

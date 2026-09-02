@@ -72,26 +72,22 @@ final class AppleAccountClient {
         }
     }
 
-    /// 给异步操作加超时，超时后抛出超时错误
-    private func withTimeout<T: Sendable>(seconds: TimeInterval, operation: @escaping @MainActor () async throws -> T) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await Task { @MainActor in
-                    try await operation()
-                }.value
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw AppleAuthenticationTimeoutError()
-            }
-            let result = try await group.next()!
-            group.cancelAll()
-            return result
+    /// 给异步操作加超时，超时后抛出超时错误。
+    /// 认证可能卡在无法协作取消的调用里（本地 ADI 模拟、AltSign 内部回调），
+    /// 因此必须用可遗弃竞速：超时先到就抛错，未完成的认证在后台自行结束后被丢弃。
+    private func withTimeout<T: Sendable>(seconds: TimeInterval, operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        do {
+            return try await HardTimeout.run(seconds: seconds, operation)
+        } catch let error as HardTimeout.TimeoutError {
+            // 必须以 ImportFailure 抛出，否则上层 addAccount 的兜底 catch
+            // 会把超时改写成误导性的“Apple ID 验证失败”。
+            throw ImportFailure(
+                title: "添加账号超时",
+                reason: "Apple 认证在 \(Int(error.seconds)) 秒内没有完成。常见原因：当前网络无法访问 Apple 服务器，或本地签名内核生成设备环境时卡住。",
+                recovery: "检查网络后重试；如多次超时，尝试更换网络（需可访问国际网络）",
+                code: "SEAL-AUTH-107t"
+            )
         }
-    }
-
-    private struct AppleAuthenticationTimeoutError: Error, LocalizedError, Sendable {
-        var errorDescription: String? { "认证超时，请检查网络后重试" }
     }
 
     /// 自动重新登录（authToken 失效 1100 时使用）
@@ -190,6 +186,16 @@ final class AppleAccountClient {
                 reason: "Apple ID 或密码无效",
                 recovery: "重试",
                 code: "SEAL-AUTH-102a"
+            )
+        } catch ALTAppleAPIError.authenticationHandshakeFailed {
+            // Apple 拒绝认证握手，通常与 Anisette 设备环境数据无效有关，
+            // 而不是用户网络问题，必须与“验证失败/网络”区分开。
+            let underlying = (error as NSError).localizedDescription
+            throw ImportFailure(
+                title: "无法添加账号",
+                reason: "Apple 拒绝了本次认证请求。常见原因：设备环境数据（Anisette）无效或系统时间偏差。\n底层错误：\(underlying)",
+                recovery: "稍后重试；如持续失败，尝试更换网络或核对系统时间",
+                code: "SEAL-AUTH-107h"
             )
         } catch ALTAppleAPIError.invalidAnisetteData {
             throw ALTAppleAPIError(.invalidAnisetteData)
