@@ -1,8 +1,0 @@
-2026-08-29T16:45:24.9240000Z Job is about to start running on the hosted runner: GitHub Actions 1000000381
-2026-08-29T16:45:24.9030000Z Evaluating fast-ipa.if
-2026-08-29T16:45:24.9030000Z Evaluating: success()
-2026-08-29T16:45:24.9030000Z Result: true
-2026-08-29T16:45:24.9060000Z Requested labels: macos-26
-2026-08-29T16:45:24.9060000Z Job defined at: dmjorb/Seal/.github/workflows/ios-fast.yml@refs/heads/main
-2026-08-29T16:45:24.9060000Z Waiting for a runner to pick up this job...
-2026-08-29T16:45:24.9240000Z Job is waiting for a hosted runner to come online.
