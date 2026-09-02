@@ -399,8 +399,8 @@ struct AppSigningSheet: View {
             for: workingApp,
             account: selectedAccount
         )
-        guard let serial, serial.isEmpty == false else { return "未准备" }
-        return "可用"
+        guard let serial, serial.isEmpty == false else { return "签名时创建" }
+        return AppSigningPresentationHelpers.certificateName(serial: serial)
     }
 
     private var statusText: String {

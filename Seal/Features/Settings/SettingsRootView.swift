@@ -133,6 +133,39 @@ struct SettingsRootView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        sectionDivider
+
+                        Button {
+                            UIPasteboard.general.string = "1093450608"
+                            if let url = URL(string: "mqqapi://") {
+                                UIApplication.shared.open(url)
+                            }
+                        } label: {
+                            settingsRow(
+                                title: "加入 QQ 交流群",
+                                value: "1093450608",
+                                icon: "bubble.left.and.bubble.right",
+                                showsChevron: true,
+                                iconColor: Color.sealAccent
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        sectionDivider
+
+                        Button {
+                            if let url = URL(string: "https://t.me/+oBHRbmLXg3sxNTJl") {
+                                UIApplication.shared.open(url)
+                            }
+                        } label: {
+                            settingsRow(
+                                title: "加入 Telegram 群",
+                                value: "国内需科学上网",
+                                icon: "paperplane",
+                                showsChevron: true,
+                                iconColor: Color.sealAccent
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 20)
