@@ -109,11 +109,13 @@ struct SigningWorkspace: Sendable {
     ) throws {
         let fileManager = FileManager.default
         try? fileManager.removeItem(at: outputURL)
+        // 大 IPA 用不压缩存储：二进制已被编译器压缩，再 deflate 收益<5%但耗时占30%+
+        // 不压缩还能让 iOS 安装时更快（无需解压）
         try fileManager.zipItem(
             at: workspace.payloadURL,
             to: outputURL,
             shouldKeepParent: true,
-            compressionMethod: .deflate
+            compressionMethod: .none
         )
     }
 
