@@ -92,9 +92,12 @@ struct SigningWorkspace: Sendable {
                 try updateBundleIdentifier(at: extensionURL, to: mapped)
                 mappings[original] = mapped
             }
-            // 注意：不移除旧签名，避免 Mach-O 残留 LC_CODE_SIGNATURE load command 但签名数据缺失导致 ldid 崩溃
-            // ALTSigner 签名时会自动覆盖旧签名
-            // try removeOldSignatures(in: appURL)
+            // 移除旧的 _CodeSignature 目录（不修改 Mach-O 里的 LC_CODE_SIGNATURE）
+            try removeOldSignatures(in: appURL)
+
+            // 给所有 Mach-O 加 ad-hoc 签名，避免 ALTSigner/ldid 处理未签名二进制时崩溃
+            // 参考 Fladder issue #800：未签名或签名无效的 Mach-O 会导致 ldid 断言失败
+            try MachOAdHocSigner.signAllBinaries(in: appURL)
 
             return PreparedSigningWorkspace(
                 rootURL: workspaceRoot,
