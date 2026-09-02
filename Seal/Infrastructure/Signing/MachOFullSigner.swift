@@ -165,7 +165,9 @@ enum MachOFullSigner {
         let sizeofcmds = data.withUnsafeBytes { $0.load(fromByteOffset: 20, as: UInt32.self) }
 
         var linkeditFileOffset: UInt64 = 0
+        var linkeditCmdOffset: Int = 0
         var existingCodeSigOffset: UInt32 = 0
+        var existingCodeSigCmdOffset: Int = 0
         var hasCodeSignature = false
         var segmentOffsets: [(fileoff: UInt64, index: Int)] = []
         var execSegBase: UInt64 = 0
@@ -182,33 +184,72 @@ enum MachOFullSigner {
                 let fileoff = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 40, as: UInt64.self) }
                 if segname == "__LINKEDIT" {
                     linkeditFileOffset = fileoff
+                    linkeditCmdOffset = cmdOffset
                 }
                 if segname == "__TEXT" {
-                    execSegBase = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 24, as: UInt64.self) } // vmaddr
-                    execSegLimit = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 32, as: UInt64.self) } // vmsize
+                    execSegBase = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 24, as: UInt64.self) }
+                    execSegLimit = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 32, as: UInt64.self) }
                     let segFlags = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 56, as: UInt32.self) }
-                    execSegFlags = (segFlags & 0x1) != 0 ? 1 : 0 // SG_HIGHVM
+                    execSegFlags = (segFlags & 0x1) != 0 ? 1 : 0
                 }
                 segmentOffsets.append((fileoff: fileoff, index: cmdOffset))
             }
 
             if cmd == 0x1D { // LC_CODE_SIGNATURE
                 existingCodeSigOffset = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 8, as: UInt32.self) }
+                existingCodeSigCmdOffset = cmdOffset
                 hasCodeSignature = true
             }
 
             cmdOffset += Int(cmdsize)
         }
 
-        let codeLimit = linkeditFileOffset > 0 ? Int(linkeditFileOffset) : data.count
+        // 第一步：构造待签名的 output（截断旧签名 / 插入新 LC_CODE_SIGNATURE）
+        var output: Data
+        var codeLimit: Int
+        var actualLinkeditOffset: UInt64
 
-        // 分块计算页面哈希
-        let pageHashes = computePageHashes(data: data, codeLimit: codeLimit)
+        if hasCodeSignature {
+            // 截断旧签名数据，codeLimit = 旧签名开始位置
+            codeLimit = Int(existingCodeSigOffset)
+            output = data.prefix(upTo: codeLimit)
+            actualLinkeditOffset = linkeditFileOffset
+        } else {
+            // 插入新的 LC_CODE_SIGNATURE load command（16字节）
+            let newCmdSize: UInt32 = 16
+            var header = data
+            let newNcmds = ncmds + 1
+            let newSizeofcmds = sizeofcmds + newCmdSize
+            withUnsafeBytes(of: newNcmds) { header.replaceSubrange(16..<20, with: $0) }
+            withUnsafeBytes(of: newSizeofcmds) { header.replaceSubrange(20..<24, with: $0) }
 
-        // 构建 entitlements blob（如果有）
+            // 所有段的 fileoff +16
+            for seg in segmentOffsets {
+                let newFileoff = seg.fileoff + UInt64(newCmdSize)
+                withUnsafeBytes(of: newFileoff) { header.replaceSubrange(seg.index+40..<seg.index+48, with: $0) }
+            }
+
+            output = header
+            let lcOffset = 32 + Int(sizeofcmds)
+            var lcData = Data()
+            lcData.append(contentsOf: withUnsafeBytes(of: UInt32(0x1D).bigEndian) { Data($0) })
+            lcData.append(contentsOf: withUnsafeBytes(of: newCmdSize.bigEndian) { Data($0) })
+            lcData.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) }) // dataoff 占位
+            lcData.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) }) // datasize 占位
+            output.insert(contentsOf: lcData, at: lcOffset)
+
+            codeLimit = output.count
+            actualLinkeditOffset = linkeditFileOffset + UInt64(newCmdSize)
+            existingCodeSigCmdOffset = lcOffset
+        }
+
+        // 第二步：基于 output（签名前的数据）计算页面哈希
+        let pageHashes = computePageHashes(data: output, codeLimit: codeLimit)
+
+        // 构建 entitlements blob
         let entitlementsBlob = entitlements.map { makeBlobWrapper(data: $0) }
 
-        // 生成 CodeDirectory（对齐 ldid v0x20400 结构）
+        // 生成 CodeDirectory
         let codeDirectory = makeCodeDirectory(
             pageHashes: pageHashes,
             codeLimit: codeLimit,
@@ -231,46 +272,18 @@ enum MachOFullSigner {
             entitlementsBlob: entitlementsBlob
         )
 
-        // 写入 Mach-O
-        var output = data
-        if hasCodeSignature {
-            cmdOffset = 32
-            for _ in 0..<ncmds {
-                let cmd = output.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset, as: UInt32.self) }
-                let cmdsize = output.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 4, as: UInt32.self) }
-                if cmd == 0x1D {
-                    let newOffset = UInt32(output.count)
-                    let newSize = UInt32(superBlob.count)
-                    withUnsafeBytes(of: newOffset.bigEndian) { output.replaceSubrange(cmdOffset+8..<cmdOffset+12, with: $0) }
-                    withUnsafeBytes(of: newSize.bigEndian) { output.replaceSubrange(cmdOffset+12..<cmdOffset+16, with: $0) }
-                    break
-                }
-                cmdOffset += Int(cmdsize)
-            }
-            output.append(superBlob)
-        } else {
-            let newCmdSize: UInt32 = 16
-            var header = output
-            let newNcmds = ncmds + 1
-            let newSizeofcmds = sizeofcmds + newCmdSize
-            withUnsafeBytes(of: newNcmds) { header.replaceSubrange(16..<20, with: $0) }
-            withUnsafeBytes(of: newSizeofcmds) { header.replaceSubrange(20..<24, with: $0) }
+        // 第三步：更新 LC_CODE_SIGNATURE 的 dataoff 和 datasize
+        let sigOffset = UInt32(codeLimit)
+        let sigSize = UInt32(superBlob.count)
+        withUnsafeBytes(of: sigOffset.bigEndian) { output.replaceSubrange(existingCodeSigCmdOffset+8..<existingCodeSigCmdOffset+12, with: $0) }
+        withUnsafeBytes(of: sigSize.bigEndian) { output.replaceSubrange(existingCodeSigCmdOffset+12..<existingCodeSigCmdOffset+16, with: $0) }
 
-            for seg in segmentOffsets {
-                let newFileoff = seg.fileoff + UInt64(newCmdSize)
-                withUnsafeBytes(of: newFileoff) { header.replaceSubrange(seg.index+40..<seg.index+48, with: $0) }
-            }
+        // 第四步：更新 __LINKEDIT 段的 filesize
+        let newLinkeditSize = UInt64(codeLimit) + UInt64(superBlob.count) - actualLinkeditOffset
+        withUnsafeBytes(of: newLinkeditSize.bigEndian) { output.replaceSubrange(linkeditCmdOffset+48..<linkeditCmdOffset+56, with: $0) }
 
-            output = header
-            let lcOffset = 32 + Int(sizeofcmds)
-            var lcData = Data()
-            lcData.append(contentsOf: withUnsafeBytes(of: UInt32(0x1D).bigEndian) { Data($0) })
-            lcData.append(contentsOf: withUnsafeBytes(of: newCmdSize.bigEndian) { Data($0) })
-            lcData.append(contentsOf: withUnsafeBytes(of: UInt32(output.count).bigEndian) { Data($0) })
-            lcData.append(contentsOf: withUnsafeBytes(of: UInt32(superBlob.count).bigEndian) { Data($0) })
-            output.insert(contentsOf: lcData, at: lcOffset)
-            output.append(superBlob)
-        }
+        // 第五步：追加签名数据
+        output.append(superBlob)
 
         return output
     }
