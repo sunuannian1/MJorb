@@ -163,11 +163,11 @@ struct SigningCertificateSettingsView: View {
     private func certificateSummary(_ health: CertificateHealthStatus?, serial: String?) -> String {
         guard let health else { return "检查中" }
         if health.expirationState == .invalid { return "已过期" }
-        guard health.isUsable else { return "不可用" }
+        // 只要有证书序列号就显示具体名称，状态用颜色区分
         if let serial, serial.isEmpty == false {
             return AppSigningPresentationHelpers.certificateName(serial: serial)
         }
-        return "可用"
+        return health.isUsable ? "可用" : "不可用"
     }
 
     private func certificateSummaryColor(_ health: CertificateHealthStatus?) -> Color {
