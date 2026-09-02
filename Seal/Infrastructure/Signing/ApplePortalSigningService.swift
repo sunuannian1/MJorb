@@ -1331,12 +1331,13 @@ actor ApplePortalSigningService {
             assigned.append(createdBox.value)
         }
 
+        let groupsToAssign = assigned
         try await withAppleTimeout {
             try await withCheckedThrowingContinuation {
                 (continuation: CheckedContinuation<Void, any Error>) in
                 ALTAppleAPI.shared.assign(
                     appID,
-                    to: assigned,
+                    to: groupsToAssign,
                     team: team,
                     session: session
                 ) { success, error in
