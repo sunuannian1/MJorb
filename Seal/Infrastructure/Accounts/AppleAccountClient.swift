@@ -16,11 +16,22 @@ enum AppleAuthenticationFailure {
         }
         switch stage {
         case .signIn:
-            let underlying = (error as NSError).localizedDescription
-            let detail = underlying.isEmpty ? "" : "\n底层错误：\(underlying)"
+            let nsError = error as NSError
+            var parts: [String] = []
+            parts.append("类型：\(String(describing: type(of: error)))")
+            parts.append("Domain：\(nsError.domain)")
+            parts.append("Code：\(nsError.code)")
+            parts.append("描述：\(nsError.localizedDescription)")
+            if let debugDesc = nsError.userInfo["NSDebugDescription"] as? String {
+                parts.append("调试：\(debugDesc)")
+            }
+            if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                parts.append("嵌套：\(underlying.domain)/\(underlying.code) \(underlying.localizedDescription)")
+            }
+            let detail = parts.joined(separator: "\n")
             return ImportFailure(
                 title: "无法添加账号",
-                reason: "Apple ID 验证失败。请确认网络可用后重试。\(detail)",
+                reason: "Apple ID 验证失败。\n\(detail)",
                 recovery: "重试",
                 code: "SEAL-AUTH-107a"
             )
