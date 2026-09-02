@@ -195,17 +195,20 @@ struct MachOAdHocSigner {
         }
 
         // 生成 CodeDirectory
+        // version 0x20100 固定头大小: 12*uint32 + 4*uint8 + 7*uint64 = 108 字节
+        let codeDirectoryHeaderSize = 108
         let identifierData = "ad-hoc".data(using: .utf8)! + Data([0])
-        let codeDirectorySize = 156 + identifierData.count + pageHashes.count * 32
+        let codeDirectorySize = codeDirectoryHeaderSize + identifierData.count + pageHashes.count * 32
         let codeDirectoryPadded = (codeDirectorySize + 3) / 4 * 4
+        let hashOffset = codeDirectoryHeaderSize + identifierData.count
 
         var codeDirectory = Data(capacity: codeDirectoryPadded)
         codeDirectory.append(contentsOf: withUnsafeBytes(of: CS_MAGIC_CODEDIRECTORY.bigEndian) { Data($0) })
         codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeDirectorySize).bigEndian) { Data($0) })
         codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0x20100).bigEndian) { Data($0) }) // version
         codeDirectory.append(contentsOf: withUnsafeBytes(of: kSecCodeSignatureAdhoc.bigEndian) { Data($0) }) // flags
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(156).bigEndian) { Data($0) }) // hashOffset
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(156).bigEndian) { Data($0) }) // identOffset
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(hashOffset).bigEndian) { Data($0) }) // hashOffset
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeDirectoryHeaderSize).bigEndian) { Data($0) }) // identOffset
         codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(pageCount).bigEndian) { Data($0) }) // nCodeSlots
         codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeLimit).bigEndian) { Data($0) }) // codeLimit
         codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(32)) { Data($0) }) // hashSize
@@ -232,13 +235,14 @@ struct MachOAdHocSigner {
         }
 
         // 生成 SuperBlob
-        let superBlobSize = 12 + codeDirectoryPadded
+        // 结构: header(12) + index[0](8) + CodeDirectory
+        let superBlobSize = 20 + codeDirectoryPadded
         var superBlob = Data(capacity: superBlobSize)
         superBlob.append(contentsOf: withUnsafeBytes(of: CS_MAGIC_EMBEDDED_SIGNATURE.bigEndian) { Data($0) })
         superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(superBlobSize).bigEndian) { Data($0) })
         superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(1).bigEndian) { Data($0) }) // count
-        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) }) // type (CodeDirectory)
-        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(12).bigEndian) { Data($0) }) // offset
+        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) }) // type = CSSLOT_CODEDIRECTORY
+        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(20).bigEndian) { Data($0) }) // offset = header(12) + index(8)
         superBlob.append(codeDirectory)
 
         // 在文件末尾追加签名数据
