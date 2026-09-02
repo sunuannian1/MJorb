@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import UIKit
 @preconcurrency import AltSign
 
@@ -358,7 +358,8 @@ actor ApplePortalSigningService {
             let session = ALTAppleAPISession(
                 dsid: secret.dsid,
                 authToken: secret.authToken,
-                anisetteData: anisette
+                anisetteData: anisette,
+                xcodeVersion: AppleAccountClient.xcodeVersion
             )
             let altAccount = ALTAccount()
             altAccount.appleID = secret.email
@@ -773,7 +774,8 @@ actor ApplePortalSigningService {
         let refreshedSession = ALTAppleAPISession(
             dsid: secret.dsid,
             authToken: secret.authToken,
-            anisetteData: anisette
+            anisetteData: anisette,
+            xcodeVersion: AppleAccountClient.xcodeVersion
         )
         guard let certificates = try? await fetchCertificates(
             team: team,

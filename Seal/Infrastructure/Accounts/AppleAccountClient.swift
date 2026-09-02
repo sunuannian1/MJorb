@@ -50,6 +50,9 @@ enum AppleAuthenticationFailure {
 final class AppleAccountClient {
     private let anisetteProvider: any AnisetteProvider
 
+    /// 与 AltSign User-Agent 中 com.apple.dt.Xcode/26.0 保持一致
+    nonisolated static let xcodeVersion = "26.0"
+
     nonisolated init(anisetteProvider: any AnisetteProvider = AnisetteV3Client()) {
         self.anisetteProvider = anisetteProvider
     }
@@ -252,7 +255,8 @@ final class AppleAccountClient {
             let session = ALTAppleAPISession(
                 dsid: secret.dsid,
                 authToken: secret.authToken,
-                anisetteData: anisetteData
+                anisetteData: anisetteData,
+                xcodeVersion: Self.xcodeVersion
             )
             let altAccount = ALTAccount()
             altAccount.appleID = secret.email
@@ -433,6 +437,7 @@ final class AppleAccountClient {
                 appleID: email,
                 password: password,
                 anisetteData: anisetteData,
+                xcodeVersion: Self.xcodeVersion,
                 verificationHandler: { response in
                     let reply = VerificationReply(response)
                     Task { @MainActor in
@@ -513,9 +518,22 @@ final class AppleAccountClient {
         let nsError = error as NSError
         let isVerificationFailure = nsError.localizedDescription
             .localizedCaseInsensitiveContains("verification")
+        var detailParts: [String] = []
+        detailParts.append("类型：\(String(describing: type(of: error)))")
+        detailParts.append("Domain：\(nsError.domain)")
+        detailParts.append("Code：\(nsError.code)")
+        detailParts.append("描述：\(nsError.localizedDescription)")
+        if let debugDesc = nsError.userInfo["NSDebugDescription"] as? String {
+            detailParts.append("调试：\(debugDesc)")
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            detailParts.append("嵌套：\(underlying.domain)/\(underlying.code) \(underlying.localizedDescription)")
+        }
+        let detail = detailParts.joined(separator: "\n")
+        let baseReason = isVerificationFailure ? "验证码无效" : "Apple ID 验证失败"
         return ImportFailure(
             title: "无法添加账号",
-            reason: isVerificationFailure ? "验证码无效" : "Apple ID 验证失败",
+            reason: "\(baseReason)\n\(detail)",
             recovery: "重试",
             code: isVerificationFailure ? "SEAL-AUTH-101" : "SEAL-AUTH-107"
         )

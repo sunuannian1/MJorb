@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 @preconcurrency import AltSign
 
 struct ApplePortalInventory: Codable, Equatable, Sendable {
@@ -91,7 +91,8 @@ actor ApplePortalInventoryService {
         let session = ALTAppleAPISession(
             dsid: secret.dsid,
             authToken: secret.authToken,
-            anisetteData: anisette
+            anisetteData: anisette,
+            xcodeVersion: AppleAccountClient.xcodeVersion
         )
         let altAccount = ALTAccount()
         altAccount.appleID = secret.email
