@@ -133,7 +133,7 @@ struct ImportConfirmationView: View {
             if failure.recovery.isEmpty == false {
                 Text(failure.recovery)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.sealSecondary)
+                    .foregroundStyle(Color.sealTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
