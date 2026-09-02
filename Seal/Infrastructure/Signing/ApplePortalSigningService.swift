@@ -1348,6 +1348,12 @@ actor ApplePortalSigningService {
         certificate: ALTCertificate,
         profiles: [ALTProvisioningProfile]
     ) async throws {
+        // 检测是否有大二进制（>50MB），有则用纯 Swift 签名替代 ldid，避免内存不足崩溃
+        let hasLargeBinary = try appContainsLargeBinary(at: appURL, threshold: 50 * 1024 * 1024)
+        if hasLargeBinary {
+            try signAppWithFullSigner(at: appURL, team: team, certificate: certificate, profiles: profiles)
+            return
+        }
         let signer = ALTSigner(team: team, certificate: certificate)
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Void, any Error>) in
@@ -1359,6 +1365,82 @@ actor ApplePortalSigningService {
                         throwing: error ?? URLError(.cannotCreateFile)
                     )
                 }
+            }
+        }
+    }
+
+    /// 检测 app 包中是否有大于 threshold 的 Mach-O 二进制
+    private func appContainsLargeBinary(at appURL: URL, threshold: Int) throws -> Bool {
+        let enumerator = FileManager.default.enumerator(
+            at: appURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )
+        guard let enumerator else { return false }
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  let size = values.fileSize,
+                  size > threshold else { continue }
+            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
+            defer { try? handle.close() }
+            guard let header = try? handle.read(upToCount: 4),
+                  header.count >= 4 else { continue }
+            let magic = header.withUnsafeBytes { $0.load(as: UInt32.self) }
+            if magic == 0xFEEDFACF || magic == 0xCAFEBABE || magic == 0xBEBAFECA {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// 用纯 Swift MachOFullSigner 签名整个 app（替代 ALTSigner/ldid）
+    private func signAppWithFullSigner(
+        at appURL: URL,
+        team: ALTTeam,
+        certificate: ALTCertificate,
+        profiles: [ALTProvisioningProfile]
+    ) throws {
+        // 1. 导出 P12
+        guard let p12Data = try? certificate.unencryptedP12Data() else {
+            throw NSError(domain: "Seal", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法导出证书 P12 数据"])
+        }
+
+        // 2. 从 Info.plist 读取 bundle identifier
+        let infoURL = appURL.appendingPathComponent("Info.plist")
+        let bundleID = (try? NSDictionary(contentsOf: infoURL))?["CFBundleIdentifier"] as? String ?? ""
+
+        // 3. 给主应用嵌入描述文件
+        if let mainProfile = profiles.first(where: { $0.bundleIdentifier == bundleID }) ?? profiles.first {
+            let profileURL = appURL.appendingPathComponent("embedded.mobileprovision")
+            try mainProfile.data.write(to: profileURL)
+        }
+
+        // 4. 递归签名所有 Mach-O 二进制（主应用 + 扩展 + framework）
+        try MachOFullSigner.signAllBinaries(
+            in: appURL,
+            certificateP12: p12Data,
+            teamID: team.teamID
+        )
+
+        // 5. 给 PlugIns 中的 appex 也嵌入描述文件并签名
+        let pluginsURL = appURL.appendingPathComponent("PlugIns")
+        if FileManager.default.fileExists(atPath: pluginsURL.path) {
+            let pluginFiles = try FileManager.default.contentsOfDirectory(at: pluginsURL, includingPropertiesForKeys: nil)
+            for pluginURL in pluginFiles where pluginURL.pathExtension == "appex" {
+                let pluginInfoURL = pluginURL.appendingPathComponent("Info.plist")
+                let pluginBundleID = (try? NSDictionary(contentsOf: pluginInfoURL))?["CFBundleIdentifier"] as? String ?? ""
+                if let pluginProfile = profiles.first(where: {
+                    $0.bundleIdentifier == pluginBundleID
+                }) {
+                    let profileURL = pluginURL.appendingPathComponent("embedded.mobileprovision")
+                    try pluginProfile.data.write(to: profileURL)
+                }
+                try MachOFullSigner.signAllBinaries(
+                    in: pluginURL,
+                    certificateP12: p12Data,
+                    teamID: team.teamID
+                )
             }
         }
     }
