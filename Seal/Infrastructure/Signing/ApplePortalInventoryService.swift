@@ -217,8 +217,8 @@ actor ApplePortalInventoryService {
     private func fetchCertificates(
         team: ALTTeam,
         session: ALTAppleAPISession
-    ) async throws -> [ALTCertificate] {
-        let box: LegacyBox<[ALTCertificate]> = try await withCheckedThrowingContinuation {
+    ) async throws -> [ALTX509Certificate] {
+        let box: LegacyBox<[ALTX509Certificate]> = try await withCheckedThrowingContinuation {
             continuation in
             ALTAppleAPI.shared.fetchCertificates(for: team, session: session) { certificates, error in
                 if let certificates {

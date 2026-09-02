@@ -88,8 +88,8 @@ actor ApplePortalCertificateService {
                 )
             }
 
-            certificate.privateKey = requested.privateKey
-            guard let p12 = certificate.p12Data() else {
+            let fullCert = ALTCertificate(x509: certificate, privateKey: requested.privateKey)
+            guard let p12 = try? fullCert.unencryptedP12Data() else {
                 throw Self.failure(
                     title: "无法保存本机证书",
                     reason: "Apple 已创建证书，但 Seal 无法将证书与本机私钥组成 P12。",
@@ -139,7 +139,7 @@ actor ApplePortalCertificateService {
         account: AppleAccountRecord,
         secret: AccountSecret
     ) async -> Bool {
-        if (try? await revoke(certificate, team: team, session: session)) != nil {
+        if (try? await revoke(certificate.x509, team: team, session: session)) != nil {
             return true
         }
         await anisetteProvider.resetProvisioning()
@@ -224,8 +224,8 @@ actor ApplePortalCertificateService {
     private func fetchCertificates(
         team: ALTTeam,
         session: ALTAppleAPISession
-    ) async throws -> [ALTCertificate] {
-        let box: LegacyBox<[ALTCertificate]> = try await withCheckedThrowingContinuation {
+    ) async throws -> [ALTX509Certificate] {
+        let box: LegacyBox<[ALTX509Certificate]> = try await withCheckedThrowingContinuation {
             continuation in
             ALTAppleAPI.shared.fetchCertificates(for: team, session: session) { certificates, error in
                 Self.resume(continuation, value: certificates, error: error)
@@ -253,7 +253,7 @@ actor ApplePortalCertificateService {
     }
 
     private func revoke(
-        _ certificate: ALTCertificate,
+        _ certificate: ALTX509Certificate,
         team: ALTTeam,
         session: ALTAppleAPISession
     ) async throws {

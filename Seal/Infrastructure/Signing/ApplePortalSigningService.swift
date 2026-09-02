@@ -641,8 +641,8 @@ actor ApplePortalSigningService {
                     code: "SEAL-CERT-209a"
                 )
             }
-            certificate.privateKey = requested.privateKey
-            guard let p12 = certificate.p12Data() else {
+            let fullCert = ALTCertificate(x509: certificate, privateKey: requested.privateKey)
+            guard let p12 = try? fullCert.unencryptedP12Data() else {
                 throw Self.failure(
                     title: "无法保存新证书",
                     reason: "Apple 已创建证书，但本机无法将证书与私钥合成 P12。",
@@ -765,7 +765,7 @@ actor ApplePortalSigningService {
         session: ALTAppleAPISession,
         secret: AccountSecret
     ) async -> Bool {
-        if (try? await revokeCertificate(certificate, team: team, session: session)) != nil {
+        if (try? await revokeCertificate(certificate.x509, team: team, session: session)) != nil {
             return true
         }
 
@@ -813,8 +813,8 @@ actor ApplePortalSigningService {
     private func fetchCertificates(
         team: ALTTeam,
         session: ALTAppleAPISession
-    ) async throws -> [ALTCertificate] {
-        let box: LegacyBox<[ALTCertificate]> = try await withCheckedThrowingContinuation {
+    ) async throws -> [ALTX509Certificate] {
+        let box: LegacyBox<[ALTX509Certificate]> = try await withCheckedThrowingContinuation {
             continuation in
             ALTAppleAPI.shared.fetchCertificates(for: team, session: session) {
                 certificates, error in
@@ -852,7 +852,7 @@ actor ApplePortalSigningService {
     }
 
     private func revokeCertificate(
-        _ certificate: ALTCertificate,
+        _ certificate: ALTX509Certificate,
         team: ALTTeam,
         session: ALTAppleAPISession
     ) async throws {
@@ -1173,14 +1173,14 @@ actor ApplePortalSigningService {
     private func filteredAppIDEntitlements(
         from application: ALTApplication,
         team: ALTTeam
-    ) -> [ALTEntitlement: Any] {
+    ) -> [ALTEntitlement: any Sendable] {
         let signerManagedEntitlements: Set<String> = [
             "application-identifier",
             "com.apple.developer.team-identifier",
             "keychain-access-groups",
             "get-task-allow"
         ]
-        var filtered: [ALTEntitlement: Any] = [:]
+        var filtered: [ALTEntitlement: any Sendable] = [:]
         for (entitlement, value) in application.entitlements {
             if signerManagedEntitlements.contains(entitlement.rawValue) {
                 continue
