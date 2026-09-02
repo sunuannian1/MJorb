@@ -66,8 +66,11 @@ final class AppleAccountClient {
                     password: password,
                     verificationCode: verificationCode
                 )
-            } catch ALTAppleAPIError.invalidAnisetteData {
+            } catch let error where Self.shouldRetryWithRemoteAnisette(error) {
+                // 本地 Anisette 指纹被 Apple 拒绝（返回 HTML/plist 解析失败）或被判无效：
+                // 清掉本地 provisioning，下一次强制走远程公共服务器换一套指纹，仅自动重试一次
                 await self.anisetteProvider.resetProvisioning()
+                await self.anisetteProvider.preferRemoteOnNextFetch()
                 do {
                     return try await self.authenticateOnce(
                         email: email,
@@ -81,6 +84,18 @@ final class AppleAccountClient {
                 }
             }
         }
+    }
+
+    /// 判断认证错误是否值得"清本地指纹、换远程 Anisette"后自动重试一次。
+    /// 覆盖：Apple 判 anisette 无效、认证端点返回 HTML 导致 plist 解析失败(NSCocoa 3840)、坏服务器响应。
+    private nonisolated static func shouldRetryWithRemoteAnisette(_ error: Error) -> Bool {
+        if case ALTAppleAPIError.invalidAnisetteData = error { return true }
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain, ns.code == 3840 { return true }
+        if let urlError = error as? URLError, urlError.code == .badServerResponse { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSCocoaErrorDomain, underlying.code == 3840 { return true }
+        return false
     }
 
     /// 给异步操作加超时，超时后抛出超时错误。
@@ -203,6 +218,11 @@ final class AppleAccountClient {
         } catch let failure as ImportFailure {
             throw failure
         } catch {
+            // 认证端点返回 HTML/空响应导致 plist 解析失败(3840)、或坏服务器响应：
+            // 这类错误可通过清除本地指纹、换远程 Anisette 通道恢复，原样上抛交给 authenticate 自动重试一次
+            if Self.shouldRetryWithRemoteAnisette(error) {
+                throw error
+            }
             // Apple 拒绝认证握手，通常与 Anisette 设备环境数据无效有关，
             // 而不是用户网络问题，必须与“验证失败/网络”区分开。
             if let apiError = error as? ALTAppleAPIError,

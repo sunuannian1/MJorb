@@ -11,6 +11,8 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
     private let store: any AnisetteProvisioningStore
     private let serverStore: any AnisetteServerStore
     private let onDevice: OnDeviceAnisetteGenerator
+    /// 一次性标志：为 true 时本次 fetch 跳过本地生成、直接走远程（消费后自动复位）
+    private let bypassLocal = AnisetteBypassFlag()
 
     /// 本地 ADI 模拟（Unicorn TCI）可能卡死且无法协作取消，超时后必须遗弃而不是等待
     private static let localGenerationTimeoutSeconds: TimeInterval = 45
@@ -31,6 +33,11 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         self.onDevice = onDevice
     }
 
+    func preferRemoteOnNextFetch() async {
+        bypassLocal.set()
+        Self.logger.error("下一次 Anisette 获取将跳过本地生成、直接使用远程服务器")
+    }
+
     func fetch() async throws -> ALTAnisetteData {
         // 本地与远程共享同一套稳定设备标识（16 字节 → localUserID / deviceIdentifier），
         // 无论走哪条路径，设备指纹都一致，不会因为通道切换导致 Apple 会话失效。
@@ -38,14 +45,19 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
 
         // 1. 优先使用设备本地 AnisetteKit 生成（指纹恒定，不依赖公共服务器）
         // 本地首次生成需初始化 Unicorn(TCI) 引擎，最慢约 30 秒；超过 45 秒遗弃本地任务，降级远程
-        do {
-            return try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
-                try await onDevice.makeAnisetteData(identity: identity)
+        // 若上一次认证因本地指纹被 Apple 拒绝（返回 HTML/格式错误），本次直接跳过本地换远程指纹
+        if bypassLocal.consume() == false {
+            do {
+                return try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
+                    try await onDevice.makeAnisetteData(identity: identity)
+                }
+            } catch let error as HardTimeout.TimeoutError {
+                Self.logger.error("本地 Anisette 生成超时（\(Int(error.seconds))s），降级远程服务器")
+            } catch {
+                Self.logger.error("本地 Anisette 生成失败，降级远程服务器：\(String(describing: error), privacy: .public)")
             }
-        } catch let error as HardTimeout.TimeoutError {
-            Self.logger.error("本地 Anisette 生成超时（\(Int(error.seconds))s），降级远程服务器")
-        } catch {
-            Self.logger.error("本地 Anisette 生成失败，降级远程服务器：\(String(describing: error), privacy: .public)")
+        } else {
+            Self.logger.error("按上一次认证结果跳过本地 Anisette，直接使用远程服务器")
         }
 
         // 2. 远程公共服务器降级路径（带总时长预算，避免逐个服务器重试拖到数分钟）
@@ -506,6 +518,26 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
 struct AnisetteV3ClientInfo: Equatable, Sendable {
     let clientInfo: String
     let userAgent: String
+}
+
+/// 一次性"跳过本地 Anisette"标志：本地指纹被 Apple 拒绝后，下一次 fetch 直接走远程。
+/// 用引用类型 + 锁，保证 struct 跨并发上下文共享同一状态且线程安全。
+final class AnisetteBypassFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set() {
+        lock.lock(); defer { lock.unlock() }
+        value = true
+    }
+
+    /// 读取并复位（只生效一次）
+    func consume() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let current = value
+        value = false
+        return current
+    }
 }
 
 typealias AnisetteClient = AnisetteV3Client

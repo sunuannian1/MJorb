@@ -5,6 +5,13 @@ import Foundation
 protocol AnisetteProvider: Sendable {
     func fetch() async throws -> ALTAnisetteData
     func resetProvisioning() async
+    /// 下一次 fetch 跳过设备本地生成、直接走远程公共服务器（本地指纹被 Apple 拒绝时换指纹重试）
+    func preferRemoteOnNextFetch() async
+}
+
+extension AnisetteProvider {
+    /// 默认无操作；只有同时具备本地/远程双通道的实现需要覆盖
+    func preferRemoteOnNextFetch() async {}
 }
 
 protocol AnisetteEnvironmentManaging: AnisetteProvider {
