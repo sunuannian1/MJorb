@@ -86,7 +86,7 @@ struct SigningCertificateSettingsView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.88)
                 Spacer(minLength: 12)
-                Text(certificateSummary(health))
+                Text(certificateSummary(health, serial: account.certificateSerialNumber))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(certificateSummaryColor(health))
                     .padding(.horizontal, 10)
@@ -160,10 +160,14 @@ struct SigningCertificateSettingsView: View {
         .accessibilityLabel("\(title)，\(value)")
     }
 
-    private func certificateSummary(_ health: CertificateHealthStatus?) -> String {
+    private func certificateSummary(_ health: CertificateHealthStatus?, serial: String?) -> String {
         guard let health else { return "检查中" }
         if health.expirationState == .invalid { return "已过期" }
-        return health.isUsable ? "可用" : "不可用"
+        guard health.isUsable else { return "不可用" }
+        if let serial, serial.isEmpty == false {
+            return AppSigningPresentationHelpers.certificateName(serial: serial)
+        }
+        return "可用"
     }
 
     private func certificateSummaryColor(_ health: CertificateHealthStatus?) -> Color {

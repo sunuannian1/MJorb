@@ -390,7 +390,12 @@ struct AppSigningSheet: View {
     }
 
     private func accountPickerTitle(_ account: AppleAccountRecord) -> String {
-        return viewModelFullEmail(for: account)
+        let email = viewModelFullEmail(for: account)
+        if let serial = account.certificateSerialNumber, serial.isEmpty == false {
+            let compact = AppSigningPresentationHelpers.compactSerial(serial)
+            return "\(email) · \(compact)"
+        }
+        return "\(email) · 无证书"
     }
 
     private var certificateSummary: String {
