@@ -51,14 +51,14 @@ struct UpdateNoticeView: View {
                     Button(action: {
                         UIPasteboard.general.string = "MJorb"
                         wechatCopied = true
-                        if let url = URL(string: "weixin://") {
+                        if let url = URL(string: "weixin://dl/profile?username=gh_3198ab620b01") {
                             UIApplication.shared.open(url)
                         }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             wechatCopied = false
                         }
                     }) {
-                        Text(wechatCopied ? "已复制，去微信搜索" : "复制名称并打开微信")
+                        Text(wechatCopied ? "已复制，正在跳转公众号" : "复制名称并打开公众号")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(Color.sealAccent)
                             .frame(maxWidth: .infinity)
