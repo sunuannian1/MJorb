@@ -76,9 +76,9 @@ struct SigningWorkspace: Sendable {
             // 参照 SideStore/AltStore 官方逻辑，这些内容免费账号无法签名
             try removeUnsupportedBundles(in: appURL)
 
-            // 大 IPA 优化：移除非必要语言包，减少内存占用和签名时间
-            // 只保留中文和英文，避免 ldid 处理大文件时内存不足
-            try removeUnusedLocalizations(in: appURL)
+            // 大 IPA 优化：剥离 arm64e 架构，只保留 arm64
+            // iOS 设备全是 arm64，arm64e 无用且会导致 ldid 处理大文件时内存不足
+            try stripArm64eArchitecture(in: appURL)
 
             let extensionURLs = try appExtensionURLs(in: appURL)
             for extensionURL in extensionURLs {
@@ -471,37 +471,76 @@ struct SigningWorkspace: Sendable {
         }
     }
 
-    /// 大 IPA 优化：移除非必要语言包，只保留中文和英文
-    /// 减少 ldid 签名时的内存占用，避免大文件断言失败
-    private func removeUnusedLocalizations(in appURL: URL) throws {
+    /// 大 IPA 优化：剥离 arm64e 架构，只保留 arm64
+    /// iOS 设备全是 arm64，arm64e 无用且会导致 ldid 处理大文件时内存不足
+    private func stripArm64eArchitecture(in appURL: URL) throws {
         let fileManager = FileManager.default
-        let keptLocalizations: Set<String> = [
-            "Base.lproj",
-            "en.lproj",
-            "zh_CN.lproj",
-            "zh-Hans.lproj",
-            "zh-Hant.lproj",
-            "zh_TW.lproj"
-        ]
-
         guard let enumerator = fileManager.enumerator(
             at: appURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
             options: [.skipsHiddenFiles]
         ) else { return }
 
-        var directoriesToRemove: [URL] = []
         for case let url as URL in enumerator {
-            guard url.pathExtension == "lproj" else { continue }
-            let lastPath = url.lastPathComponent
-            if keptLocalizations.contains(lastPath) == false {
-                directoriesToRemove.append(url)
-                enumerator.skipDescendants()
-            }
-        }
+            // 只处理大于 1MB 的文件，小文件不需要剥离
+            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  size > 1_000_000 else { continue }
 
-        for url in directoriesToRemove {
-            try? fileManager.removeItem(at: url)
+            // 读取文件头，判断是否是 FAT 二进制（magic=0xCAFEBABE）
+            let handle = try? FileHandle(forReadingFrom: url)
+            defer { try? handle?.close() }
+            guard let headerData = try? handle?.read(upToCount: 8),
+                  headerData.count >= 8 else { continue }
+
+            let magic = headerData.withUnsafeBytes { $0.load(as: UInt32.self) }
+            guard magic == 0xCAFEBABE || magic == 0xBEBAFECA else { continue }
+
+            // 读取 FAT 头和架构列表
+            let nfatArch = headerData.withUnsafeBytes {
+                $0.load(fromByteOffset: 4, as: UInt32.self)
+            }.bigEndian
+            guard nfatArch > 1 else { continue }
+
+            let archTableSize = Int(nfatArch) * 20
+            guard let archData = try? handle?.read(upToCount: archTableSize),
+                  archData.count >= archTableSize else { continue }
+
+            // 遍历架构列表，找 arm64（cputype=0x0100000C, cpusubtype=0）
+            var arm64Offset: UInt32 = 0
+            var arm64Size: UInt32 = 0
+            var found = false
+
+            for i in 0..<Int(nfatArch) {
+                let archOffset = i * 20
+                let cputype = archData.withUnsafeBytes {
+                    $0.load(fromByteOffset: archOffset, as: UInt32.self)
+                }.bigEndian
+                let cpusubtype = archData.withUnsafeBytes {
+                    $0.load(fromByteOffset: archOffset + 4, as: UInt32.self)
+                }.bigEndian
+                let offset = archData.withUnsafeBytes {
+                    $0.load(fromByteOffset: archOffset + 8, as: UInt32.self)
+                }.bigEndian
+                let size = archData.withUnsafeBytes {
+                    $0.load(fromByteOffset: archOffset + 12, as: UInt32.self)
+                }.bigEndian
+
+                if cputype == 0x0100000C && cpusubtype == 0 {
+                    arm64Offset = offset
+                    arm64Size = size
+                    found = true
+                    break
+                }
+            }
+
+            guard found, arm64Size > 0 else { continue }
+
+            // 读取 arm64 架构数据并写回
+            try? handle?.seek(toOffset: UInt64(arm64Offset))
+            guard let arm64Data = try? handle?.read(upToCount: Int(arm64Size)),
+                  arm64Data.count == Int(arm64Size) else { continue }
+
+            try arm64Data.write(to: url, options: .atomic)
         }
     }
 
