@@ -576,23 +576,31 @@ actor SigningCoordinator {
             return updated
         } catch {
             // 安装/验证断连（如 NoDevice）时，应用可能实际已装到设备上。
-            // 延迟后主动查设备状态，已装则静默标记为已安装，不弹失败。
-            try? await Task.sleep(for: .seconds(3))
-            let deviceHasApp = (try? await InstalledAppDeviceVerifier.isInstalled(
-                bundleIdentifier: bundleIdentifier
-            )) ?? false
-            if deviceHasApp {
-                updated.state = .installed
-                updated.signedArtifactStatus = .installed
-                updated.lastInstallFailureCode = nil
-                updated.lastInstallFailureReason = nil
-                updated.hasPendingSelfUpdateSource = false
-                updated.expiryDate = expirationDate
-                updated.lastInstalledAt = Date()
-                try? await appStore.save(updated)
-                return updated
+            // 多次重试查设备状态，已装则静默标记为已安装，不弹失败。
+            for attempt in 0..<5 {
+                try? await Task.sleep(for: .seconds(3))
+                let deviceHasApp = (try? await InstalledAppDeviceVerifier.isInstalled(
+                    bundleIdentifier: bundleIdentifier
+                )) ?? false
+                if deviceHasApp {
+                    updated.state = .installed
+                    updated.signedArtifactStatus = .installed
+                    updated.lastInstallFailureCode = nil
+                    updated.lastInstallFailureReason = nil
+                    updated.hasPendingSelfUpdateSource = false
+                    updated.expiryDate = expirationDate
+                    updated.lastInstalledAt = Date()
+                    try? await appStore.save(updated)
+                    return updated
+                }
             }
-            throw error
+            // 多次查询仍未找到，抛友好错误，提示用户检查桌面
+            throw ImportFailure(
+                title: "安装未完成",
+                reason: "安装过程中与设备连接断开。请检查手机桌面是否已出现应用图标；如已安装可忽略此提示，未安装请重试。",
+                recovery: "重新安装",
+                code: "SEAL-INSTALL-702a"
+            )
         }
     }
 
