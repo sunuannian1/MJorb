@@ -33,7 +33,7 @@ struct AboutView: View {
         .alert("已是最新版本", isPresented: $showNoUpdateAlert) {
             Button("好的", role: .cancel) { }
         } message: {
-            Text("当前版本 \(version) (\(build)) 已是最新。")
+            Text("当前版本 \(version) (\(build))")
         }
     }
 
