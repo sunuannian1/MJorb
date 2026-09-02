@@ -337,7 +337,8 @@ enum MachOFullSigner {
                 if segname == "__TEXT" {
                     execSegBase = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 24, as: UInt64.self) } // vmaddr
                     execSegLimit = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 32, as: UInt64.self) } // vmsize
-                    execSegFlags = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 56, as: UInt32.self) } == 0 ? 0 : 1 // flags
+                    let segFlags = data.withUnsafeBytes { $0.load(fromByteOffset: cmdOffset + 56, as: UInt32.self) }
+                    execSegFlags = (segFlags & 0x1) != 0 ? 1 : 0 // SG_HIGHVM 位
                 }
             }
             cmdOffset += Int(cmdsize)
@@ -379,19 +380,36 @@ enum MachOFullSigner {
     // MARK: - 签名 CodeDirectory
 
     private static func signCodeDirectory(_ codeDirectory: Data, privateKey: SecKey) throws -> Data {
-        // 对 CodeDirectory 计算 SHA1 哈希，然后用私钥 RSA PKCS1v15 签名
-        let hash = Insecure.SHA1.hash(data: codeDirectory)
+        // 自动检测私钥类型：RSA 用 PKCS1v15+SHA1，ECDSA 用 X962+SHA256
+        let attributes = SecKeyCopyAttributes(privateKey) as? [String: Any]
+        let keyType = attributes?[kSecAttrKeyType as String] as? String
+        let isEC = keyType == (kSecAttrKeyTypeEC as String) || keyType == (kSecAttrKeyTypeECSECPrimeRandom as String)
+
         var error: Unmanaged<CFError>?
-        guard let signature = SecKeyCreateSignature(
-            privateKey,
-            .rsaSignatureDigestPKCS1v15SHA1,
-            hash as CFData,
-            &error
-        ) as Data? else {
+        let signature: Data?
+        if isEC {
+            let hash = SHA256.hash(data: codeDirectory)
+            signature = SecKeyCreateSignature(
+                privateKey,
+                .ecdsaSignatureDigestX962SHA256,
+                hash as CFData,
+                &error
+            ) as Data?
+        } else {
+            let hash = Insecure.SHA1.hash(data: codeDirectory)
+            signature = SecKeyCreateSignature(
+                privateKey,
+                .rsaSignatureDigestPKCS1v15SHA1,
+                hash as CFData,
+                &error
+            ) as Data?
+        }
+
+        guard let sig = signature else {
             let err = error?.takeRetainedValue()
             throw NSError(domain: "MachOFullSigner", code: 4, userInfo: [NSLocalizedDescriptionKey: "签名失败: \(err?.localizedDescription ?? "未知错误")"])
         }
-        return signature
+        return sig
     }
 
     // MARK: - 组装 SuperBlob
