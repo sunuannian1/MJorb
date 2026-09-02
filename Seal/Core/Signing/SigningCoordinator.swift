@@ -533,8 +533,14 @@ actor SigningCoordinator {
     ) async throws -> AppRecord {
         var updated = app
         // 安装期间申请后台保活，防止锁屏/切后台时 iOS 挂起网络连接
-        let bgTask = UIApplication.shared.beginBackgroundTask(withName: "Seal IPA Install")
-        defer { UIApplication.shared.endBackgroundTask(bgTask) }
+        let bgTask = await MainActor.run {
+            UIApplication.shared.beginBackgroundTask(withName: "Seal IPA Install")
+        }
+        defer {
+            Task { @MainActor in
+                UIApplication.shared.endBackgroundTask(bgTask)
+            }
+        }
 
         try await updateState(appID: app.id, stage: .installing)
         await progress(.installing)
