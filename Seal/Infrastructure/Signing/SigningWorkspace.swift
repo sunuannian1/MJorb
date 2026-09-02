@@ -76,9 +76,10 @@ struct SigningWorkspace: Sendable {
             // 参照 SideStore/AltStore 官方逻辑，这些内容免费账号无法签名
             try removeUnsupportedBundles(in: appURL)
 
-            // 大 IPA 优化：剥离 arm64e 架构，只保留 arm64
-            // 暂时禁用，可能导致 Mach-O 损坏引发 ldid 崩溃
-            // try stripArm64eArchitecture(in: appURL)
+            // 大 IPA 优化：剥离 arm64e 架构，只保留 arm6
+            // iOS 设备全是 arm64，arm64e 无用且会导致 ldid 处理大文件时内存不足崩溃
+            // 剥离后由 MachOAdHocSigner 重新加 ad-hoc 签名，ALTSigner 再覆盖签名
+            try stripArm64eArchitecture(in: appURL)
 
             let extensionURLs = try appExtensionURLs(in: appURL)
             for extensionURL in extensionURLs {
