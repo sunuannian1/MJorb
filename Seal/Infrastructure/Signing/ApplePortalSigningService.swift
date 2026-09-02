@@ -1405,7 +1405,9 @@ actor ApplePortalSigningService {
         guard let privateKey = certificate.privateKey as! SecKey? else {
             throw NSError(domain: "Seal", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取证书私钥"])
         }
-        let certificateData = certificate.x509.data
+        guard let certificateData = certificate.x509.data else {
+            throw NSError(domain: "Seal", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法获取证书数据"])
+        }
 
         // 2. 从 Info.plist 读取 bundle identifier
         let infoURL = appURL.appendingPathComponent("Info.plist")
@@ -1413,9 +1415,9 @@ actor ApplePortalSigningService {
 
         // 3. 给主应用嵌入描述文件
         let mainProfile = profiles.first(where: { $0.bundleIdentifier == bundleID }) ?? profiles.first
-        if let mainProfile {
+        if let mainProfile, let profileData = mainProfile.data {
             let profileURL = appURL.appendingPathComponent("embedded.mobileprovision")
-            try mainProfile.data.write(to: profileURL)
+            try profileData.write(to: profileURL)
         }
 
         // 4. 递归签名所有 Mach-O 二进制（主应用 + 扩展 + framework）
@@ -1435,9 +1437,9 @@ actor ApplePortalSigningService {
                 let pluginInfoURL = pluginURL.appendingPathComponent("Info.plist")
                 let pluginBundleID = (try? NSDictionary(contentsOf: pluginInfoURL))?["CFBundleIdentifier"] as? String ?? ""
                 let pluginProfile = profiles.first(where: { $0.bundleIdentifier == pluginBundleID })
-                if let pluginProfile {
+                if let pluginProfile, let pluginProfileData = pluginProfile.data {
                     let profileURL = pluginURL.appendingPathComponent("embedded.mobileprovision")
-                    try pluginProfile.data.write(to: profileURL)
+                    try pluginProfileData.write(to: profileURL)
                 }
                 try MachOFullSigner.signAllBinaries(
                     in: pluginURL,
