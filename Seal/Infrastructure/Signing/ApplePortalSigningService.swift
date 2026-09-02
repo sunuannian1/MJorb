@@ -1401,10 +1401,11 @@ actor ApplePortalSigningService {
         certificate: ALTCertificate,
         profiles: [ALTProvisioningProfile]
     ) throws {
-        // 1. 导出 P12
-        guard let p12Data = try? certificate.unencryptedP12Data() else {
-            throw NSError(domain: "Seal", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法导出证书 P12 数据"])
+        // 1. 从 ALTCertificate 直接获取私钥和证书数据（不经过 P12，避免 SecPKCS12Import 失败）
+        guard let privateKey = certificate.privateKey as! SecKey? else {
+            throw NSError(domain: "Seal", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法获取证书私钥"])
         }
+        let certificateData = certificate.x509.data
 
         // 2. 从 Info.plist 读取 bundle identifier
         let infoURL = appURL.appendingPathComponent("Info.plist")
@@ -1420,7 +1421,8 @@ actor ApplePortalSigningService {
         // 4. 递归签名所有 Mach-O 二进制（主应用 + 扩展 + framework）
         try MachOFullSigner.signAllBinaries(
             in: appURL,
-            certificateP12: p12Data,
+            certificateData: certificateData,
+            privateKey: privateKey,
             teamID: team.identifier,
             bundleID: bundleID
         )
@@ -1439,7 +1441,8 @@ actor ApplePortalSigningService {
                 }
                 try MachOFullSigner.signAllBinaries(
                     in: pluginURL,
-                    certificateP12: p12Data,
+                    certificateData: certificateData,
+                    privateKey: privateKey,
                     teamID: team.identifier,
                     bundleID: pluginBundleID
                 )

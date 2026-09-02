@@ -13,10 +13,10 @@ enum MachOFullSigner {
     /// 给 IPA 中所有 Mach-O 二进制加完整证书签名
     static func signAllBinaries(
         in appURL: URL,
-        certificateP12: Data,
+        certificateData: Data,
+        privateKey: SecKey,
         teamID: String,
-        bundleID: String = "ad-hoc",
-        entitlements: Data? = nil
+        bundleID: String = "ad-hoc"
     ) throws {
         let enumerator = FileManager.default.enumerator(
             at: appURL,
@@ -43,24 +43,24 @@ enum MachOFullSigner {
         }
 
         for url in machOFiles {
-            try signMachO(at: url, certificateP12: certificateP12, teamID: teamID, bundleID: bundleID, entitlements: entitlements)
+            try signMachO(at: url, certificateData: certificateData, privateKey: privateKey, teamID: teamID, bundleID: bundleID)
         }
     }
 
     private static func signMachO(
         at url: URL,
-        certificateP12: Data,
+        certificateData: Data,
+        privateKey: SecKey,
         teamID: String,
-        bundleID: String,
-        entitlements: Data?
+        bundleID: String
     ) throws {
         let data = try Data(contentsOf: url)
         let magic = data.withUnsafeBytes { $0.load(as: UInt32.self) }
 
         if magic == 0xCAFEBABE || magic == 0xBEBAFECA {
-            try signFAT(data: data, url: url, certificateP12: certificateP12, teamID: teamID, bundleID: bundleID, entitlements: entitlements)
+            try signFAT(data: data, url: url, certificateData: certificateData, privateKey: privateKey, teamID: teamID, bundleID: bundleID)
         } else {
-            let signed = try signThin(data: data, certificateP12: certificateP12, teamID: teamID, bundleID: bundleID, entitlements: entitlements)
+            let signed = try signThin(data: data, certificateData: certificateData, privateKey: privateKey, teamID: teamID, bundleID: bundleID)
             try signed.write(to: url, options: .atomic)
         }
     }
@@ -78,10 +78,10 @@ enum MachOFullSigner {
     private static func signFAT(
         data: Data,
         url: URL,
-        certificateP12: Data,
+        certificateData: Data,
+        privateKey: SecKey,
         teamID: String,
-        bundleID: String,
-        entitlements: Data?
+        bundleID: String
     ) throws {
         let isBigEndian = data.withUnsafeBytes { $0.load(as: UInt32.self) } == 0xCAFEBABE
         let nfatArch = data.withUnsafeBytes {
@@ -113,7 +113,7 @@ enum MachOFullSigner {
         var signedArchs: [Data] = []
         for arch in archs {
             let archData = data.subdata(in: Int(arch.offset)..<Int(arch.offset + arch.size))
-            let signed = try signThin(data: archData, certificateP12: certificateP12, teamID: teamID, bundleID: bundleID, entitlements: entitlements)
+            let signed = try signThin(data: archData, certificateData: certificateData, privateKey: privateKey, teamID: teamID, bundleID: bundleID)
             signedArchs.append(signed)
         }
 
@@ -145,10 +145,10 @@ enum MachOFullSigner {
 
     private static func signThin(
         data: Data,
-        certificateP12: Data,
+        certificateData: Data,
+        privateKey: SecKey,
         teamID: String,
-        bundleID: String,
-        entitlements: Data?
+        bundleID: String
     ) throws -> Data {
         // 解析 load commands，找到 __LINKEDIT 和 LC_CODE_SIGNATURE
         let ncmds = data.withUnsafeBytes { $0.load(fromByteOffset: 16, as: UInt32.self) }
@@ -191,9 +191,6 @@ enum MachOFullSigner {
         // 分块计算页面哈希
         let pageHashes = computePageHashes(data: data, codeLimit: codeLimit)
 
-        // 从 P12 提取证书和私钥
-        let (certificateData, privateKey) = try extractCertificateAndKey(from: certificateP12)
-
         // 生成 CodeDirectory
         let codeDirectory = try makeCodeDirectory(
             pageHashes: pageHashes,
@@ -211,8 +208,7 @@ enum MachOFullSigner {
         let superBlob = makeSuperBlob(
             codeDirectory: codeDirectory,
             certificateData: certificateData,
-            signature: signature,
-            entitlements: entitlements
+            signature: signature
         )
 
         // 写入 Mach-O
@@ -276,34 +272,6 @@ enum MachOFullSigner {
             offset = end
         }
         return hashes
-    }
-
-    // MARK: - 从 P12 提取证书和私钥
-
-    private static func extractCertificateAndKey(from p12Data: Data) throws -> (Data, SecKey) {
-        var items: CFArray?
-        let status = SecPKCS12Import(p12Data as CFData, [kSecImportExportPassphrase: "" as CFString] as CFDictionary, &items)
-        guard status == errSecSuccess,
-              let items = items as? [[String: Any]],
-              let first = items.first,
-              let identity = first[kSecImportItemIdentity as String] as! SecIdentity? else {
-            throw NSError(domain: "MachOFullSigner", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法从 P12 提取证书和私钥"])
-        }
-
-        var certificate: SecCertificate?
-        SecIdentityCopyCertificate(identity, &certificate)
-        guard let cert = certificate else {
-            throw NSError(domain: "MachOFullSigner", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法提取证书"])
-        }
-
-        var privateKey: SecKey?
-        SecIdentityCopyPrivateKey(identity, &privateKey)
-        guard let key = privateKey else {
-            throw NSError(domain: "MachOFullSigner", code: 3, userInfo: [NSLocalizedDescriptionKey: "无法提取私钥"])
-        }
-
-        let certData = SecCertificateCopyData(cert) as Data
-        return (certData, key)
     }
 
     // MARK: - 生成 CodeDirectory
@@ -417,8 +385,7 @@ enum MachOFullSigner {
     private static func makeSuperBlob(
         codeDirectory: Data,
         certificateData: Data,
-        signature: Data,
-        entitlements: Data?
+        signature: Data
     ) -> Data {
         let codeDirPadded = codeDirectory.count
         let certBlob = makeBlobWrapper(data: certificateData)
@@ -431,10 +398,6 @@ enum MachOFullSigner {
             (0x00000002, certBlob),        // 证书链
             (0x00001000, sigBlob),         // 签名
         ]
-        if let entitlements {
-            let entBlob = makeBlobWrapper(data: entitlements)
-            slots.append((0x00000005, entBlob)) // entitlements
-        }
 
         let headerSize = 12
         let indexSize = slots.count * 8
