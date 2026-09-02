@@ -657,7 +657,7 @@ actor ApplePortalSigningService {
             updatedSecret.certificateMachineIdentifier = certificate.machineIdentifier
 
             try await persistSigningMaterial(updatedSecret, certificate.serialNumber)
-            return SigningIdentity(certificate: certificate, secret: updatedSecret)
+            return SigningIdentity(certificate: fullCert, secret: updatedSecret)
         } catch {
             let cleanedUp = await cleanUpNewCertificate(
                 serialNumber: requested.serialNumber,
