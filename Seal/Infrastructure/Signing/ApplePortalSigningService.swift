@@ -198,6 +198,26 @@ actor ApplePortalSigningService {
         self.verificationCodeProvider = verificationCodeProvider
     }
 
+    /// AltSign 回调式 API 的 async 包装 + 超时保护。
+    /// AltSign 内部 URLSession 没有设置超时，Apple 服务器不响应时回调永远不触发，UI 会永久卡住。
+    nonisolated private func withAppleTimeout<T: Sendable>(
+        _ seconds: UInt64 = 20,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask(operation: operation)
+            group.addTask {
+                try await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+                throw URLError(.timedOut, userInfo: [
+                    NSLocalizedDescriptionKey: "Apple 服务器响应超时（\(seconds) 秒），请检查网络或代理后重试"
+                ])
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
     func sign(
         app: AppRecord,
         account: AppleAccountRecord,
@@ -513,10 +533,12 @@ actor ApplePortalSigningService {
         account: ALTAccount,
         session: ALTAppleAPISession
     ) async throws -> [ALTTeam] {
-        let box: LegacyBox<[ALTTeam]> = try await withCheckedThrowingContinuation {
-            continuation in
-            ALTAppleAPI.shared.fetchTeams(for: account, session: session) { teams, error in
-                Self.resume(continuation, value: teams, error: error)
+        let box: LegacyBox<[ALTTeam]> = try await withAppleTimeout {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                ALTAppleAPI.shared.fetchTeams(for: account, session: session) { teams, error in
+                    Self.resume(continuation, value: teams, error: error)
+                }
             }
         }
         return box.value
@@ -528,29 +550,33 @@ actor ApplePortalSigningService {
         team: ALTTeam,
         session: ALTAppleAPISession
     ) async throws -> ALTDevice {
-        let devicesBox: LegacyBox<[ALTDevice]> = try await withCheckedThrowingContinuation {
-            continuation in
-            ALTAppleAPI.shared.fetchDevices(
-                for: team,
-                types: [.iphone, .ipad],
-                session: session
-            ) { devices, error in
-                Self.resume(continuation, value: devices, error: error)
+        let devicesBox: LegacyBox<[ALTDevice]> = try await withAppleTimeout {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                ALTAppleAPI.shared.fetchDevices(
+                    for: team,
+                    types: [.iphone, .ipad],
+                    session: session
+                ) { devices, error in
+                    Self.resume(continuation, value: devices, error: error)
+                }
             }
         }
         if let device = devicesBox.value.first(where: { $0.identifier == identifier }) {
             return device
         }
-        let deviceBox: LegacyBox<ALTDevice> = try await withCheckedThrowingContinuation {
-            continuation in
-            ALTAppleAPI.shared.registerDevice(
-                name: name,
-                identifier: identifier,
-                type: .iphone,
-                team: team,
-                session: session
-            ) { device, error in
-                Self.resume(continuation, value: device, error: error)
+        let deviceBox: LegacyBox<ALTDevice> = try await withAppleTimeout {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                ALTAppleAPI.shared.registerDevice(
+                    name: name,
+                    identifier: identifier,
+                    type: .iphone,
+                    team: team,
+                    session: session
+                ) { device, error in
+                    Self.resume(continuation, value: device, error: error)
+                }
             }
         }
         return deviceBox.value
@@ -829,11 +855,13 @@ actor ApplePortalSigningService {
         team: ALTTeam,
         session: ALTAppleAPISession
     ) async throws -> [ALTX509Certificate] {
-        let box: LegacyBox<[ALTX509Certificate]> = try await withCheckedThrowingContinuation {
-            continuation in
-            ALTAppleAPI.shared.fetchCertificates(for: team, session: session) {
-                certificates, error in
-                Self.resume(continuation, value: certificates, error: error)
+        let box: LegacyBox<[ALTX509Certificate]> = try await withAppleTimeout {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                ALTAppleAPI.shared.fetchCertificates(for: team, session: session) {
+                    certificates, error in
+                    Self.resume(continuation, value: certificates, error: error)
+                }
             }
         }
         return box.value
@@ -844,14 +872,16 @@ actor ApplePortalSigningService {
         session: ALTAppleAPISession,
         deviceName: String
     ) async throws -> ALTCertificate {
-        let box: LegacyBox<ALTCertificate> = try await withCheckedThrowingContinuation {
-            continuation in
-            ALTAppleAPI.shared.addCertificate(
-                machineName: certificateMachineName(team: team, deviceName: deviceName),
-                to: team,
-                session: session
-            ) { certificate, error in
-                Self.resume(continuation, value: certificate, error: error)
+        let box: LegacyBox<ALTCertificate> = try await withAppleTimeout(30) {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                ALTAppleAPI.shared.addCertificate(
+                    machineName: certificateMachineName(team: team, deviceName: deviceName),
+                    to: team,
+                    session: session
+                ) { certificate, error in
+                    Self.resume(continuation, value: certificate, error: error)
+                }
             }
         }
         return box.value
