@@ -1420,13 +1420,23 @@ actor ApplePortalSigningService {
             try mainProfile.data.write(to: profileURL)
         }
 
+        // 3.5 从描述文件生成 entitlements XML（对齐 ldid 签名要求）
+        let entitlementsData: Data?
+        if let profile = mainProfile {
+            let stringKeyed = Dictionary(uniqueKeysWithValues: profile.entitlements.map { ($0.key.rawValue, $0.value) })
+            entitlementsData = try? PropertyListSerialization.data(fromPropertyList: stringKeyed, format: .xml, options: 0)
+        } else {
+            entitlementsData = nil
+        }
+
         // 4. 递归签名所有 Mach-O 二进制（主应用 + 扩展 + framework）
         try MachOFullSigner.signAllBinaries(
             in: appURL,
             certificateData: certificateData,
             privateKey: privateKey,
             teamID: team.identifier,
-            bundleID: bundleID
+            bundleID: bundleID,
+            entitlements: entitlementsData
         )
 
         // 5. 给 PlugIns 中的 appex 也嵌入描述文件并签名
@@ -1446,7 +1456,8 @@ actor ApplePortalSigningService {
                     certificateData: certificateData,
                     privateKey: privateKey,
                     teamID: team.identifier,
-                    bundleID: pluginBundleID
+                    bundleID: pluginBundleID,
+                    entitlements: entitlementsData
                 )
             }
         }
