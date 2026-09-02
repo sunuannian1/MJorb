@@ -531,6 +531,10 @@ actor SigningCoordinator {
         progress: @Sendable (SigningStage) async -> Void
     ) async throws -> AppRecord {
         var updated = app
+        // 安装期间申请后台保活，防止锁屏/切后台时 iOS 挂起网络连接
+        let bgTask = UIApplication.shared.beginBackgroundTask(withName: "Seal IPA Install")
+        defer { UIApplication.shared.endBackgroundTask(bgTask) }
+
         try await updateState(appID: app.id, stage: .installing)
         await progress(.installing)
         let signedData = try await fileStore.read(relativePath: signedPath)

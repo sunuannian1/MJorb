@@ -264,9 +264,9 @@ actor MinimuxerInstallChannel: InstallChannel {
         #if !targetEnvironment(simulator)
         guard await isReady() else { throw Self.channelNotReadyFailure }
         var lastInstallError: Error?
-        for installAttempt in 1...3 {
+        for installAttempt in 1...4 {
             do {
-                let pushOutcome = await offThread(seconds: 75) {
+                let pushOutcome = await offThread(seconds: 120) {
                     try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
                 }
                 if case .some(.failure(let pushError)) = pushOutcome { throw pushError }
@@ -280,7 +280,7 @@ actor MinimuxerInstallChannel: InstallChannel {
                     await SelfReplacementController.returnToHomeScreen()
                     try await installation.value
                 } else {
-                    let installOutcome = await offThread(seconds: 75) {
+                    let installOutcome = await offThread(seconds: 120) {
                         try Minimuxer.installIpa(bundleId: bundleID)
                     }
                     if case .some(.failure(let installError)) = installOutcome { throw installError }
@@ -289,18 +289,18 @@ actor MinimuxerInstallChannel: InstallChannel {
                 return
             } catch {
                 lastInstallError = error
-                guard installAttempt < 3 else { break }
-                // 第一次失败：等 2 秒；第二次失败：重置设备连接后等 4 秒
+                guard installAttempt < 4 else { break }
+                // 第1次失败：等3秒；第2、3次失败：重置设备连接后等6秒
                 if installAttempt == 1 {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
                 } else {
                     Minimuxer.reset()
-                    await waitForNetworkRefresh(rounds: 3, delay: .milliseconds(500))
-                    try? await Task.sleep(nanoseconds: 4_000_000_000)
+                    await waitForNetworkRefresh(rounds: 4, delay: .milliseconds(600))
+                    try? await Task.sleep(nanoseconds: 6_000_000_000)
                 }
                 // 等待设备重新就绪
                 var readyWait = 0
-                while await isReady() == false && readyWait < 10 {
+                while await isReady() == false && readyWait < 15 {
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     readyWait += 1
                 }
