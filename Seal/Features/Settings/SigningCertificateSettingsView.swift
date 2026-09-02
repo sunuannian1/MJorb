@@ -4,6 +4,7 @@ struct SigningCertificateSettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
     let relatedApps: [AppRecord]
     let certificateExportHandler: CertificateExportHandler
+    @State private var selectedAccountID: UUID?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -29,6 +30,9 @@ struct SigningCertificateSettingsView: View {
             )
         }
         .task {
+            if selectedAccountID == nil {
+                selectedAccountID = viewModel.activeAccount?.id
+            }
             await viewModel.load(force: true)
             if let account = activeAccount {
                 await viewModel.refreshCertificateInventory(for: account, force: true)
@@ -43,20 +47,73 @@ struct SigningCertificateSettingsView: View {
         .sealScreenBackground()
     }
 
-    private var activeAccount: AppleAccountRecord? { viewModel.activeAccount }
+    private var activeAccount: AppleAccountRecord? {
+        if let id = selectedAccountID, let account = viewModel.accounts.first(where: { $0.id == id }) {
+            return account
+        }
+        return viewModel.activeAccount
+    }
+
+    private var selectableAccounts: [AppleAccountRecord] {
+        viewModel.accounts.filter { AccountAvailabilityPolicy.isSelectable($0) }
+    }
 
     @ViewBuilder
     private var accountCard: some View {
         VStack(spacing: 0) {
-            if let account = activeAccount {
-                detailRow("Apple ID", viewModel.fullEmail(for: account))
-                Divider()
-                detailRow("Team", TeamNameDisplayFormatter.string(from: account.teamName))
-            } else {
-                Text("请先选择已验证的 Apple ID")
+            if selectableAccounts.isEmpty {
+                Text("请先添加并验证 Apple ID")
                     .foregroundStyle(Color.sealTextSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 16)
+            } else {
+                Menu {
+                    ForEach(selectableAccounts) { account in
+                        Button {
+                            selectedAccountID = account.id
+                            Task {
+                                await viewModel.selectActiveAccount(account)
+                                await viewModel.refreshCertificateInventory(for: account, force: true)
+                            }
+                        } label: {
+                            let email = viewModel.fullEmail(for: account)
+                            if let serial = account.certificateSerialNumber, serial.isEmpty == false {
+                                let compact = AppSigningPresentationHelpers.compactSerial(serial)
+                                Text("\(email) · \(compact)")
+                            } else {
+                                Text("\(email) · 无证书")
+                            }
+                            if account.id == activeAccount?.id {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text("Apple ID")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if let account = activeAccount {
+                            Text(viewModel.fullEmail(for: account))
+                                .foregroundStyle(Color.sealTextSecondary)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption)
+                                .foregroundStyle(Color.sealTextSecondary)
+                        } else {
+                            Text("请选择")
+                                .foregroundStyle(Color.sealTextSecondary)
+                        }
+                    }
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if let account = activeAccount {
+                    Divider()
+                    detailRow("Team", TeamNameDisplayFormatter.string(from: account.teamName))
+                }
             }
         }
         .padding(.horizontal, 16)
