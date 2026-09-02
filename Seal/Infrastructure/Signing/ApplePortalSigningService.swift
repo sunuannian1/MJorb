@@ -565,6 +565,21 @@ actor ApplePortalSigningService {
         selectedCertificateSerialNumber: String?,
         persistSigningMaterial: @escaping @Sendable (AccountSecret, String) async throws -> Void
     ) async throws -> SigningIdentity {
+        // 快速路径：本地证书有效时跳过远程 fetchCertificates（中国大陆IP被时限流时这个请求很慢）
+        // 条件：P12可读、序列号非空、machineIdentifier已保存
+        let effectiveSerial = selectedCertificateSerialNumber ?? secret.certificateSerialNumber
+        if let serial = effectiveSerial,
+           serial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+           let data = secret.certificateP12,
+           let local = try? ALTCertificate(p12Data: data, password: nil),
+           local.serialNumber.caseInsensitiveCompare(serial) == .orderedSame,
+           let machineID = secret.certificateMachineIdentifier,
+           machineID.isEmpty == false {
+            local.machineIdentifier = machineID
+            return SigningIdentity(certificate: local, secret: secret)
+        }
+
+        // 慢速路径：本地证书不可用，从 Apple 服务器获取证书列表
         let certificates = try await fetchCertificates(team: team, session: session)
         try Task.checkCancellation()
 
