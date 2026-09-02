@@ -13,20 +13,15 @@ struct UpdateNoticeView: View {
                 .transition(.opacity)
 
             VStack(spacing: 0) {
-                // 顶部：图标 + 标题 + 版本号（紧凑排列）
+                // 顶部：图标 + 标题
                 HStack(spacing: 12) {
                     Image(uiImage: UIImage(named: "AppIcon") ?? UIImage())
                         .resizable()
                         .frame(width: 44, height: 44)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(notice.title)
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                        Text("新版本 \(notice.version)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(notice.title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
                     Spacer()
                 }
                 .padding(.horizontal, 20)
@@ -43,13 +38,6 @@ struct UpdateNoticeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
-
-                // 公众号引流（一行）
-                Text("公众号「MJorb」回复「更新」下载")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.bottom, 16)
 
                 // 按钮区
                 VStack(spacing: 10) {
