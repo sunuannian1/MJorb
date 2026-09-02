@@ -76,6 +76,10 @@ struct SigningWorkspace: Sendable {
             // 参照 SideStore/AltStore 官方逻辑，这些内容免费账号无法签名
             try removeUnsupportedBundles(in: appURL)
 
+            // 大 IPA 优化：移除非必要语言包，减少内存占用和签名时间
+            // 只保留中文和英文，避免 ldid 处理大文件时内存不足
+            try removeUnusedLocalizations(in: appURL)
+
             let extensionURLs = try appExtensionURLs(in: appURL)
             for extensionURL in extensionURLs {
                 try Task.checkCancellation()
@@ -464,6 +468,40 @@ struct SigningWorkspace: Sendable {
         }
         for directory in signatureDirectories {
             try FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    /// 大 IPA 优化：移除非必要语言包，只保留中文和英文
+    /// 减少 ldid 签名时的内存占用，避免大文件断言失败
+    private func removeUnusedLocalizations(in appURL: URL) throws {
+        let fileManager = FileManager.default
+        let keptLocalizations: Set<String> = [
+            "Base.lproj",
+            "en.lproj",
+            "zh_CN.lproj",
+            "zh-Hans.lproj",
+            "zh-Hant.lproj",
+            "zh_TW.lproj"
+        ]
+
+        guard let enumerator = fileManager.enumerator(
+            at: appURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        var directoriesToRemove: [URL] = []
+        for case let url as URL in enumerator {
+            guard url.pathExtension == "lproj" else { continue }
+            let lastPath = url.lastPathComponent
+            if keptLocalizations.contains(lastPath) == false {
+                directoriesToRemove.append(url)
+                enumerator.skipDescendants()
+            }
+        }
+
+        for url in directoriesToRemove {
+            try? fileManager.removeItem(at: url)
         }
     }
 
