@@ -14,8 +14,8 @@ packages:
     url: https://github.com/weichsel/ZIPFoundation
     exactVersion: 0.9.20
   AltSign:
-    url: https://github.com/SideStore/AltSign
-    revision: 35b68f1aafaa038fd012b11d5acb71e6394c9c25
+    url: https://github.com/dmjorb/AltSign
+    revision: dbb9dad
   AnisetteKit:
     url: https://github.com/mahee96/AnisetteKit
     revision: 433084d91c1ddbca84f988f0e3b204eedc0fda27

@@ -1348,12 +1348,7 @@ actor ApplePortalSigningService {
         certificate: ALTCertificate,
         profiles: [ALTProvisioningProfile]
     ) async throws {
-        // 检测是否有大二进制（>50MB），有则用纯 Swift 签名替代 ldid，避免内存不足崩溃
-        let hasLargeBinary = try appContainsLargeBinary(at: appURL, threshold: 50 * 1024 * 1024)
-        if hasLargeBinary {
-            try signAppWithFullSigner(at: appURL, team: team, certificate: certificate, profiles: profiles)
-            return
-        }
+        // ldid 已修复大二进制内存问题（dmjorb/ldid@07b6abb: temp file + mmap），全部走 ALTSigner/ldid
         let signer = ALTSigner(team: team, certificate: certificate)
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Void, any Error>) in
