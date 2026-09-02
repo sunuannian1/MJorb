@@ -4,6 +4,7 @@ import SwiftUI
 struct UpdateNoticeView: View {
     let notice: UpdateNotice
     let onDismiss: () -> Void
+    @State private var wechatCopied = false
 
     var body: some View {
         ZStack {
@@ -40,7 +41,36 @@ struct UpdateNoticeView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
+                    .padding(.bottom, 20)
+
+                // 公众号引流区
+                VStack(spacing: 8) {
+                    Text("关注公众号「MJorb」获取最新动态")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button(action: {
+                        UIPasteboard.general.string = "MJorb"
+                        wechatCopied = true
+                        if let url = URL(string: "weixin://") {
+                            UIApplication.shared.open(url)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            wechatCopied = false
+                        }
+                    }) {
+                        Text(wechatCopied ? "已复制，去微信搜索" : "复制名称并打开微信")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color.sealAccent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.sealAccent.opacity(0.1))
+                            )
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
 
                 // 按钮
                 Button(action: onDismiss) {
