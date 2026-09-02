@@ -175,9 +175,21 @@ actor OnDeviceAnisetteGenerator {
             let candidates = [
                 Bundle.main.url(forResource: base, withExtension: ext),
                 Bundle.main.url(forResource: name, withExtension: nil, subdirectory: "Anisette"),
-                Bundle.main.url(forResource: name, withExtension: nil)
+                Bundle.main.url(forResource: name, withExtension: nil),
+                Bundle.main.url(forResource: name, withExtension: nil, subdirectory: "Resources/Anisette")
             ].compactMap { $0 }
-            guard let url = candidates.first else { return false }
+            var found = candidates.first
+            // Fallback: 遍历 Bundle 资源目录递归查找（兼容任意打包路径）
+            if found == nil, let resourceURL = Bundle.main.resourceURL {
+                let enumerator = fileManager.enumerator(at: resourceURL, includingPropertiesForKeys: nil)
+                while let fileURL = enumerator?.nextObject() as? URL {
+                    if fileURL.lastPathComponent == name {
+                        found = fileURL
+                        break
+                    }
+                }
+            }
+            guard let url = found else { return false }
             bundledURLs[name] = url
         }
 
