@@ -6,6 +6,10 @@ struct AboutView: View {
     private let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "1"
     private let bundleID = Bundle.main.bundleIdentifier ?? "com.mjorb.seal"
 
+    @State private var isCheckingUpdate = false
+    @State private var updateNotice: UpdateNotice?
+    @State private var showNoUpdateAlert = false
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 20) {
@@ -17,6 +21,20 @@ struct AboutView: View {
         .navigationTitle("关于 Seal")
         .navigationBarTitleDisplayMode(.inline)
         .sealScreenBackground()
+        .overlay {
+            if let notice = updateNotice {
+                UpdateNoticeView(notice: notice) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        updateNotice = nil
+                    }
+                }
+            }
+        }
+        .alert("已是最新版本", isPresented: $showNoUpdateAlert) {
+            Button("好的", role: .cancel) { }
+        } message: {
+            Text("当前版本 \(version) (\(build)) 已是最新。")
+        }
     }
 
     private var headerCard: some View {
@@ -65,6 +83,8 @@ struct AboutView: View {
             Divider()
             infoRow("最低支持", "iOS 16.0")
             Divider()
+            checkUpdateRow
+            Divider()
             NavigationLink { OpenSourceLicensesView() } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
                     Text("开源许可")
@@ -87,6 +107,28 @@ struct AboutView: View {
         }
     }
 
+    private var checkUpdateRow: some View {
+        Button(action: checkUpdate) {
+            HStack(spacing: 16) {
+                Text("检查更新")
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 12)
+                if isCheckingUpdate {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .font(.system(size: 16, weight: .regular))
+            .frame(minHeight: 54)
+        }
+        .buttonStyle(.plain)
+        .disabled(isCheckingUpdate)
+    }
+
     private func infoRow(_ title: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             Text(title)
@@ -102,6 +144,19 @@ struct AboutView: View {
         }
         .font(.system(size: 16, weight: .regular))
         .frame(minHeight: 54)
+    }
+
+    private func checkUpdate() {
+        guard !isCheckingUpdate else { return }
+        isCheckingUpdate = true
+        Task {
+            if let notice = await UpdateChecker.shared.check(force: true) {
+                updateNotice = notice
+            } else {
+                showNoUpdateAlert = true
+            }
+            isCheckingUpdate = false
+        }
     }
 
     private static func currentAppIcon() -> UIImage? {

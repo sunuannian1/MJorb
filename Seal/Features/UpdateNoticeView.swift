@@ -72,17 +72,39 @@ struct UpdateNoticeView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
 
-                // 按钮
-                Button(action: onDismiss) {
-                    Text("知道了")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.sealAccent)
-                        )
+                // 按钮区：去公众号下载 + 忽略此版本
+                HStack(spacing: 10) {
+                    Button(action: {
+                        UIPasteboard.general.string = "MJorb"
+                        wechatCopied = true
+                        if let url = URL(string: "weixin://dl/profile?username=gh_3198ab620b01") {
+                            UIApplication.shared.open(url)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            wechatCopied = false
+                        }
+                    }) {
+                        Text(wechatCopied ? "已复制，跳转中" : "去公众号下载")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.sealAccent)
+                            )
+                    }
+                    Button(action: onDismiss) {
+                        Text("忽略此版本")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.sealSurfaceElevated)
+                            )
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)

@@ -10,7 +10,8 @@ struct UpdateChecker {
     private let lastNotifiedVersionKey = "update_notifier.last_notified_version"
 
     /// 检查更新，返回需要展示的通知内容（无更新返回 nil）
-    func check() async -> UpdateNotice? {
+    /// - Parameter force: 手动检查时传 true，忽略已通知记录，有新版本就弹
+    func check(force: Bool = false) async -> UpdateNotice? {
         guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
             return nil
         }
@@ -39,10 +40,12 @@ struct UpdateChecker {
                 return nil
             }
 
-            // 已经通知过这个版本，不重复弹
-            let lastNotified = UserDefaults.standard.string(forKey: lastNotifiedVersionKey)
-            if lastNotified == tagName {
-                return nil
+            // 非强制模式：已经通知过这个版本，不重复弹
+            if !force {
+                let lastNotified = UserDefaults.standard.string(forKey: lastNotifiedVersionKey)
+                if lastNotified == tagName {
+                    return nil
+                }
             }
 
             // 标记已通知
