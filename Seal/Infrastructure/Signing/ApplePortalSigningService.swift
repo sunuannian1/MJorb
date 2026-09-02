@@ -1415,9 +1415,9 @@ actor ApplePortalSigningService {
 
         // 3. 给主应用嵌入描述文件
         let mainProfile = profiles.first(where: { $0.bundleIdentifier == bundleID }) ?? profiles.first
-        if let mainProfile, let profileData = mainProfile.data {
+        if let mainProfile {
             let profileURL = appURL.appendingPathComponent("embedded.mobileprovision")
-            try profileData.write(to: profileURL)
+            try mainProfile.data.write(to: profileURL)
         }
 
         // 4. 递归签名所有 Mach-O 二进制（主应用 + 扩展 + framework）
@@ -1437,9 +1437,9 @@ actor ApplePortalSigningService {
                 let pluginInfoURL = pluginURL.appendingPathComponent("Info.plist")
                 let pluginBundleID = (try? NSDictionary(contentsOf: pluginInfoURL))?["CFBundleIdentifier"] as? String ?? ""
                 let pluginProfile = profiles.first(where: { $0.bundleIdentifier == pluginBundleID })
-                if let pluginProfile, let pluginProfileData = pluginProfile.data {
+                if let pluginProfile {
                     let profileURL = pluginURL.appendingPathComponent("embedded.mobileprovision")
-                    try pluginProfileData.write(to: profileURL)
+                    try pluginProfile.data.write(to: profileURL)
                 }
                 try MachOFullSigner.signAllBinaries(
                     in: pluginURL,
