@@ -388,7 +388,7 @@ enum MachOFullSigner {
         var error: Unmanaged<CFError>?
         let signature: Data?
         if isEC {
-            let hash = SHA256.hash(data: codeDirectory)
+            let hash = Data(SHA256.hash(data: codeDirectory))
             signature = SecKeyCreateSignature(
                 privateKey,
                 .ecdsaSignatureDigestX962SHA256,
@@ -396,7 +396,7 @@ enum MachOFullSigner {
                 &error
             ) as Data?
         } else {
-            let hash = Insecure.SHA1.hash(data: codeDirectory)
+            let hash = Data(Insecure.SHA1.hash(data: codeDirectory))
             signature = SecKeyCreateSignature(
                 privateKey,
                 .rsaSignatureDigestPKCS1v15SHA1,
