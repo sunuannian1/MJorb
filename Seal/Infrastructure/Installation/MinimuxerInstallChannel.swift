@@ -416,7 +416,7 @@ actor MinimuxerInstallChannel: InstallChannel {
         let detail = diagnostic(error)
         return ImportFailure(
             title: "安装失败",
-            reason: "iOS 安装服务未能完成安装。\n设备返回：\(detail)",
+            reason: "设备返回：\(detail)",
             recovery: "确认设备已信任、存储空间充足后重试；如持续失败请查看日志",
             code: "SEAL-INSTALL-702"
         )
