@@ -414,10 +414,14 @@ actor MinimuxerInstallChannel: InstallChannel {
 
     private static func installationFailure(_ error: Error) -> ImportFailure {
         let detail = diagnostic(error)
+        let isNoDevice = detail.contains("NoDevice") || detail.contains("device")
+        let recovery = isNoDevice
+            ? "与设备连接断开，请检查 WiFi 连接后重试；大文件安装请保持 Seal 在前台"
+            : "确认设备已信任、存储空间充足后重试"
         return ImportFailure(
             title: "安装失败",
             reason: "设备返回：\(detail)",
-            recovery: "确认设备已信任、存储空间充足后重试；如持续失败请查看日志",
+            recovery: recovery,
             code: "SEAL-INSTALL-702"
         )
     }
