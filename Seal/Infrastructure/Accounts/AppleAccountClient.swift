@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 @preconcurrency import AltSign
 
 enum AppleAuthenticationStage: Sendable {
@@ -16,9 +16,11 @@ enum AppleAuthenticationFailure {
         }
         switch stage {
         case .signIn:
+            let underlying = (error as NSError).localizedDescription
+            let detail = underlying.isEmpty ? "" : "\n底层错误：\(underlying)"
             return ImportFailure(
                 title: "无法添加账号",
-                reason: "Apple ID 验证失败。请确认网络可用后重试。",
+                reason: "Apple ID 验证失败。请确认网络可用后重试。\(detail)",
                 recovery: "重试",
                 code: "SEAL-AUTH-107a"
             )
@@ -46,26 +48,46 @@ final class AppleAccountClient {
         password: String,
         verificationCode: @escaping @MainActor @Sendable () async -> String?
     ) async throws -> AuthenticatedAppleAccount {
-        do {
-            return try await authenticateOnce(
-                email: email,
-                password: password,
-                verificationCode: verificationCode
-            )
-        } catch ALTAppleAPIError.invalidAnisetteData {
-            await anisetteProvider.resetProvisioning()
+        try await withTimeout(seconds: 120) {
             do {
                 return try await authenticateOnce(
                     email: email,
                     password: password,
                     verificationCode: verificationCode
                 )
-            } catch let failure as ImportFailure {
-                throw failure
-            } catch {
-                throw Self.failure(from: error)
+            } catch ALTAppleAPIError.invalidAnisetteData {
+                await anisetteProvider.resetProvisioning()
+                do {
+                    return try await authenticateOnce(
+                        email: email,
+                        password: password,
+                        verificationCode: verificationCode
+                    )
+                } catch let failure as ImportFailure {
+                    throw failure
+                } catch {
+                    throw Self.failure(from: error)
+                }
             }
         }
+    }
+
+    /// 给异步操作加超时，超时后抛出超时错误
+    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw AppleAuthenticationTimeoutError()
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private struct AppleAuthenticationTimeoutError: Error, LocalizedError {
+        var errorDescription: String? { "认证超时，请检查网络后重试" }
     }
 
     /// 自动重新登录（authToken 失效 1100 时使用）

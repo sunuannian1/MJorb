@@ -1,4 +1,4 @@
-﻿import CryptoKit
+import CryptoKit
 import Foundation
 @preconcurrency import AltSign
 
@@ -29,10 +29,20 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         let identity = try await loadIdentity()
 
         // 1. 优先使用设备本地 AnisetteKit 生成（指纹恒定，不依赖公共服务器）
+        // 本地首次生成需初始化 Unicorn 引擎，最慢约 30 秒；超过 45 秒则降级远程
         do {
-            return try await onDevice.makeAnisetteData(identity: identity)
+            return try await withThrowingTaskGroup(of: ALTAnisetteData.self) { group in
+                group.addTask { try await onDevice.makeAnisetteData(identity: identity) }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 45 * 1_000_000_000)
+                    throw AnisetteV3Error.unavailable
+                }
+                let result = try await group.next()!
+                group.cancelAll()
+                return result
+            }
         } catch {
-            // 本地内核尚未下载完成或生成失败时，降级到远程服务器轮询
+            // 本地内核尚未下载完成或生成失败/超时时，降级到远程服务器轮询
         }
 
         // 2. 远程公共服务器降级路径
