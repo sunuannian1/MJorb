@@ -50,8 +50,19 @@ struct MachOAdHocSigner {
     }
 
     /// 给单个文件加 ad-hoc 签名
+    /// 大文件（>50MB 且已有 LC_CODE_SIGNATURE）走流式处理，避免全量加载进内存
     @discardableResult
     static func signFile(at url: URL) throws -> Bool {
+        let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+
+        // 大文件且已有签名：走流式路径，不加载整个文件
+        if let size = fileSize, size > 50 * 1024 * 1024 {
+            if let result = try? signThinBinaryStreaming(at: url), result {
+                return true
+            }
+            // 流式失败回退到全量（如 FAT 二进制）
+        }
+
         let data = try Data(contentsOf: url)
         guard data.count >= 4 else { return false }
 
@@ -63,6 +74,161 @@ struct MachOAdHocSigner {
             return try signThinBinary(data: data, url: url)
         }
         return false
+    }
+
+    // MARK: - 流式签名（大文件，已有 LC_CODE_SIGNATURE）
+
+    /// 流式给 thin 二进制加 ad-hoc 签名，不加载整个文件到内存
+    /// 仅适用于已有 LC_CODE_SIGNATURE 的 thin arm64 二进制（App Store 下载的大文件都是这种）
+    private static func signThinBinaryStreaming(at url: URL) throws -> Bool {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { handle.closeFile() }
+
+        // 1. 读取文件头（前 32KB 足够包含所有 load commands）
+        guard let headerData = try? handle.readData(ofLength: 32 * 1024),
+              headerData.count >= 32 else { return false }
+
+        let magic = headerData.withUnsafeBytes { $0.load(as: UInt32.self) }
+        guard magic == MH_MAGIC_64 || magic == MH_MAGIC_64.byteSwapped else { return false }
+        let isBigEndian = magic == MH_MAGIC_64.byteSwapped
+
+        let ncmds = readUInt32(headerData, offset: 16, bigEndian: isBigEndian)
+        let sizeofcmds = readUInt32(headerData, offset: 20, bigEndian: isBigEndian)
+
+        // 2. 遍历 load commands，找 __LINKEDIT fileoff 和 LC_CODE_SIGNATURE 位置
+        var linkeditFileOffset: UInt64 = 0
+        var codeSigCmdOffset: Int = 0
+        var hasCodeSignature = false
+
+        var cmdOffset = 32
+        for _ in 0..<Int(ncmds) {
+            guard cmdOffset + 8 <= headerData.count else { break }
+            let cmd = readUInt32(headerData, offset: cmdOffset, bigEndian: isBigEndian)
+            let cmdsize = readUInt32(headerData, offset: cmdOffset + 4, bigEndian: isBigEndian)
+
+            if cmd == LC_SEGMENT_64 {
+                if cmdOffset + 72 <= headerData.count {
+                    let segname = String(data: headerData.subdata(in: cmdOffset+8..<cmdOffset+24), encoding: .utf8)?
+                        .trimmingCharacters(in: .controlCharacters) ?? ""
+                    if segname == "__LINKEDIT" {
+                        linkeditFileOffset = readUInt64(headerData, offset: cmdOffset + 40, bigEndian: isBigEndian)
+                    }
+                }
+            } else if cmd == LC_CODE_SIGNATURE {
+                hasCodeSignature = true
+                codeSigCmdOffset = cmdOffset
+            }
+
+            cmdOffset += Int(cmdsize)
+        }
+
+        // 必须已有 LC_CODE_SIGNATURE（流式路径只修改已有 load command，不插入新的）
+        guard hasCodeSignature else { return false }
+
+        // 3. 获取文件大小
+        handle.seekToEndOfFile()
+        let fileSize = handle.offsetInFile
+        handle.seek(toFileOffset: 0)
+
+        // codeLimit = __LINKEDIT 段的 fileoff（签名数据从这里开始）
+        let codeLimit: Int = linkeditFileOffset > 0 ? Int(linkeditFileOffset) : Int(fileSize)
+
+        // 4. 分块读取计算页面哈希（每次读 1MB，不加载整个文件）
+        let pageCount = (codeLimit + pageSize - 1) / pageSize
+        var pageHashes: [Data] = []
+        pageHashes.reserveCapacity(pageCount)
+
+        let readChunkSize = 1024 * 1024 // 1MB
+        var buffer = Data()
+        var bufferStart: Int = -1 // buffer 在文件中的起始偏移
+
+        for pageIndex in 0..<pageCount {
+            let pageStart = pageIndex * pageSize
+            let pageEnd = min(pageStart + pageSize, codeLimit)
+            let pageLen = pageEnd - pageStart
+
+            // 检查页面是否在当前 buffer 范围内
+            let pageInBuffer = pageStart >= bufferStart &&
+                               pageEnd <= bufferStart + buffer.count
+
+            if !pageInBuffer {
+                handle.seek(toFileOffset: UInt64(pageStart))
+                buffer = handle.readData(ofLength: readChunkSize)
+                bufferStart = pageStart
+            }
+
+            let bufOffset = pageStart - bufferStart
+            let pageData = buffer.subdata(in: bufOffset..<(bufOffset + pageLen))
+            let hash = SHA256.hash(data: pageData)
+            pageHashes.append(Data(hash))
+        }
+
+        // 5. 生成 CodeDirectory + SuperBlob（和全量路径完全一致）
+        let codeDirectoryHeaderSize = 108
+        let identifierData = "ad-hoc".data(using: .utf8)! + Data([0])
+        let codeDirectorySize = codeDirectoryHeaderSize + identifierData.count + pageHashes.count * 32
+        let codeDirectoryPadded = (codeDirectorySize + 3) / 4 * 4
+        let hashOffset = codeDirectoryHeaderSize + identifierData.count
+
+        var codeDirectory = Data(capacity: codeDirectoryPadded)
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: CS_MAGIC_CODEDIRECTORY.bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeDirectorySize).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0x20100).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: kSecCodeSignatureAdhoc.bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(hashOffset).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeDirectoryHeaderSize).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(pageCount).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeLimit).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(32)) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: CS_HASHTYPE_SHA256) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(0)) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(0xC)) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(identifierData)
+        for hash in pageHashes {
+            codeDirectory.append(hash)
+        }
+        while codeDirectory.count < codeDirectoryPadded {
+            codeDirectory.append(0)
+        }
+
+        let superBlobSize = 20 + codeDirectoryPadded
+        var superBlob = Data(capacity: superBlobSize)
+        superBlob.append(contentsOf: withUnsafeBytes(of: CS_MAGIC_EMBEDDED_SIGNATURE.bigEndian) { Data($0) })
+        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(superBlobSize).bigEndian) { Data($0) })
+        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(1).bigEndian) { Data($0) })
+        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(20).bigEndian) { Data($0) })
+        superBlob.append(codeDirectory)
+
+        // 6. 关闭读句柄，用写句柄追加签名 + 修改 LC_CODE_SIGNATURE
+        handle.closeFile()
+
+        let writeHandle = try FileHandle(forWritingTo: url)
+        defer { writeHandle.closeFile() }
+
+        // 追加签名到文件末尾
+        writeHandle.seekToEndOfFile()
+        writeHandle.write(superBlob)
+
+        // 修改 LC_CODE_SIGNATURE 的 dataoff = 原文件大小，datasize = superBlob 大小
+        let signatureOffset = UInt32(fileSize)
+        writeHandle.seek(toFileOffset: UInt64(codeSigCmdOffset + 8))
+        writeHandle.write(withUnsafeBytes(of: signatureOffset) { Data($0) })
+        writeHandle.seek(toFileOffset: UInt64(codeSigCmdOffset + 12))
+        writeHandle.write(withUnsafeBytes(of: UInt32(superBlob.count)) { Data($0) })
+
+        return true
     }
 
     // MARK: - FAT 二进制
@@ -135,7 +301,7 @@ struct MachOAdHocSigner {
         return true
     }
 
-    // MARK: - Thin 二进制
+    // MARK: - Thin 二进制（全量，小文件用）
 
     private static func signThinBinary(data: Data, url: URL) throws -> Bool {
         guard let signed = try signThinBinaryData(data) else { return false }
@@ -195,7 +361,6 @@ struct MachOAdHocSigner {
         }
 
         // 生成 CodeDirectory
-        // version 0x20100 固定头大小: 12*uint32 + 4*uint8 + 7*uint64 = 108 字节
         let codeDirectoryHeaderSize = 108
         let identifierData = "ad-hoc".data(using: .utf8)! + Data([0])
         let codeDirectorySize = codeDirectoryHeaderSize + identifierData.count + pageHashes.count * 32
@@ -205,27 +370,27 @@ struct MachOAdHocSigner {
         var codeDirectory = Data(capacity: codeDirectoryPadded)
         codeDirectory.append(contentsOf: withUnsafeBytes(of: CS_MAGIC_CODEDIRECTORY.bigEndian) { Data($0) })
         codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeDirectorySize).bigEndian) { Data($0) })
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0x20100).bigEndian) { Data($0) }) // version
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: kSecCodeSignatureAdhoc.bigEndian) { Data($0) }) // flags
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(hashOffset).bigEndian) { Data($0) }) // hashOffset
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeDirectoryHeaderSize).bigEndian) { Data($0) }) // identOffset
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(pageCount).bigEndian) { Data($0) }) // nCodeSlots
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeLimit).bigEndian) { Data($0) }) // codeLimit
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(32)) { Data($0) }) // hashSize
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: CS_HASHTYPE_SHA256) { Data($0) }) // hashType
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(0)) { Data($0) }) // platform
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(0xC)) { Data($0) }) // pageSize (1<<12)
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) }) // spare2
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) }) // scatterOffset
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) }) // teamOffset
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) }) // spare3
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) }) // codeLimit64
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) }) // execSegBase
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) }) // execSegLimit
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) }) // execSegFlags
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) }) // runtime
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) }) // preEncryptOffset
-        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) }) // jitConstraintOffset
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0x20100).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: kSecCodeSignatureAdhoc.bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(hashOffset).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeDirectoryHeaderSize).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(pageCount).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(codeLimit).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(32)) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: CS_HASHTYPE_SHA256) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(0)) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt8(0xC)) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
+        codeDirectory.append(contentsOf: withUnsafeBytes(of: UInt64(0).bigEndian) { Data($0) })
         codeDirectory.append(identifierData)
         for hash in pageHashes {
             codeDirectory.append(hash)
@@ -235,14 +400,13 @@ struct MachOAdHocSigner {
         }
 
         // 生成 SuperBlob
-        // 结构: header(12) + index[0](8) + CodeDirectory
         let superBlobSize = 20 + codeDirectoryPadded
         var superBlob = Data(capacity: superBlobSize)
         superBlob.append(contentsOf: withUnsafeBytes(of: CS_MAGIC_EMBEDDED_SIGNATURE.bigEndian) { Data($0) })
         superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(superBlobSize).bigEndian) { Data($0) })
-        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(1).bigEndian) { Data($0) }) // count
-        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) }) // type = CSSLOT_CODEDIRECTORY
-        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(20).bigEndian) { Data($0) }) // offset = header(12) + index(8)
+        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(1).bigEndian) { Data($0) })
+        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(0).bigEndian) { Data($0) })
+        superBlob.append(contentsOf: withUnsafeBytes(of: UInt32(20).bigEndian) { Data($0) })
         superBlob.append(codeDirectory)
 
         // 在文件末尾追加签名数据
