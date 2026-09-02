@@ -69,16 +69,18 @@ actor OnDeviceAnisetteGenerator {
         let routingInfo = headers["X-Apple-I-MD-RINFO"]
             ?? LocalAnisetteProvider.defaultRoutingInfo
 
+        // 对齐 SideStore 官方的 clientInfo 格式，避免 Apple 因设备描述不匹配拒绝请求
+        let clientInfo = "<MacBookPro18,3> <macOS;26.6;25F84> <com.apple.AuthKit/1 (com.apple.dt.Xcode/26.0)>"
         let formatted: [String: String] = [
             "deviceSerialNumber": headers["X-Apple-I-SRL-NO"]?.isEmpty == false
                 ? headers["X-Apple-I-SRL-NO"]! : "0",
-            "deviceDescription": LocalAnisetteProvider.defaultClientInfo,
+            "deviceDescription": clientInfo,
             // 优先使用共享 identity 推导出的稳定标识，保证本地/远程指纹完全一致
             "localUserID": identity.localUserID,
             "deviceUniqueIdentifier": identity.deviceIdentifier,
             "date": Self.currentDateString(),
-            "locale": Locale.current.identifier,
-            "timeZone": TimeZone.current.abbreviation() ?? "PST",
+            "locale": "en_US",
+            "timeZone": "America/Los_Angeles",
             "machineID": machineID,
             "oneTimePassword": oneTimePassword,
             "routingInfo": routingInfo
