@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import RorkSign
 
 /// 基于 rork-sign（纯 Swift zsign 兼容签名引擎）的 App 签名器。
@@ -8,7 +9,7 @@ import RorkSign
 /// - 自己实现 CMS/PKCS#7 签名，格式与 zsign/codesign 对齐；
 /// - inside-out 一次签名主 app、扩展、Framework，并自动嵌入描述文件、生成 CodeResources。
 ///
-/// 本类型只依赖 Foundation + RorkSign（不依赖 AltSign），入参全部是 Sendable 的
+/// 本类型只依赖 Foundation + Security + RorkSign（不依赖 AltSign），入参全部是 Sendable 的
 /// String/Data，可安全地在后台线程/Task.detached 中执行 CPU 密集型签名。
 enum RorkAppSigner {
 
@@ -38,6 +39,49 @@ enum RorkAppSigner {
         }
     }
 
+    /// 用 iOS 原生 Security framework 解析 P12，导出证书 DER 和私钥 DER。
+    ///
+    /// AltSign 用 unencryptedP12Data() 生成 Apple 原生无密码 P12，rork-sign 自带的
+    /// PKCS12 解析器与 Apple 的 MAC 计算不兼容（报 PKCS#12 MAC verification failed）。
+    /// 用 SecPKCS12Import 解析后直接传 DER 给 rork-sign，彻底绕过这个问题。
+    private static func extractIdentityDER(from p12Data: Data) throws -> (certificate: Data, privateKey: Data) {
+        var importResult: CFArray?
+
+        // 先尝试空密码（AltSign 无密码 P12 在 Apple 实现中用空串即可导入）
+        let optionsWithEmpty: [String: Any] = [kSecImportExportPassphrase as String: ""]
+        var status = SecPKCS12Import(p12Data as CFData, optionsWithEmpty as CFDictionary, &importResult)
+
+        // 空密码失败时尝试无密码（不传 passphrase）
+        if status != errSecSuccess {
+            importResult = nil
+            status = SecPKCS12Import(p12Data as CFData, [:] as CFDictionary, &importResult)
+        }
+
+        guard status == errSecSuccess,
+              let items = importResult as? [[String: Any]],
+              let first = items.first else {
+            throw SignError.identityImportFailed("SecPKCS12Import 失败 (OSStatus \(status))，请重新登录 Apple ID")
+        }
+
+        guard let cert = first[kSecImportItemCertificate as String] as! SecCertificate? else {
+            throw SignError.identityImportFailed("P12 中未找到证书")
+        }
+
+        guard let key = first[kSecImportItemPrivateKey as String] as! SecKey? else {
+            throw SignError.identityImportFailed("P12 中未找到私钥")
+        }
+
+        let certificateDER = SecCertificateCopyData(cert) as Data
+
+        var error: Unmanaged<CFError>?
+        guard let privateKeyDER = SecKeyCopyExternalRepresentation(key, &error) as Data? else {
+            let desc = error?.takeRetainedValue().localizedDescription ?? "未知错误"
+            throw SignError.identityImportFailed("私钥导出失败：\(desc)")
+        }
+
+        return (certificateDER, privateKeyDER)
+    }
+
     /// 用 rork-sign 原地签名整个 .app bundle。
     ///
     /// 调用前 `SigningWorkspace.prepare` 已完成：解压、改 BundleID、strip arm64e、
@@ -46,7 +90,7 @@ enum RorkAppSigner {
     ///
     /// - Parameters:
     ///   - appURL: .app bundle 路径
-    ///   - p12Data: P12 证书数据（含私钥；AltSign 生成的免费证书 P12 无密码）
+    ///   - p12Data: P12 证书数据（AltSign unencryptedP12Data 生成，Apple 原生无密码 P12）
     ///   - mainBundleID: 主应用改写后的 Bundle ID（prepared.mappedMainBundleID）
     ///   - profiles: 全部描述文件（主应用 + 扩展），bundleID 均为改写后的 ID
     static func signAppBundle(
@@ -66,7 +110,7 @@ enum RorkAppSigner {
             throw SignError.missingMainProfile(mainBundleID)
         }
 
-        // 扩展描述文件：按“改写后的 Bundle ID -> 描述文件数据”建索引
+        // 扩展描述文件：按"改写后的 Bundle ID -> 描述文件数据"建索引
         var extensionProfiles: [String: Data] = [:]
         for profile in profiles {
             if profile.bundleID.caseInsensitiveCompare(mainBundleID) == .orderedSame {
@@ -75,10 +119,13 @@ enum RorkAppSigner {
             extensionProfiles[profile.bundleID] = profile.data
         }
 
-        // 签名身份（P12 无密码）
+        // 用 iOS 原生 Security framework 解析 P12，绕过 rork-sign PKCS12 解析器的 MAC 不兼容
         let identity: SigningIdentity
         do {
-            identity = try SigningIdentity(pkcs12Data: p12Data, password: "")
+            let der = try extractIdentityDER(from: p12Data)
+            identity = try SigningIdentity(certificateDER: der.certificate, privateKeyDER: der.privateKey)
+        } catch let error as SignError {
+            throw error
         } catch {
             throw SignError.identityImportFailed(error.localizedDescription)
         }

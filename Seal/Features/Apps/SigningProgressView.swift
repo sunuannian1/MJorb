@@ -130,8 +130,10 @@ struct SigningProgressView: View {
                 .foregroundStyle(Color.sealTextSecondary)
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
-            if recoveryText(failure).isEmpty == false {
-                Text(recoveryText(failure))
+            // Only show recovery hint when it differs from primary action button
+            let recovery = recoveryText(failure)
+            if recovery.isEmpty == false, recovery != primaryRecoveryTitle(failure) {
+                Text(recovery)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.sealAccent)
                     .lineLimit(2)
