@@ -143,6 +143,8 @@ final class AppsViewModel: ObservableObject {
     }
 
     private init(apps: [AppRecord], draft: ImportDraft?) {
+        self.signingVerificationBroker = VerificationCodeBroker()
+        alertFailure = nil
         workflow = nil
         appStore = nil
         fileStore = nil
