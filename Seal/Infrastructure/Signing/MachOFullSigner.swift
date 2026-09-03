@@ -27,7 +27,8 @@ enum MachOFullSigner {
         privateKey: SecKey,
         teamID: String,
         bundleID: String = "ad-hoc",
-        entitlements: Data? = nil
+        entitlements: Data? = nil,
+        skipPlugIns: Bool = false
     ) throws {
         let enumerator = FileManager.default.enumerator(
             at: appURL,
@@ -38,6 +39,8 @@ enum MachOFullSigner {
 
         var machOFiles: [URL] = []
         for case let url as URL in enumerator {
+            // 主应用签名时跳过 PlugIns，扩展由调用方单独用自己的 entitlements 签名
+            if skipPlugIns, url.pathComponents.contains("PlugIns") { continue }
             guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
                   values.isRegularFile == true,
                   let size = values.fileSize,

@@ -1601,7 +1601,8 @@ actor ApplePortalSigningService {
             privateKey: privateKey,
             teamID: team.identifier,
             bundleID: bundleID,
-            entitlements: entitlementsData
+            entitlements: entitlementsData,
+            skipPlugIns: true
         )
 
         // 5. 给 PlugIns 中的 appex 也嵌入描述文件并签名
