@@ -51,8 +51,10 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
 
         // 1. 优先使用设备本地 AnisetteKit 生成（指纹恒定，不依赖公共服务器）
         // 本地首次生成需初始化 Unicorn(TCI) 引擎，最慢约 30 秒；超过 45 秒遗弃本地任务
-        // 若上一次认证因本地指纹被 Apple 拒绝（返回 HTML/格式错误），本次直接跳过本地换远程指纹
-        if bypassLocal.consume() == false {
+        // 本地曾成功过则 machineID 已与 Apple 会话绑定，必须始终走本地，
+        // 忽略 bypassLocal（认证失败时的"换远程重试"会导致 machineID 漂移触发 2FA）
+        let shouldUseLocal = localHasSucceeded || bypassLocal.consume() == false
+        if shouldUseLocal {
             do {
                 let data = try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
                     try await onDevice.makeAnisetteData(identity: identity)
@@ -103,9 +105,12 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
     }
 
     func resetProvisioning() async {
+        // 只清除远程 v3 provisioning session，不清除本地 adi.pb 和 identifier。
+        // adi.pb 是本地 machineID 的来源，与 Apple authToken 绑定；
+        // identifier（16字节 → localUserID/deviceUniqueIdentifier）也与 authToken 绑定。
+        // 清除任一项都会导致所有已登录 Apple ID 全部失效（1100 会话过期），触发重新登录+2FA。
+        // 本地 adi.pb 仅在用户手动清除应用数据时才会重置。
         try? await store.remove()
-        try? await store.removeIdentifier()
-        await onDevice.resetProvisioning()
     }
 
     func availableServers() async -> [AnisetteServer] {
