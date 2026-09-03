@@ -480,6 +480,7 @@ final class AppleAccountClient {
     private nonisolated static func failure(from error: Error) -> ImportFailure {
         if let anisetteError = error as? AnisetteV3Error {
             let code: String
+            var detail = ""
             switch anisetteError {
             case .invalidIdentifier, .invalidServerResponse:
                 code = "SEAL-ANI-110"
@@ -489,14 +490,16 @@ final class AppleAccountClient {
                 code = "SEAL-ANI-112"
             case .unavailable:
                 code = "SEAL-ANI-113"
-            case .localGenerationFailed(let detail):
+            case .localGenerationFailed(let d):
                 code = "SEAL-ANI-114"
-                return ImportFailure(
-                    title: "无法获取设备环境",
-                    reason: detail.isEmpty ? "Anisette 服务暂时不可用" : detail,
-                    recovery: "重试",
-                    code: code
-                )
+                detail = d
+            }
+            return ImportFailure(
+                title: "无法获取设备环境",
+                reason: detail.isEmpty ? "Anisette 服务暂时不可用" : detail,
+                recovery: "重试",
+                code: code
+            )
         }
         if AppleServiceFailurePolicy.isNetworkError(error) {
             return AppleServiceFailurePolicy.networkFailure(
