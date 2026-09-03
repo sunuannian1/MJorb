@@ -69,7 +69,8 @@ enum RorkAppSigner {
         }
 
         // 优先从 identity 提取；identity 包含证书+私钥，最可靠
-        if let identity = first[kImportIdentity] as! SecIdentity? {
+        if let identityValue = first[kImportIdentity] {
+            let identity = identityValue as! SecIdentity
             var cert: SecCertificate?
             let certStatus = SecIdentityCopyCertificate(identity, &cert)
             var key: SecKey?
@@ -85,12 +86,15 @@ enum RorkAppSigner {
         }
 
         // 回退：分别取 certificate 和 privateKey
-        guard let cert = first[kImportCertificate] as? SecCertificate else {
+        // CF 类型不能用 as?（运行时无法检查，编译器报错 will always succeed），先判空再 as!
+        guard let certValue = first[kImportCertificate] else {
             throw SignError.identityImportFailed("P12 中未找到证书")
         }
-        guard let key = first[kImportPrivateKey] as? SecKey else {
+        let cert = certValue as! SecCertificate
+        guard let keyValue = first[kImportPrivateKey] else {
             throw SignError.identityImportFailed("P12 中未找到私钥")
         }
+        let key = keyValue as! SecKey
 
         let certificateDER = SecCertificateCopyData(cert) as Data
         var error: Unmanaged<CFError>?
