@@ -267,10 +267,11 @@ actor MinimuxerInstallChannel: InstallChannel {
         // 微信 400MB / 盛世天下 583MB 在 WiFi+VPN 下可能需 3-5 分钟，
         // 固定 120s 超时会误判失败→重试→reset 连接，报"与设备连接断开"。
         let ipaMB = Double(ipaData.count) / 1_000_000
-        let pushTimeout = min(600.0, 120.0 + ipaMB)
-        let installTimeout = min(300.0, 120.0 + ipaMB * 0.5)
+        let pushTimeout = min(1200.0, 120.0 + ipaMB * 2.5)
+        let installTimeout = min(600.0, 120.0 + ipaMB * 0.5)
         var lastInstallError: Error?
-        for installAttempt in 1...4 {
+        let maxAttempts = ipaMB > 100 ? 2 : 4
+        for installAttempt in 1...maxAttempts {
             do {
                 let pushOutcome = await offThread(seconds: pushTimeout) {
                     try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
@@ -295,7 +296,7 @@ actor MinimuxerInstallChannel: InstallChannel {
                 return
             } catch {
                 lastInstallError = error
-                guard installAttempt < 4 else { break }
+                guard installAttempt < maxAttempts else { break }
                 // 第1次失败：等3秒；第2、3次失败：重置设备连接后等6秒
                 if installAttempt == 1 {
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
