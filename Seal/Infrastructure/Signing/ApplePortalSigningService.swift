@@ -298,14 +298,14 @@ actor ApplePortalSigningService {
                 if isNetworkError {
                     throw Self.failure(
                         title: "网络无法访问 Apple 服务器",
-                        reason: "Apple ID 登录状态已过期，自动重新登录时无法连接 Apple 认证服务器。添加 Apple ID 和续签时需要相同的网络环境，请开启代理/VPN 后重试。",
+                        reason: "Apple ID 登录状态已过期，自动重新登录时网络无法访问 Apple 认证服务器。请开启代理/VPN 后重试。",
                         recovery: "开启代理后重试",
                         code: "SEAL-AUTH-107b"
                     )
                 } else {
                     throw Self.failure(
                         title: "需要重新验证 Apple ID",
-                        reason: "Apple ID 登录状态已过期，自动重新登录失败。请前往「我的」页面，重新验证该 Apple ID 后再签名。注意：添加和续签时请使用相同的网络环境。",
+                        reason: "Apple ID 登录状态已过期，自动重新登录失败。请前往「我的」页面，重新验证该 Apple ID 后再签名。",
                         recovery: "去验证 Apple ID",
                         code: "SEAL-AUTH-107a"
                     )
