@@ -27,7 +27,7 @@ enum ApplePortalSigningFailure {
             return AppleServiceFailurePolicy.networkFailure(
                 title: "无法连接 Apple 开发者服务器",
                 reason: "签名需要连接 Apple 开发者服务器（developerservices2.apple.com）验证证书，当前连接超时，已自动重试仍失败。这是网络问题，Apple ID 和已签应用都不会受影响。",
-                recovery: "如果开了代理/VPN，请切换到【全局模式】后重试：规则/分流模式常常漏掉 Apple 开发者服务器域名，让它走了直连而被卡住（认证域名能通、签名卡住就是这个原因）。未开代理请切换网络（如手机热点）后重试。",
+                recovery: "如果开了代理/VPN，请确认它覆盖了 Apple 开发者服务器（规则/分流模式可能漏掉该域名，可临时切全局模式验证）；未开代理请切换网络（如手机热点）后重试。已有证书缓存的账号通常不需要额外网络，首次使用的新账号需要连接开发者服务器创建证书。",
                 code: "SEAL-NET-102"
             )
         }
