@@ -155,7 +155,7 @@ actor RenewalCoordinator {
                         selectedCertificateSerialNumber: nil,
                         forceResign: true,
                         progress: { stage in
-                            if isSeal, stage == .installing {
+                            if isSeal, stage == .pushing || stage == .installing {
                                 try? await queueStore.markCompleted(appID: item.appID)
                             }
                             await progress(

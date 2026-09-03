@@ -543,8 +543,6 @@ actor SigningCoordinator {
             }
         }
 
-        try await updateState(appID: app.id, stage: .installing)
-        await progress(.installing)
         let signedData = try await fileStore.read(relativePath: signedPath)
 
         if app.isSeal {
@@ -556,8 +554,12 @@ actor SigningCoordinator {
             updated.expiryDate = expirationDate
             updated.lastInstalledAt = Date()
             try await appStore.save(updated)
-            try await installChannel.install(
-                ipaData: signedData,
+            try await updateState(appID: app.id, stage: .pushing)
+            await progress(.pushing)
+            try await installChannel.pushIpa(ipaData: signedData, bundleID: bundleIdentifier)
+            try await updateState(appID: app.id, stage: .installing)
+            await progress(.installing)
+            try await installChannel.installPushedIpa(
                 bundleID: bundleIdentifier,
                 isSelfReplacement: true
             )
@@ -567,8 +569,12 @@ actor SigningCoordinator {
         }
 
         do {
-            try await installChannel.install(
-                ipaData: signedData,
+            try await updateState(appID: app.id, stage: .pushing)
+            await progress(.pushing)
+            try await installChannel.pushIpa(ipaData: signedData, bundleID: bundleIdentifier)
+            try await updateState(appID: app.id, stage: .installing)
+            await progress(.installing)
+            try await installChannel.installPushedIpa(
                 bundleID: bundleIdentifier,
                 isSelfReplacement: false
             )
@@ -741,7 +747,7 @@ private extension SigningStage {
         case .preparingCertificate: .preparingCertificate
         case .preparingAppID, .preparingProfiles: .preparingProfiles
         case .signing: .signing
-        case .installing: .installing
+        case .pushing, .installing: .installing
         case .verifying: .verifying
         }
     }

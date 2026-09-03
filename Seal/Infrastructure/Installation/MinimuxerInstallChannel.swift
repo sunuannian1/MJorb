@@ -256,29 +256,50 @@ actor MinimuxerInstallChannel: InstallChannel {
         }
     }
 
-    func install(
-        ipaData: Data,
-        bundleID: String,
-        isSelfReplacement: Bool
-    ) async throws {
+    func pushIpa(ipaData: Data, bundleID: String) async throws {
         #if !targetEnvironment(simulator)
         guard await isReady() else { throw Self.channelNotReadyFailure }
-        // 大 IPA 通过 AFC 推送到设备耗时与大小正相关：
-        // 微信 400MB / 盛世天下 583MB 在 WiFi+VPN 下可能需 3-5 分钟，
-        // 固定 120s 超时会误判失败→重试→reset 连接，报"与设备连接断开"。
         let ipaMB = Double(ipaData.count) / 1_000_000
         let pushTimeout = min(1200.0, 120.0 + ipaMB * 2.5)
-        let installTimeout = min(600.0, 120.0 + ipaMB * 0.5)
-        var lastInstallError: Error?
         let maxAttempts = ipaMB > 100 ? 2 : 4
-        for installAttempt in 1...maxAttempts {
+        var lastError: Error?
+        for attempt in 1...maxAttempts {
             do {
                 let pushOutcome = await offThread(seconds: pushTimeout) {
                     try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
                 }
                 if case .some(.failure(let pushError)) = pushOutcome { throw pushError }
                 guard pushOutcome != nil else { throw Self.installTimeoutFailure }
+                return
+            } catch {
+                lastError = error
+                guard attempt < maxAttempts else { break }
+                if attempt == 1 {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                } else {
+                    Minimuxer.reset()
+                    await waitForNetworkRefresh(rounds: 4, delay: .milliseconds(600))
+                    try? await Task.sleep(nanoseconds: 6_000_000_000)
+                }
+                var readyWait = 0
+                while await isReady() == false && readyWait < 15 {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    readyWait += 1
+                }
+                continue
+            }
+        }
+        throw Self.installationFailure(lastError!)
+        #endif
+    }
 
+    func installPushedIpa(bundleID: String, isSelfReplacement: Bool) async throws {
+        #if !targetEnvironment(simulator)
+        guard await isReady() else { throw Self.channelNotReadyFailure }
+        let installTimeout = 600.0
+        var lastError: Error?
+        for attempt in 1...3 {
+            do {
                 if isSelfReplacement {
                     let installation = Task.detached(priority: .userInitiated) {
                         try Minimuxer.installIpa(bundleId: bundleID)
@@ -295,26 +316,13 @@ actor MinimuxerInstallChannel: InstallChannel {
                 }
                 return
             } catch {
-                lastInstallError = error
-                guard installAttempt < maxAttempts else { break }
-                // 第1次失败：等3秒；第2、3次失败：重置设备连接后等6秒
-                if installAttempt == 1 {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                } else {
-                    Minimuxer.reset()
-                    await waitForNetworkRefresh(rounds: 4, delay: .milliseconds(600))
-                    try? await Task.sleep(nanoseconds: 6_000_000_000)
-                }
-                // 等待设备重新就绪
-                var readyWait = 0
-                while await isReady() == false && readyWait < 15 {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    readyWait += 1
-                }
+                lastError = error
+                guard attempt < 3 else { break }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
                 continue
             }
         }
-        throw Self.installationFailure(lastInstallError!)
+        throw Self.installationFailure(lastError!)
         #endif
     }
 

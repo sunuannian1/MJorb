@@ -6,12 +6,16 @@ protocol InstallChannel: Actor {
     func isReady() async -> Bool
     func storedDeviceIdentifier() async -> String?
     func reset() async
-    func install(ipaData: Data, bundleID: String, isSelfReplacement: Bool) async throws
+    func pushIpa(ipaData: Data, bundleID: String) async throws
+    func installPushedIpa(bundleID: String, isSelfReplacement: Bool) async throws
     func verifyInstalled(bundleID: String) async throws
 }
-
 
 extension InstallChannel {
     func storedDeviceIdentifier() async -> String? { nil }
     func reset() async {}
+    func install(ipaData: Data, bundleID: String, isSelfReplacement: Bool) async throws {
+        try await pushIpa(ipaData: ipaData, bundleID: bundleID)
+        try await installPushedIpa(bundleID: bundleID, isSelfReplacement: isSelfReplacement)
+    }
 }

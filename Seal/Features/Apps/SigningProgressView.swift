@@ -285,17 +285,19 @@ struct SigningProgressView: View {
         case .preparingAccount, .preparingCertificate: 1
         case .preparingAppID, .preparingProfiles: 2
         case .signing: 3
-        case .installing, .verifying: 4
+        case .pushing, .installing, .verifying: 4
         }
     }
 
     private func runningStatusTitle(for stage: SigningStage) -> String {
-        let position = timelinePosition(for: stage)
-        if position == 4 { return "正在安装" }
-        if position == 3 { return isRenewal ? "正在续签" : "正在签名" }
-        if position == 2 { return "正在生成描述文件" }
-        if position == 1 { return "正在准备 Apple ID 证书" }
-        return isRenewal ? "正在准备续签环境" : "正在准备签名环境"
+        switch stage {
+        case .pushing: return "正在传输到设备"
+        case .installing, .verifying: return "正在安装"
+        case .signing: return isRenewal ? "正在续签" : "正在签名"
+        case .preparingAppID, .preparingProfiles: return "正在生成描述文件"
+        case .preparingAccount, .preparingCertificate: return "正在准备 Apple ID 证书"
+        case .waitingForChannel: return isRenewal ? "正在准备续签环境" : "正在准备签名环境"
+        }
     }
 
     private var successTitle: String {
@@ -454,6 +456,7 @@ private extension SigningStage {
         case .preparingAppID: return "准备 App ID"
         case .preparingProfiles: return "准备描述文件"
         case .signing: return "正在签名"
+        case .pushing: return "正在传输到设备"
         case .installing: return "正在安装"
         case .verifying: return "正在验证安装"
         }

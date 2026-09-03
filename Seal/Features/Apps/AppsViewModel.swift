@@ -1176,8 +1176,8 @@ final class AppsViewModel: ObservableObject {
             batchRefreshSession?.total = total
             batchRefreshSession?.currentAppName = app.displayName
             batchRefreshSession?.currentStage = stage
-            let itemState: BatchRefreshSession.Item.State = app.isSeal && stage == .installing ? .preparingSealUpdate : .running
-            if app.isSeal && stage == .installing {
+            let itemState: BatchRefreshSession.Item.State = app.isSeal && (stage == .pushing || stage == .installing) ? .preparingSealUpdate : .running
+            if app.isSeal && (stage == .pushing || stage == .installing) {
                 batchRefreshSession?.status = .preparingSealUpdate
                 persistPendingBatchResultForSealUpdate()
             } else {

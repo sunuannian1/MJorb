@@ -5,6 +5,7 @@ enum SigningStage: String, CaseIterable, Equatable, Sendable {
     case preparingAppID
     case preparingProfiles
     case signing
+    case pushing
     case installing
     case verifying
 
@@ -20,6 +21,8 @@ enum SigningStage: String, CaseIterable, Equatable, Sendable {
             return "正在生成描述文件"
         case .signing:
             return "正在签名"
+        case .pushing:
+            return "正在传输到设备"
         case .installing:
             return "正在安装"
         case .verifying:
