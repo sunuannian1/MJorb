@@ -489,9 +489,6 @@ struct SigningWorkspace: Sendable {
         ) else { return }
 
         for case let url as URL in enumerator {
-            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-                  size > 1_000_000 else { continue }
-
             let handle = try? FileHandle(forReadingFrom: url)
             defer { try? handle?.close() }
             guard let headerData = try? handle?.read(upToCount: 8),
@@ -506,7 +503,7 @@ struct SigningWorkspace: Sendable {
             let nfatArch = headerData.withUnsafeBytes {
                 $0.load(fromByteOffset: 4, as: UInt32.self)
             }.bigEndian
-            guard nfatArch > 1 else { continue }
+            guard nfatArch >= 1 else { continue }
 
             // fat32 arch record=20字节, fat64=32字节
             let archRecordSize = isFat64 ? 32 : 20
