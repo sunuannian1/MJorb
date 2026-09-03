@@ -331,6 +331,25 @@ actor MinimuxerInstallChannel: InstallChannel {
         #endif
     }
 
+    /// 完整安装：push + install，遇到 MissingPackagePath 时自动重新 push 再 install。
+    /// 根因：yeetAppAfc 的 afc.writeFile 可能写入不完整但返回 true，导致 installd 找不到包。
+    /// 原 installPushedIpa 只重试 install 不重试 push，所以一直失败。
+    func install(ipaData: Data, bundleID: String, isSelfReplacement: Bool) async throws {
+        try await pushIpa(ipaData: ipaData, bundleID: bundleID)
+        do {
+            try await installPushedIpa(bundleID: bundleID, isSelfReplacement: isSelfReplacement)
+        } catch {
+            let msg = error.localizedDescription
+            if msg.contains("MissingPackagePath") || msg.contains("missing package path") {
+                NSLog("[Seal] MissingPackagePath detected, re-pushing IPA and retrying install")
+                try await pushIpa(ipaData: ipaData, bundleID: bundleID)
+                try await installPushedIpa(bundleID: bundleID, isSelfReplacement: isSelfReplacement)
+            } else {
+                throw error
+            }
+        }
+    }
+
     func verifyInstalled(bundleID: String) async throws {
         #if targetEnvironment(simulator)
         return

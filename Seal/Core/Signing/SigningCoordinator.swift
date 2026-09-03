@@ -550,10 +550,8 @@ actor SigningCoordinator {
             try await appStore.save(updated)
             try await updateState(appID: app.id, stage: .pushing)
             await progress(.pushing)
-            try await installChannel.pushIpa(ipaData: signedData, bundleID: bundleIdentifier)
-            try await updateState(appID: app.id, stage: .installing)
-            await progress(.installing)
-            try await installChannel.installPushedIpa(
+            try await installChannel.install(
+                ipaData: signedData,
                 bundleID: bundleIdentifier,
                 isSelfReplacement: true
             )
@@ -565,10 +563,8 @@ actor SigningCoordinator {
         do {
             try await updateState(appID: app.id, stage: .pushing)
             await progress(.pushing)
-            try await installChannel.pushIpa(ipaData: signedData, bundleID: bundleIdentifier)
-            try await updateState(appID: app.id, stage: .installing)
-            await progress(.installing)
-            try await installChannel.installPushedIpa(
+            try await installChannel.install(
+                ipaData: signedData,
                 bundleID: bundleIdentifier,
                 isSelfReplacement: false
             )
