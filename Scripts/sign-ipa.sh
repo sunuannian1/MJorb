@@ -87,8 +87,8 @@ security set-keychain-settings -lut 21600 "$KEYCHAIN"
 security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
 security list-keychains -d user -s "$KEYCHAIN" "$(security list-keychains -d user | tr -d '"' | head -1)"
 
-echo "[sign] importing P12..."
-security import "$P12" -k "$KEYCHAIN" -P "" -T /usr/bin/codesign 2>&1 || true
+echo "[sign] importing signing identity (PEM)..."
+security import "$P12" -k "$KEYCHAIN" -T /usr/bin/codesign 2>&1 || true
 
 if ! security find-certificate -c "Apple Worldwide Developer Relations Certification Authority" "$KEYCHAIN" >/dev/null 2>&1; then
   curl -fsSL https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer -o "$WORK/wwdr.cer" 2>/dev/null && \
