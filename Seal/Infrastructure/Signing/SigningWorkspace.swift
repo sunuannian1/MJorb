@@ -78,7 +78,7 @@ struct SigningWorkspace: Sendable {
 
             // 大 IPA 优化：剥离 arm64e 架构，只保留 arm6
             // iOS 设备全是 arm64，arm64e 无用且会导致 ldid 处理大文件时内存不足崩溃
-            // 剥离后由 MachOAdHocSigner 重新加 ad-hoc 签名，ALTSigner 再覆盖签名
+            // 剥离后由 MachOAdHocSigner 重新加 ad-hoc 签名，RorkSigner 再覆盖正式签名
             try stripArm64eArchitecture(in: appURL)
 
             let extensionURLs = try appExtensionURLs(in: appURL)
@@ -96,7 +96,7 @@ struct SigningWorkspace: Sendable {
             // 移除旧的 _CodeSignature 目录（不修改 Mach-O 里的 LC_CODE_SIGNATURE）
             try removeOldSignatures(in: appURL)
 
-            // 给所有 Mach-O 加 ad-hoc 签名，避免 ALTSigner/ldid 处理未签名二进制时崩溃
+            // 给所有 Mach-O 加 ad-hoc 签名，避免 RorkSigner 处理未签名二进制时崩溃
             // 参考 Fladder issue #800：未签名或签名无效的 Mach-O 会导致 ldid 断言失败
             try MachOAdHocSigner.signAllBinaries(in: appURL)
 
