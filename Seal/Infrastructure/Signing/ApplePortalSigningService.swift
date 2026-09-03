@@ -209,7 +209,7 @@ actor ApplePortalSigningService {
     private let accountClient: AppleAccountClient
     private let verificationCodeProvider: (@MainActor @Sendable () async -> String?)?
     // 对齐 AltStore：防止并发签名时重复创建 App Group
-    nonisolated private let appGroupsLock = NSLock()
+    // App Group 操作通过 actor 串行化；批量签名为串行循环，无并发创建风险
 
     init(
         anisetteProvider: any AnisetteProvider = AnisetteV3Client(),
@@ -1378,9 +1378,7 @@ actor ApplePortalSigningService {
     ) async throws {
         guard let originalGroups = application.entitlements[.appGroups] as? [String],
               originalGroups.isEmpty == false else { return }
-        // 对齐 AltStore：加锁防止并发重复创建 App Group
-        appGroupsLock.lock()
-        defer { appGroupsLock.unlock() }
+        // App Group 操作通过 actor 串行化；批量签名为串行循环，无并发创建风险
         let mappedIdentifiers = originalGroups.map {
             signingWorkspace.bundleIDMapper.appGroupID(
                 original: $0,
