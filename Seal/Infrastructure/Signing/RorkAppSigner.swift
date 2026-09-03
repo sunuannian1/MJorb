@@ -39,6 +39,11 @@ enum RorkAppSigner {
         }
     }
 
+    /// SecPKCS12Import 返回字典的键（iOS 上 kSecImportItem* 常量在某些 Swift 版本不可用，用字面量）
+    private static let kImportIdentity = "identity"
+    private static let kImportCertificate = "certificate"
+    private static let kImportPrivateKey = "privateKey"
+
     /// 用 iOS 原生 Security framework 解析 P12，导出证书 DER 和私钥 DER。
     ///
     /// AltSign 用 unencryptedP12Data() 生成 Apple 原生无密码 P12，rork-sign 自带的
@@ -63,16 +68,31 @@ enum RorkAppSigner {
             throw SignError.identityImportFailed("SecPKCS12Import 失败 (OSStatus \(status))，请重新登录 Apple ID")
         }
 
-        guard let cert = first[kSecImportItemCertificate as String] as! SecCertificate? else {
-            throw SignError.identityImportFailed("P12 中未找到证书")
+        // 优先从 identity 提取；identity 包含证书+私钥，最可靠
+        if let identity = first[kImportIdentity] as! SecIdentity? {
+            var cert: SecCertificate?
+            let certStatus = SecIdentityCopyCertificate(identity, &cert)
+            var key: SecKey?
+            let keyStatus = SecIdentityCopyPrivateKey(identity, &key)
+            if certStatus == errSecSuccess, keyStatus == errSecSuccess,
+               let certificate = cert, let privateKey = key {
+                let certificateDER = SecCertificateCopyData(certificate) as Data
+                var error: Unmanaged<CFError>?
+                if let privateKeyDER = SecKeyCopyExternalRepresentation(privateKey, &error) as Data? {
+                    return (certificateDER, privateKeyDER)
+                }
+            }
         }
 
-        guard let key = first[kSecImportItemPrivateKey as String] as! SecKey? else {
+        // 回退：分别取 certificate 和 privateKey
+        guard let cert = first[kImportCertificate] as? SecCertificate else {
+            throw SignError.identityImportFailed("P12 中未找到证书")
+        }
+        guard let key = first[kImportPrivateKey] as? SecKey else {
             throw SignError.identityImportFailed("P12 中未找到私钥")
         }
 
         let certificateDER = SecCertificateCopyData(cert) as Data
-
         var error: Unmanaged<CFError>?
         guard let privateKeyDER = SecKeyCopyExternalRepresentation(key, &error) as Data? else {
             let desc = error?.takeRetainedValue().localizedDescription ?? "未知错误"
