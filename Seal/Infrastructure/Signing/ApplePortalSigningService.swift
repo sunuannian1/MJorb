@@ -25,8 +25,10 @@ enum ApplePortalSigningFailure {
     static func make(stage: ApplePortalSigningStage, error: Error) -> ImportFailure {
         if AppleServiceFailurePolicy.isNetworkError(error) {
             return AppleServiceFailurePolicy.networkFailure(
-                title: "Apple 服务暂时不可用",
-                reason: "当前网络或 Apple 服务不可用。Apple ID 状态不会被修改。"
+                title: "无法连接 Apple 开发者服务器",
+                reason: "签名需要连接 Apple 开发者服务器（developerservices2.apple.com）验证证书，当前连接超时，已自动重试仍失败。这是网络问题，Apple ID 和已签应用都不会受影响。",
+                recovery: "如果开了代理/VPN，请切换到【全局模式】后重试：规则/分流模式常常漏掉 Apple 开发者服务器域名，让它走了直连而被卡住（认证域名能通、签名卡住就是这个原因）。未开代理请切换网络（如手机热点）后重试。",
+                code: "SEAL-NET-102"
             )
         }
         let nsError = error as NSError
