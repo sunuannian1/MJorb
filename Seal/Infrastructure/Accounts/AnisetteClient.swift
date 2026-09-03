@@ -38,23 +38,44 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         Self.logger.error("下一次 Anisette 获取将跳过本地生成、直接使用远程服务器")
     }
 
+    /// 本地生成是否曾成功过。一旦成功，machineID 已固定，后续必须继续用本地，
+    /// 降级远程会导致 machineID 漂移，Apple 判定会话异常返回 1100，触发重新登录+2FA。
+    private static let localSucceededKey = "com.mjorb.seal.anisette.localSucceeded"
+
     func fetch() async throws -> ALTAnisetteData {
         // 本地与远程共享同一套稳定设备标识（16 字节 → localUserID / deviceIdentifier），
-        // 无论走哪条路径，设备指纹都一致，不会因为通道切换导致 Apple 会话失效。
+        // 但 machineID 本地与远程不同：本地 adi.pb 恒定，远程与服务器绑定。
+        // 一旦本地成功过就必须继续用本地，切换通道会使 Apple 会话失效（1100）。
         let identity = try await loadIdentity()
+        let localHasSucceeded = UserDefaults.standard.bool(forKey: Self.localSucceededKey)
 
         // 1. 优先使用设备本地 AnisetteKit 生成（指纹恒定，不依赖公共服务器）
-        // 本地首次生成需初始化 Unicorn(TCI) 引擎，最慢约 30 秒；超过 45 秒遗弃本地任务，降级远程
+        // 本地首次生成需初始化 Unicorn(TCI) 引擎，最慢约 30 秒；超过 45 秒遗弃本地任务
         // 若上一次认证因本地指纹被 Apple 拒绝（返回 HTML/格式错误），本次直接跳过本地换远程指纹
         if bypassLocal.consume() == false {
             do {
-                return try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
+                let data = try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
                     try await onDevice.makeAnisetteData(identity: identity)
                 }
+                if localHasSucceeded == false {
+                    UserDefaults.standard.set(true, forKey: Self.localSucceededKey)
+                }
+                return data
             } catch let error as HardTimeout.TimeoutError {
-                Self.logger.error("本地 Anisette 生成超时（\(Int(error.seconds))s），降级远程服务器")
+                Self.logger.error("本地 Anisette 生成超时（\(Int(error.seconds))s）")
+                if localHasSucceeded {
+                    // 本地曾成功过，machineID 已固定，降级远程会导致会话失效，直接报错让用户重试
+                    Self.logger.error("本地曾成功，拒绝降级远程以避免 machineID 漂移导致 Apple 会话失效")
+                    throw AnisetteV3Error.localGenerationFailed
+                }
+                Self.logger.error("首次使用本地未成功，降级远程服务器")
             } catch {
-                Self.logger.error("本地 Anisette 生成失败，降级远程服务器：\(String(describing: error), privacy: .public)")
+                Self.logger.error("本地 Anisette 生成失败：\(String(describing: error), privacy: .public)")
+                if localHasSucceeded {
+                    Self.logger.error("本地曾成功，拒绝降级远程以避免 machineID 漂移导致 Apple 会话失效")
+                    throw AnisetteV3Error.localGenerationFailed
+                }
+                Self.logger.error("首次使用本地未成功，降级远程服务器")
             }
         } else {
             Self.logger.error("按上一次认证结果跳过本地 Anisette，直接使用远程服务器")

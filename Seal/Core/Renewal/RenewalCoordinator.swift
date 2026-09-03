@@ -153,6 +153,7 @@ actor RenewalCoordinator {
                         accountID: item.accountID,
                         requestedBundleIdentifier: latestApp.mappedBundleIdentifier ?? latestApp.preferredBundleIdentifier,
                         selectedCertificateSerialNumber: nil,
+                        forceResign: true,
                         progress: { stage in
                             if isSeal, stage == .installing {
                                 try? await queueStore.markCompleted(appID: item.appID)

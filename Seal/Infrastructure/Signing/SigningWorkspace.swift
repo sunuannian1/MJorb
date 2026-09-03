@@ -436,7 +436,7 @@ struct SigningWorkspace: Sendable {
             try fileManager.removeItem(at: appClipsURL)
         }
 
-        // 移除 PlugIns 中的 App Clip（.appex 但 NSExtensionPointIdentifier 为 com.apple.app-clip）
+        // 移除 PlugIns 中的 App Clip 和 WatchKit 扩展（arm64_32 32-bit，rork-sign 不支持）
         if let plugInsURL = appURL.appendingPathComponent("PlugIns") as URL?,
            fileManager.fileExists(atPath: plugInsURL.path) {
             let appexContents = try fileManager.contentsOfDirectory(
@@ -453,7 +453,7 @@ struct SigningWorkspace: Sendable {
                        format: nil
                    ) as? [String: Any],
                    let extensionPoint = info["NSExtensionPointIdentifier"] as? String,
-                   extensionPoint == "com.apple.app-clip" {
+                   extensionPoint == "com.apple.app-clip" || extensionPoint == "com.apple.watchkit" {
                     try fileManager.removeItem(at: appexURL)
                 }
             }
@@ -531,7 +531,7 @@ struct SigningWorkspace: Sendable {
                     $0.load(fromByteOffset: archOffset + 12, as: UInt32.self)
                 }.bigEndian
 
-                if cputype == 0x0100000C && cpusubtype == 0 {
+                if cputype == 0x0100000C && cpusubtype != 2 {
                     arm64Offset = offset
                     arm64Size = size
                     found = true

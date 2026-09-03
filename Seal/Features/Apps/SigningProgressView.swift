@@ -5,6 +5,7 @@ struct SigningProgressView: View {
     @ObservedObject var viewModel: AppsViewModel
     let onFinish: (SigningCompletionMode) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var verificationCode = ""
 
     var body: some View {
         SealDrawer(title: title, showsFooter: !isRunning) {
@@ -24,6 +25,12 @@ struct SigningProgressView: View {
             actions
         }
         .interactiveDismissDisabled(isRunning)
+        .sheet(isPresented: Binding(
+            get: { viewModel.signingVerificationBroker.isRequested },
+            set: { if $0 == false { viewModel.signingVerificationBroker.cancel() } }
+        )) {
+            verificationCodeSheet
+        }
     }
 
     @ViewBuilder
@@ -408,3 +415,47 @@ private extension SigningStage {
         }
     }
 }
+
+    @ViewBuilder
+    private var verificationCodeSheet: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Text("需要双重认证")
+                    .font(.title2.weight(.bold))
+                Text("你的 Apple ID 会话已过期，需要重新验证。请在另一台设备上点击「允许」，然后输入收到的验证码。")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                TextField("六位验证码", text: $verificationCode)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .multilineTextAlignment(.center)
+                    .font(.title2.monospacedDigit().weight(.semibold))
+                    .padding(.vertical, 16)
+                    .background(Color.sealSurfaceElevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .onChange(of: verificationCode) { code in
+                        verificationCode = String(code.filter(\.isNumber).prefix(6))
+                    }
+                Button {
+                    viewModel.signingVerificationBroker.submit(verificationCode)
+                    verificationCode = ""
+                } label: {
+                    if viewModel.signingVerificationBroker.hasSubmittedCode {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Text("验证")
+                    }
+                }
+                .sealPrimaryAction()
+                .disabled(verificationCode.count < 6 || viewModel.signingVerificationBroker.hasSubmittedCode)
+                Button("取消") {
+                    viewModel.signingVerificationBroker.cancel()
+                    verificationCode = ""
+                }
+                .foregroundStyle(.secondary)
+            }
+            .padding(24)
+            .presentationDetents([.medium])
+            .interactiveDismissDisabled(true)
+        }
+    }

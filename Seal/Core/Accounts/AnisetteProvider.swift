@@ -26,6 +26,7 @@ enum AnisetteV3Error: Error, Equatable, Sendable {
     case provisioningFailed
     case staleProvisioning
     case unavailable
+    case localGenerationFailed
 }
 
 struct AnisetteProvisioningState: Codable, Equatable, Sendable {

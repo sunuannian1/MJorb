@@ -55,6 +55,7 @@ final class AppsViewModel: ObservableObject {
     private let notificationPreferences: NotificationPreferences?
     private let signingPreferenceStore: SigningPreferenceStore?
     private let operationCoordinator: OperationCoordinator?
+    let signingVerificationBroker: VerificationCodeBroker
     private var signingTask: Task<Void, Never>?
     private var batchRefreshTask: Task<Void, Never>?
     private var channelTask: Task<Bool, Never>?
@@ -89,6 +90,7 @@ final class AppsViewModel: ObservableObject {
         notificationPreferences: NotificationPreferences,
         signingPreferenceStore: SigningPreferenceStore,
         operationCoordinator: OperationCoordinator? = nil
+        signingVerificationBroker: VerificationCodeBroker
     ) {
         self.workflow = workflow
         self.appStore = appStore
@@ -106,6 +108,7 @@ final class AppsViewModel: ObservableObject {
         self.notificationPreferences = notificationPreferences
         self.signingPreferenceStore = signingPreferenceStore
         self.operationCoordinator = operationCoordinator
+        self.signingVerificationBroker = signingVerificationBroker
         apps = []
         accounts = []
         iconData = [:]
@@ -114,6 +117,7 @@ final class AppsViewModel: ObservableObject {
     }
 
     init(startupFailure: ImportFailure) {
+        self.signingVerificationBroker = VerificationCodeBroker()
         workflow = nil
         appStore = nil
         fileStore = nil

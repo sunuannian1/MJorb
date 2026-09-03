@@ -33,6 +33,7 @@ actor SigningCoordinator {
         selectedCertificateSerialNumber: String? = nil,
         allowDroppingExtensions: Bool = true,
         installAfterSigning: Bool = true,
+        forceResign: Bool = false,
         progress: @Sendable (SigningStage) async -> Void
     ) async throws -> AppRecord {
         guard var app = try await appStore.fetchAll().first(where: { $0.id == appID }) else {
@@ -128,7 +129,7 @@ actor SigningCoordinator {
                 )
             }
 
-            if installAfterSigning,
+            if installAfterSigning, !forceResign,
                let cachedInstall = try await installCachedSignedIPAIfPossible(
                 app: app,
                 account: account,
