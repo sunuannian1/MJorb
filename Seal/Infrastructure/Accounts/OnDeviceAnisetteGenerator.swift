@@ -36,16 +36,10 @@ actor OnDeviceAnisetteGenerator {
         provisioningDirectory = rootDirectory.appendingPathComponent("Provisioning", isDirectory: true)
         keychain = OnDeviceAnisetteKeychain()
 
-        // 优先使用 App Bundle 内置的 Anisette/ 目录（构建脚本复制进去的 .so 库）。
-        // 直接用 bundleURL 拼接路径，绕过 Bundle.url 的资源索引查找
-        // （.so 不被 Xcode 识别为资源，不在资源索引里）。
-        let bundledAnisetteDir = Bundle.main.bundleURL
-            .appendingPathComponent("Anisette", isDirectory: true)
-        if LocalAnisetteProvider.validateLibrariesExist(at: bundledAnisetteDir) {
-            libsDirectory = bundledAnisetteDir
-        } else {
-            libsDirectory = rootDirectory.appendingPathComponent("Libraries", isDirectory: true)
-        }
+        // 库文件必须放在可写目录：Unicorn 引擎 mmap 加载 .so 时需要 PROT_WRITE。
+        // App Bundle 是只读的，直接用会导致加载失败。copyBundledLibraries() 会把
+        // 构建时打进 .app/Anisette/ 的 .so 复制到这里。
+        libsDirectory = rootDirectory.appendingPathComponent("Libraries", isDirectory: true)
     }
 
     /// 本地库是否已就绪（两个 .so 都存在）
@@ -189,17 +183,19 @@ actor OnDeviceAnisetteGenerator {
         for name in required {
             let base = (name as NSString).deletingPathExtension
             let ext = (name as NSString).pathExtension
-            // XcodeGen 按 group 引用，资源通常被打平到 Bundle 根；同时兼容子目录
-            let candidates = [
-                Bundle.main.url(forResource: base, withExtension: ext),
-                Bundle.main.url(forResource: name, withExtension: nil, subdirectory: "Anisette"),
-                Bundle.main.url(forResource: name, withExtension: nil),
-                Bundle.main.url(forResource: name, withExtension: nil, subdirectory: "Resources/Anisette")
-            ].compactMap { $0 }
-            var found = candidates.first
-            // Fallback: 遍历 Bundle 资源目录递归查找（兼容任意打包路径）
-            if found == nil, let resourceURL = Bundle.main.resourceURL {
-                let enumerator = fileManager.enumerator(at: resourceURL, includingPropertiesForKeys: nil)
+            // 构建脚本把 .so 复制到 .app/Anisette/ 目录。
+            // 直接用 bundleURL 拼接路径检查，绕过 Bundle.url 的资源索引
+            // （.so 不被 Xcode 识别为资源，不在资源索引里，Bundle.url 永远返回 nil）。
+            let bundledDir = Bundle.main.bundleURL
+                .appendingPathComponent("Anisette", isDirectory: true)
+            let directURL = bundledDir.appendingPathComponent(name)
+            var found: URL?
+            if fileManager.fileExists(atPath: directURL.path) {
+                found = directURL
+            }
+            // Fallback: 遍历 Bundle 根目录递归查找（兼容旧打包方式）
+            if found == nil {
+                let enumerator = fileManager.enumerator(at: Bundle.main.bundleURL, includingPropertiesForKeys: nil)
                 while let fileURL = enumerator?.nextObject() as? URL {
                     if fileURL.lastPathComponent == name {
                         found = fileURL
