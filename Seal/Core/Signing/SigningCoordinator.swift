@@ -587,7 +587,7 @@ actor SigningCoordinator {
             try await appStore.save(updated)
             return updated
         } catch {
-            // 安装/验证断连（如 NoDevice）时，应用可能实际已装到设备上。
+            // 安装/验证失败时，应用可能实际已装到设备上（如 installd 后台安装中）。
             // 多次重试查设备状态，已装则静默标记为已安装，不弹失败。
             for attempt in 0..<5 {
                 try? await Task.sleep(for: .seconds(3))
@@ -606,12 +606,18 @@ actor SigningCoordinator {
                     return updated
                 }
             }
-            // 多次查询仍未找到，抛友好错误，提示用户检查桌面
+            // 多次查询仍未找到，保留原始错误信息，不要统一报"设备连接断开"。
+            // installd 安装失败（签名/描述文件问题）和连接断开是不同原因，
+            // 统一提示会误导用户排查方向。
+            if let importFailure = error as? ImportFailure {
+                throw importFailure
+            }
+            let nsError = error as NSError
             throw ImportFailure(
-                title: "安装未完成",
-                reason: "安装过程中与设备连接断开。请检查手机桌面是否已出现应用图标；如已安装可忽略此提示，未安装请重试。",
+                title: "安装失败",
+                reason: "安装未完成：\(nsError.localizedDescription)。如桌面已出现云下载图标但点击无法安装，通常是签名或描述文件问题，请检查 Apple ID 证书状态后重试。",
                 recovery: "重新安装",
-                code: "SEAL-INSTALL-702a"
+                code: "SEAL-INSTALL-702b"
             )
         }
     }
