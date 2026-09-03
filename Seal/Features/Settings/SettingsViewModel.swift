@@ -860,9 +860,12 @@ final class SettingsViewModel: ObservableObject {
             )
         } catch let failure as ImportFailure {
             certificateInventoryFailures[account.id] = failure
+            // authToken失效(SEAL-AUTH-107)时证书标无效，避免显示"有效但实际用不了"的矛盾
+            let portalState: CertificateHealthStatus.CheckState =
+                failure.code == "SEAL-AUTH-107" ? .invalid : .unknown
             certificateHealthStatuses[account.id] = await localCertificateHealthStatus(
                 account: account,
-                portalState: .unknown
+                portalState: portalState
             )
             try? await logStore?.append(
                 category: .account,
