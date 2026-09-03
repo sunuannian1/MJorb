@@ -1194,7 +1194,10 @@ actor ApplePortalSigningService {
         team: ALTTeam,
         session: ALTAppleAPISession
     ) async throws -> ALTProvisioningProfile {
-        let box: LegacyBox<ALTProvisioningProfile> = try await withAppleTimeout(30) {
+        // 对齐 AltStore 官方实现：先获取，再尝试删除旧描述文件，删除成功则重新获取生成新的。
+        // 免费账号从 2023-03-20 起无法删除描述文件，每次 fetch 会自动重新生成，
+        // 因此删除失败时直接返回已获取的描述文件即可。
+        let firstBox: LegacyBox<ALTProvisioningProfile> = try await withAppleTimeout(30) {
             try await withCheckedThrowingContinuation {
                 continuation in
                 ALTAppleAPI.shared.fetchProvisioningProfile(
@@ -1207,7 +1210,54 @@ actor ApplePortalSigningService {
                 }
             }
         }
-        return box.value
+        let profile = firstBox.value
+
+        // 尝试删除旧描述文件（付费账号可删除，免费账号会失败）
+        let deleteSucceeded: Bool
+        do {
+            try await withAppleTimeout(15) {
+                try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<Void, Error>) in
+                    ALTAppleAPI.shared.deleteProvisioningProfile(
+                        profile,
+                        for: team,
+                        session: session
+                    ) { success, error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                        } else if success {
+                            continuation.resume()
+                        } else {
+                            continuation.resume(throwing: ALTAppleAPIError.unknown())
+                        }
+                    }
+                }
+            }
+            deleteSucceeded = true
+        } catch {
+            // 免费账号无法删除，直接返回已获取的描述文件
+            deleteSucceeded = false
+        }
+
+        guard deleteSucceeded else {
+            return profile
+        }
+
+        // 删除成功（付费账号），重新获取生成新的描述文件
+        let secondBox: LegacyBox<ALTProvisioningProfile> = try await withAppleTimeout(30) {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                ALTAppleAPI.shared.fetchProvisioningProfile(
+                    for: appID,
+                    deviceType: .iphone,
+                    team: team,
+                    session: session
+                ) { profile, error in
+                    Self.resume(continuation, value: profile, error: error)
+                }
+            }
+        }
+        return secondBox.value
     }
 
 
