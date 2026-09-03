@@ -300,6 +300,9 @@ actor MinimuxerInstallChannel: InstallChannel {
         var lastError: Error?
         for attempt in 1...3 {
             do {
+                // 每次安装前重置Install提供者，避免使用已断开的RSD缓存连接
+                // 推送大文件后RSD连接可能超时断开，isReady()只检查TCP不检查RSD服务
+                Minimuxer.Install.resetProvider()
                 if isSelfReplacement {
                     let installation = Task.detached(priority: .userInitiated) {
                         try Minimuxer.installIpa(bundleId: bundleID)
@@ -318,6 +321,8 @@ actor MinimuxerInstallChannel: InstallChannel {
             } catch {
                 lastError = error
                 guard attempt < 3 else { break }
+                // 重试前重置连接，避免用死连接重试
+                Minimuxer.Install.resetProvider()
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 continue
             }
@@ -331,6 +336,8 @@ actor MinimuxerInstallChannel: InstallChannel {
         return
         #else
         guard await isReady() else { throw Self.channelNotReadyFailure }
+        // 验证前重置连接，避免用死连接查询
+        Minimuxer.Install.resetProvider()
         for _ in 0..<8 {
             if Minimuxer.lookupApp(bundleId: bundleID) != nil { return }
             try? await Task.sleep(for: .milliseconds(650))
