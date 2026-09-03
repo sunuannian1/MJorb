@@ -28,6 +28,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
+      - name: Cache Swift Package Manager dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData/Seal-*/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      - name: Cache DerivedData for incremental builds
+        uses: actions/cache@v4
+        with:
+          path: build/DerivedData
+          key: deriveddata-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: |
+            deriveddata-${{ runner.os }}-
+
       - name: Select pinned Xcode 26.5
         run: |
           test -d /Applications/Xcode_26.5.app

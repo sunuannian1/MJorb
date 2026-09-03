@@ -15,7 +15,7 @@ if [[ "${SEAL_SKIP_XCODEGEN:-0}" != "1" ]]; then
   xcodegen generate
 fi
 
-rm -rf "$derived_data" "$package_root" "$archive" "$archive.sha256"
+rm -rf "$package_root" "$archive" "$archive.sha256"
 
 xcodebuild build \
   -project Seal.xcodeproj \
