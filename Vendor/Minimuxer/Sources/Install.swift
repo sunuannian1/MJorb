@@ -68,7 +68,7 @@ public class LockDownInstall: InstallProvider {
         print("[minimuxer] AFC: client created successfully")
 
         let pkg = MuxerConstants.pkgPath
-        let appDir = "./\(pkg)/\(bundleId)"
+        let appDir = "\(pkg)/\(bundleId)"
         mkdirP(appDir, afc: afc)
 
         if !afc.writeFile(path: "\(appDir)/app.ipa", data: ipaBytes) {
@@ -80,8 +80,8 @@ public class LockDownInstall: InstallProvider {
     
     private func mkdirP(_ path: String, afc: RustAfc) {
         var current = ""
-        for part in path.split(separator: "/") {
-            current += "/\(part)"
+        for part in path.split(separator: "/") where !part.isEmpty {
+            current = current.isEmpty ? String(part) : "\(current)/\(part)"
             _ = afc.mkdir(path: current)
         }
     }
@@ -93,7 +93,7 @@ public class LockDownInstall: InstallProvider {
             print("[minimuxer] ERROR: Unable to start instproxy")
             throw MinimuxerError.CreateInstproxy
         }
-        let path = "./\(MuxerConstants.pkgPath)/\(bundleId)/app.ipa"
+        let path = "\(MuxerConstants.pkgPath)/\(bundleId)/app.ipa"
         print("[minimuxer] Installing...")
         if let installError = inst.install(path: path) {
             print("[minimuxer] ERROR: Install failed: \(installError)")
