@@ -10,7 +10,7 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
     private let session: URLSession
     private let store: any AnisetteProvisioningStore
     private let serverStore: any AnisetteServerStore
-    private let onDevice: OnDeviceAnisetteGenerator
+    private let anisetteProvider: AnisetteDataProvider
     /// 一次性标志：为 true 时本次 fetch 跳过本地生成、直接走远程（消费后自动复位）
     private let bypassLocal = AnisetteBypassFlag()
 
@@ -24,19 +24,92 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         session: URLSession = .shared,
         store: any AnisetteProvisioningStore = KeychainAnisetteProvisioningStore(),
         serverStore: any AnisetteServerStore = UserDefaultsAnisetteServerStore(),
-        onDevice: OnDeviceAnisetteGenerator = .shared
+        anisetteProvider: AnisetteDataProvider = .shared
     ) {
         self.servers = servers
         self.session = session
         self.store = store
         self.serverStore = serverStore
-        self.onDevice = onDevice
+        self.anisetteProvider = anisetteProvider
     }
 
     func preferRemoteOnNextFetch() async {
         bypassLocal.set()
         Self.logger.error("下一次 Anisette 获取将跳过本地生成、直接使用远程服务器")
     }
+
+    /// 把 App Bundle 中内置的 .so 复制到 AnisetteDataProvider 的可写 libsDir。
+    /// Unicorn 引擎 mmap 加载 .so 需要 PROT_WRITE，App Bundle 只读不能直接用。
+    private func ensureBundledLibrariesCopied() throws {
+        let fm = FileManager.default
+        let libDir = anisetteProvider.libsDir
+        if LocalAnisetteProvider.validateLibrariesExist(at: libDir) { return }
+        try fm.createDirectory(at: libDir, withIntermediateDirectories: true)
+        let bundledDir = Bundle.main.bundleURL.appendingPathComponent("Anisette", isDirectory: true)
+        for name in LocalAnisetteProvider.requiredLibraryNames {
+            let src = bundledDir.appendingPathComponent(name)
+            let dst = libDir.appendingPathComponent(name)
+            if fm.fileExists(atPath: dst.path) { try? fm.removeItem(at: dst) }
+            try fm.copyItem(at: src, to: dst)
+        }
+    }
+
+    /// 把 AnisetteV3Identity.encodedIdentifier（base64 16字节）解码为 UUID
+    private func uuid(from identity: AnisetteV3Identity) throws -> UUID {
+        guard let data = Data(base64Encoded: identity.encodedIdentifier), data.count == 16 else {
+            throw AnisetteV3Error.invalidIdentifier
+        }
+        return data.withUnsafeBytes { UUID(uuid: $0.load(as: uuid_t.self)) }
+    }
+
+    /// 官方 AnisetteData -> AltSign ALTAnisetteData
+    private func convert(_ data: AnisetteData) -> ALTAnisetteData? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(abbreviation: "UTC")
+        let json: [String: String] = [
+            "machineID": data.machineID,
+            "oneTimePassword": data.oneTimePassword,
+            "localUserID": data.localUserID,
+            "deviceUniqueIdentifier": data.deviceUniqueIdentifier,
+            "deviceSerialNumber": data.deviceSerialNumber,
+            "deviceDescription": data.deviceDescription,
+            "routingInfo": String(data.routingInfo),
+            "date": formatter.string(from: data.date),
+            "locale": data.locale.identifier,
+            "timeZone": data.timeZone.abbreviation() ?? "UTC"
+        ]
+        return ALTAnisetteData(json: json)
+    }
+
+    /// 用官方 AnisetteDataProvider localODA 模式生成本地 anisette
+    private func fetchLocal(identity: AnisetteV3Identity) async throws -> ALTAnisetteData {
+        try ensureBundledLibrariesCopied()
+        let uuid = try self.uuid(from: identity)
+        // 从 keychain 读取已有的 adi.pb（base64）
+        let existingState = try? await store.load()
+        let existingBlob = existingState.flatMap { Data(base64Encoded: $0.adiPB) }
+        let clientInfo = "<MacBookPro18,3> <macOS;26.6;25F84> <com.apple.AuthKit/1 (com.apple.dt.Xcode/26.0)>"
+        let (data, newBlob) = try await anisetteProvider.fetchAnisetteData(
+            mode: .localODA(libsDir: anisetteProvider.libsDir),
+            identifier: uuid,
+            existingAdiBlob: existingBlob,
+            clientInfo: clientInfo,
+            customLocalUserID: identity.localUserID,
+            customDeviceID: identity.deviceIdentifier
+        )
+        // 保存新的 adi.pb 到 keychain
+        if let newBlob, !newBlob.isEmpty,
+           let state = AnisetteProvisioningState(identifier: identity.encodedIdentifier, adiPB: newBlob.base64EncodedString()) {
+            try? await store.save(state)
+        }
+        guard let alt = convert(data) else {
+            throw AnisetteV3Error.localGenerationFailed
+        }
+        return alt
+    }
+
 
     /// 本地生成是否曾成功过。一旦成功，machineID 已固定，后续必须继续用本地，
     /// 降级远程会导致 machineID 漂移，Apple 判定会话异常返回 1100，触发重新登录+2FA。
@@ -57,7 +130,7 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         if shouldUseLocal {
             do {
                 let data = try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
-                    try await onDevice.makeAnisetteData(identity: identity)
+                    try await self.fetchLocal(identity: identity)
                 }
                 if localHasSucceeded == false {
                     UserDefaults.standard.set(true, forKey: Self.localSucceededKey)
@@ -112,7 +185,7 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         let identity = try await loadIdentity()
         do {
             let data = try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
-                try await onDevice.makeAnisetteData(identity: identity)
+                try await self.fetchLocal(identity: identity)
             }
             UserDefaults.standard.set(true, forKey: Self.localSucceededKey)
             return data
