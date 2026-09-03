@@ -34,7 +34,25 @@ enum AnisetteV3Error: Error, Equatable, Sendable {
     case provisioningFailed
     case staleProvisioning
     case unavailable
-    case localGenerationFailed
+    case localGenerationFailed(String)
+}
+
+// 手动实现 Equatable（因为有关联值）
+extension AnisetteV3Error {
+    static func == (lhs: AnisetteV3Error, rhs: AnisetteV3Error) -> Bool {
+        switch (lhs, rhs) {
+        case (.invalidIdentifier, .invalidIdentifier),
+             (.invalidServerResponse, .invalidServerResponse),
+             (.provisioningFailed, .provisioningFailed),
+             (.staleProvisioning, .staleProvisioning),
+             (.unavailable, .unavailable):
+            return true
+        case (.localGenerationFailed(let a), .localGenerationFailed(let b)):
+            return a == b
+        default:
+            return false
+        }
+    }
 }
 
 struct AnisetteProvisioningState: Codable, Equatable, Sendable {

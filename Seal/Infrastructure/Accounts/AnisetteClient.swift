@@ -106,7 +106,7 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
             try? await store.save(state)
         }
         guard let alt = convert(data) else {
-            throw AnisetteV3Error.localGenerationFailed
+            throw AnisetteV3Error.localGenerationFailed("Failed to convert AnisetteData to ALTAnisetteData")
         }
         return alt
     }
@@ -142,14 +142,14 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
                 if localHasSucceeded {
                     // 本地曾成功过，machineID 已固定，降级远程会导致会话失效，直接报错让用户重试
                     Self.logger.error("本地曾成功，拒绝降级远程以避免 machineID 漂移导致 Apple 会话失效")
-                    throw AnisetteV3Error.localGenerationFailed
+                    throw AnisetteV3Error.localGenerationFailed(error.localizedDescription)
                 }
                 Self.logger.error("首次使用本地未成功，降级远程服务器")
             } catch {
                 Self.logger.error("本地 Anisette 生成失败：\(String(describing: error), privacy: .public)")
                 if localHasSucceeded {
                     Self.logger.error("本地曾成功，拒绝降级远程以避免 machineID 漂移导致 Apple 会话失效")
-                    throw AnisetteV3Error.localGenerationFailed
+                    throw AnisetteV3Error.localGenerationFailed(error.localizedDescription)
                 }
                 Self.logger.error("首次使用本地未成功，降级远程服务器")
             }
@@ -192,7 +192,7 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
             return data
         } catch {
             Self.logger.error("认证时本地 Anisette 生成失败，拒绝降级远程以避免 machineID 漂移：\(String(describing: error), privacy: .public)")
-            throw AnisetteV3Error.localGenerationFailed
+            throw AnisetteV3Error.localGenerationFailed(error.localizedDescription)
         }
     }
 

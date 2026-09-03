@@ -489,15 +489,14 @@ final class AppleAccountClient {
                 code = "SEAL-ANI-112"
             case .unavailable:
                 code = "SEAL-ANI-113"
-            case .localGenerationFailed:
+            case .localGenerationFailed(let detail):
                 code = "SEAL-ANI-114"
-            }
-            return ImportFailure(
-                title: "无法获取设备环境",
-                reason: "Anisette 服务暂时不可用",
-                recovery: "重试",
-                code: code
-            )
+                return ImportFailure(
+                    title: "无法获取设备环境",
+                    reason: detail.isEmpty ? "Anisette 服务暂时不可用" : detail,
+                    recovery: "重试",
+                    code: code
+                )
         }
         if AppleServiceFailurePolicy.isNetworkError(error) {
             return AppleServiceFailurePolicy.networkFailure(
