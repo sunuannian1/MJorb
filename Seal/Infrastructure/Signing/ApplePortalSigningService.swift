@@ -1560,6 +1560,44 @@ actor ApplePortalSigningService {
     }
 
     /// 用纯 Swift MachOFullSigner 签名整个 app（替代 ALTSigner/ldid）
+    // MARK: - Info.plist App Groups 对齐 AltStore
+
+    /// 从描述文件 entitlements 中提取 appGroups 数组
+    private func extractAppGroups(from profile: ALTProvisioningProfile) -> [String] {
+        guard let value = profile.entitlements[ALTEntitlement.appGroups] else { return [] }
+        if case let .array(values) = value {
+            return values.compactMap { v in
+                if case let .string(s) = v { return s }
+                return nil
+            }
+        }
+        return []
+    }
+
+    /// 对齐 AltStore：把描述文件中的 appGroups 写入 Info.plist 的 ALTAppGroups 键
+    /// 同时处理文件提供者扩展的 NSExtensionFileProviderDocumentGroup 替换
+    private func writeAppGroupsToInfoPlist(at bundleURL: URL, appGroups: [String]) throws {
+        guard appGroups.isEmpty == false else { return }
+        let infoURL = bundleURL.appendingPathComponent("Info.plist")
+        guard let infoDictionary = NSMutableDictionary(contentsOf: infoURL) else { return }
+
+        // 对齐 AltStore Bundle.Info.appGroups = "ALTAppGroups"
+        infoDictionary["ALTAppGroups"] = appGroups
+
+        // 文件提供者扩展：替换 NSExtensionFileProviderDocumentGroup 为映射后的 appGroup
+        if var extensionInfo = infoDictionary["NSExtension"] as? [String: Any],
+           let originalGroup = extensionInfo["NSExtensionFileProviderDocumentGroup"] as? String {
+            // 优先选包含原始 group 标识的，否则选第一个
+            let matched = appGroups.first(where: { $0.contains(originalGroup) }) ?? appGroups.first
+            if let matched {
+                extensionInfo["NSExtensionFileProviderDocumentGroup"] = matched
+                infoDictionary["NSExtension"] = extensionInfo
+            }
+        }
+
+        try infoDictionary.write(to: infoURL)
+    }
+
     private func signAppWithFullSigner(
         at appURL: URL,
         team: ALTTeam,
@@ -1583,6 +1621,12 @@ actor ApplePortalSigningService {
         if let mainProfile {
             let profileURL = appURL.appendingPathComponent("embedded.mobileprovision")
             try mainProfile.data.write(to: profileURL)
+        }
+
+        // 对齐 AltStore：把描述文件中的 appGroups 写入主应用 Info.plist
+        if let mainProfile {
+            let mainAppGroups = extractAppGroups(from: mainProfile)
+            try writeAppGroupsToInfoPlist(at: appURL, appGroups: mainAppGroups)
         }
 
         // 3.5 从描述文件生成 entitlements XML（对齐 ldid 签名要求）
@@ -1619,6 +1663,9 @@ actor ApplePortalSigningService {
                     try pluginProfile.data.write(to: profileURL)
                     let stringKeyed = Dictionary(uniqueKeysWithValues: pluginProfile.entitlements.map { ($0.key.rawValue, $0.value) })
                     pluginEntitlementsData = try? PropertyListSerialization.data(fromPropertyList: stringKeyed, format: .xml, options: 0)
+                    // 对齐 AltStore：把描述文件中的 appGroups 写入扩展 Info.plist
+                    let pluginAppGroups = extractAppGroups(from: pluginProfile)
+                    try? writeAppGroupsToInfoPlist(at: pluginURL, appGroups: pluginAppGroups)
                 } else {
                     pluginEntitlementsData = entitlementsData
                 }
