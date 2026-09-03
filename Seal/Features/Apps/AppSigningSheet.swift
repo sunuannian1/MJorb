@@ -364,7 +364,17 @@ struct AppSigningSheet: View {
             targetBundleID = preferred
             hasUserEditedBundleID = true
         } else {
-            targetBundleID = BundleIDPolicy.recommendedBundleIdentifier(for: workingApp.originalBundleIdentifier)
+            // 传入当前选中账号的 teamID，确保 UI 显示的推荐 Bundle ID 与实际签名时一致
+            if let teamID = selectedAccount?.teamID, !teamID.isEmpty {
+                targetBundleID = BundleIDPolicy.recommendedBundleIdentifier(
+                    for: workingApp.originalBundleIdentifier,
+                    teamID: teamID
+                )
+            } else {
+                targetBundleID = BundleIDPolicy.recommendedBundleIdentifier(
+                    for: workingApp.originalBundleIdentifier
+                )
+            }
         }
     }
 

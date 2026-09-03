@@ -48,12 +48,18 @@ enum BundleIDPolicy {
         return try validated(recommendedBundleIdentifier(for: app.originalBundleIdentifier))
     }
 
-    static func recommendedBundleIdentifier(for original: String) -> String {
+    static func recommendedBundleIdentifier(for original: String, teamID: String) -> String {
         let value = normalized(original) ?? original
-        let base = value.lowercased().hasSuffix(".seal") ? value : value + ".seal"
-        // 每次生成 0-999 随机后缀，同一 IPA 可签出多个不同 Bundle ID 的副本同时安装
-        let suffix = Int.random(in: 0...999)
-        return "\(base)\(suffix)"
+        // 对齐 AltStore 官方格式（原始+teamID），同时保留 Seal 标识：原始.seal.teamID
+        // 恒定不变，同一个应用+同一个 team 永远是同一个 Bundle ID，不随机
+        // 已安装应用续签时复用之前的 mappedBundleIdentifier，不受此格式影响
+        return "\(value).seal.\(teamID)"
+    }
+
+    /// 无 teamID 时的重载：返回原始 Bundle ID（仅用于恢复记录等无账号上下文的场景）
+    /// 实际签名时必须调用带 teamID 的版本
+    static func recommendedBundleIdentifier(for original: String) -> String {
+        normalized(original) ?? original
     }
 
     static func isEditable(_ app: AppRecord) -> Bool {

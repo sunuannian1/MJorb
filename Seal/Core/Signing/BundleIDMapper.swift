@@ -16,7 +16,9 @@ struct BundleIDMapper: Sendable {
         if let requested, requested.isEmpty == false {
             return requested
         }
-        return BundleIDPolicy.recommendedBundleIdentifier(for: original)
+        // 对齐 AltStore 官方格式（原始+teamID），同时保留 Seal 标识：原始.seal.teamID
+        // 恒定不变，同一个应用+同一个 team 永远是同一个 Bundle ID，不随机
+        return BundleIDPolicy.recommendedBundleIdentifier(for: original, teamID: teamID)
     }
 
     func extensionBundleID(
@@ -45,7 +47,10 @@ struct BundleIDMapper: Sendable {
     }
 
     func appGroupID(original: String, teamID: String) -> String {
-        "group.com.mjorb.seal.groups.\(digest("\(teamID):\(original)", length: 20))"
+        // 和 Bundle ID 格式对齐：group.<去掉group.前缀的原始ID>.seal.<teamID>
+        // 保留完整原始标识，多 group 自然唯一，teamID 保证全局唯一
+        let base = original.hasPrefix("group.") ? String(original.dropFirst(6)) : original
+        return "group.\(base).seal.\(teamID)"
     }
 
     private func digest(_ value: String, length: Int) -> String {
