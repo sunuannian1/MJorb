@@ -263,10 +263,16 @@ actor MinimuxerInstallChannel: InstallChannel {
     ) async throws {
         #if !targetEnvironment(simulator)
         guard await isReady() else { throw Self.channelNotReadyFailure }
+        // 大 IPA 通过 AFC 推送到设备耗时与大小正相关：
+        // 微信 400MB / 盛世天下 583MB 在 WiFi+VPN 下可能需 3-5 分钟，
+        // 固定 120s 超时会误判失败→重试→reset 连接，报"与设备连接断开"。
+        let ipaMB = Double(ipaData.count) / 1_000_000
+        let pushTimeout = min(600.0, 120.0 + ipaMB)
+        let installTimeout = min(300.0, 120.0 + ipaMB * 0.5)
         var lastInstallError: Error?
         for installAttempt in 1...4 {
             do {
-                let pushOutcome = await offThread(seconds: 120) {
+                let pushOutcome = await offThread(seconds: pushTimeout) {
                     try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
                 }
                 if case .some(.failure(let pushError)) = pushOutcome { throw pushError }
@@ -280,7 +286,7 @@ actor MinimuxerInstallChannel: InstallChannel {
                     await SelfReplacementController.returnToHomeScreen()
                     try await installation.value
                 } else {
-                    let installOutcome = await offThread(seconds: 120) {
+                    let installOutcome = await offThread(seconds: installTimeout) {
                         try Minimuxer.installIpa(bundleId: bundleID)
                     }
                     if case .some(.failure(let installError)) = installOutcome { throw installError }

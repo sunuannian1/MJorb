@@ -110,6 +110,31 @@ jobs:
       - name: Verify unsigned IPA
         run: bash Scripts/verify-ipa.sh build/Seal.ipa
 
+      - name: Sign IPA with developer certificate
+        env:
+          SEAL_P12_BASE64: ${{ secrets.SEAL_P12_BASE64 }}
+          SEAL_MOBILEPROVISION_BASE64: ${{ secrets.SEAL_MOBILEPROVISION_BASE64 }}
+          SEAL_EXT_MOBILEPROVISION_BASE64: ${{ secrets.SEAL_EXT_MOBILEPROVISION_BASE64 }}
+        run: |
+          if [ -z "$SEAL_P12_BASE64" ] || [ -z "$SEAL_MOBILEPROVISION_BASE64" ]; then
+            echo "::warning::Signing secrets not configured, skipping code signing."
+            exit 0
+          fi
+          echo "$SEAL_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/seal.p12"
+          echo "$SEAL_MOBILEPROVISION_BASE64" | base64 --decode > "$RUNNER_TEMP/seal.mobileprovision"
+          EXT_ARG=""
+          if [ -n "$SEAL_EXT_MOBILEPROVISION_BASE64" ]; then
+            echo "$SEAL_EXT_MOBILEPROVISION_BASE64" | base64 --decode > "$RUNNER_TEMP/seal-ext.mobileprovision"
+            EXT_ARG="$RUNNER_TEMP/seal-ext.mobileprovision"
+          fi
+          bash Scripts/sign-ipa.sh \
+            build/Seal.ipa \
+            "$RUNNER_TEMP/seal.p12" \
+            "$RUNNER_TEMP/seal.mobileprovision" \
+            build/Seal-signed.ipa \
+            $EXT_ARG
+          ls -la build/Seal-signed.ipa
+
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -117,9 +142,19 @@ jobs:
           if-no-files-found: error
           path: |
             build/Seal.ipa
-            build/Seal.ipa.sha256
             build/Seal-Info.plist
             build/SealTunnel-Info.plist
+          retention-days: 14
+
+      - name: Upload signed IPA
+        if: hashFiles('build/Seal-signed.ipa') != ''
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Seal-Signed-${{ github.run_number }}
+          if-no-files-found: error
+          path: |
+            build/Seal-signed.ipa
+            build/Seal-signed.ipa.sha256
           retention-days: 14
 
       - name: Upload build metadata
