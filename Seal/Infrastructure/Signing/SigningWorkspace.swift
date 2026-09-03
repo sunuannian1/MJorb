@@ -478,7 +478,8 @@ struct SigningWorkspace: Sendable {
     }
 
     /// 大 IPA 优化：剥离 arm64e 架构，只保留 arm64
-    /// iOS 设备全是 arm64，arm64e 无用且会导致 ldid 处理大文件时内存不足
+    /// 大 IPA 优化：剥离非 arm64 架构，只保留 arm64
+    /// 支持 fat32(0xCAFEBABE) 和 fat64(0xCAFEBABF)，rork-sign 只支持 64-bit slice
     private func stripArm64eArchitecture(in appURL: URL) throws {
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(
@@ -488,63 +489,72 @@ struct SigningWorkspace: Sendable {
         ) else { return }
 
         for case let url as URL in enumerator {
-            // 只处理大于 1MB 的文件，小文件不需要剥离
             guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
                   size > 1_000_000 else { continue }
 
-            // 读取文件头，判断是否是 FAT 二进制（magic=0xCAFEBABE）
             let handle = try? FileHandle(forReadingFrom: url)
             defer { try? handle?.close() }
             guard let headerData = try? handle?.read(upToCount: 8),
                   headerData.count >= 8 else { continue }
 
+            // 本地小端读取：大端 fat32(CA FE BA BE)->0xBEBAFECA, 大端 fat64(CA FE BA BF)->0xBFBAFECA
             let magic = headerData.withUnsafeBytes { $0.load(as: UInt32.self) }
-            guard magic == 0xCAFEBABE || magic == 0xBEBAFECA else { continue }
+            let isFat64 = (magic == 0xBFBAFECA)
+            guard magic == 0xBEBAFECA || isFat64 else { continue }
 
-            // 读取 FAT 头和架构列表
+            // FAT 头全是大端，nfatArch 在偏移4
             let nfatArch = headerData.withUnsafeBytes {
                 $0.load(fromByteOffset: 4, as: UInt32.self)
             }.bigEndian
             guard nfatArch > 1 else { continue }
 
-            let archTableSize = Int(nfatArch) * 20
+            // fat32 arch record=20字节, fat64=32字节
+            let archRecordSize = isFat64 ? 32 : 20
+            let archTableSize = Int(nfatArch) * archRecordSize
             guard let archData = try? handle?.read(upToCount: archTableSize),
                   archData.count >= archTableSize else { continue }
 
-            // 遍历架构列表，找 arm64（cputype=0x0100000C, cpusubtype=0）
-            var arm64Offset: UInt32 = 0
-            var arm64Size: UInt32 = 0
+            // 遍历架构列表，找普通 arm64（排除 arm64e）
+            var arm64Offset: UInt64 = 0
+            var arm64Size: UInt64 = 0
             var found = false
 
             for i in 0..<Int(nfatArch) {
-                let archOffset = i * 20
+                let base = i * archRecordSize
                 let cputype = archData.withUnsafeBytes {
-                    $0.load(fromByteOffset: archOffset, as: UInt32.self)
+                    $0.load(fromByteOffset: base, as: UInt32.self)
                 }.bigEndian
                 let cpusubtype = archData.withUnsafeBytes {
-                    $0.load(fromByteOffset: archOffset + 4, as: UInt32.self)
-                }.bigEndian
-                let offset = archData.withUnsafeBytes {
-                    $0.load(fromByteOffset: archOffset + 8, as: UInt32.self)
-                }.bigEndian
-                let size = archData.withUnsafeBytes {
-                    $0.load(fromByteOffset: archOffset + 12, as: UInt32.self)
+                    $0.load(fromByteOffset: base + 4, as: UInt32.self)
                 }.bigEndian
 
-                // ARM64 架构：cputype=0x0100000C
                 // cpusubtype 低24位是 subtype(0=ALL,1=V8,2=arm64e)，高8位是 capability bits
-                // 排除 arm64e(subtype=2)，保留普通 arm64(subtype=0或1)
-                if cputype == 0x0100000C && (cpusubtype & 0x00FFFFFF) != 2 {
-                    arm64Offset = offset
-                    arm64Size = size
-                    found = true
-                    break
+                guard cputype == 0x0100000C, (cpusubtype & 0x00FFFFFF) != 2 else { continue }
+
+                if isFat64 {
+                    // fat64: offset 在 base+8 (8字节), size 在 base+16 (8字节)
+                    arm64Offset = archData.withUnsafeBytes {
+                        $0.load(fromByteOffset: base + 8, as: UInt64.self)
+                    }.bigEndian
+                    arm64Size = archData.withUnsafeBytes {
+                        $0.load(fromByteOffset: base + 16, as: UInt64.self)
+                    }.bigEndian
+                } else {
+                    // fat32: offset 在 base+8 (4字节), size 在 base+12 (4字节)
+                    arm64Offset = UInt64(archData.withUnsafeBytes {
+                        $0.load(fromByteOffset: base + 8, as: UInt32.self)
+                    }.bigEndian)
+                    arm64Size = UInt64(archData.withUnsafeBytes {
+                        $0.load(fromByteOffset: base + 12, as: UInt32.self)
+                    }.bigEndian)
                 }
+                found = true
+                break
             }
 
             guard found, arm64Size > 0 else { continue }
 
-            // 分块流式写入，避免一次性加载大文件到内存导致崩溃
+            // 分块流式写入 arm64 slice
             let tempURL = url.deletingLastPathComponent()
                 .appendingPathComponent(".\(url.lastPathComponent).arm64tmp")
             try? fileManager.removeItem(at: tempURL)
@@ -553,9 +563,9 @@ struct SigningWorkspace: Sendable {
             let writeHandle = try? FileHandle(forWritingTo: tempURL)
             defer { try? writeHandle?.close() }
 
-            try? handle?.seek(toOffset: UInt64(arm64Offset))
+            try? handle?.seek(toOffset: arm64Offset)
             var remaining = Int(arm64Size)
-            let chunkSize = 10 * 1024 * 1024 // 10MB
+            let chunkSize = 10 * 1024 * 1024
             var success = true
 
             while remaining > 0 {
@@ -575,7 +585,6 @@ struct SigningWorkspace: Sendable {
             }
 
             try? writeHandle?.close()
-            // 用临时文件替换原文件
             do {
                 try fileManager.removeItem(at: url)
                 try fileManager.moveItem(at: tempURL, to: url)
@@ -584,16 +593,3 @@ struct SigningWorkspace: Sendable {
             }
         }
     }
-
-    private static func signingFailure(
-        reason: String,
-        code: String
-    ) -> ImportFailure {
-        ImportFailure(
-            title: "无法签名",
-            reason: reason,
-            recovery: "检查 IPA",
-            code: code
-        )
-    }
-}
