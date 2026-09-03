@@ -15,7 +15,7 @@ packages:
     exactVersion: 0.9.20
   AltSign:
     url: https://github.com/dmjorb/AltSign
-    revision: 706e21e
+    revision: 868f0ff
   AnisetteKit:
     url: https://github.com/mahee96/AnisetteKit
     revision: 433084d91c1ddbca84f988f0e3b204eedc0fda27

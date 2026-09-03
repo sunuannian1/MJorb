@@ -420,6 +420,32 @@ actor ApplePortalSigningService {
             )
             try Task.checkCancellation()
 
+            // 大 IPA 峰值磁盘空间：解压 ~1x + ldid 临时文件 ~1x + 输出 IPA ~1x
+            // 微信 400MB 需 ~1.2GB，盛世天下 580MB 需 ~1.8GB。空间不足会导致
+            // ldid.cpp(538) 写入失败或 ZIPFoundation DataError，提前检查给出明确提示。
+            do {
+                let ipaAttrs = try FileManager.default.attributesOfItem(atPath: originalIPAURL.path)
+                let ipaSize = (ipaAttrs[.size] as? NSNumber)?.int64Value ?? 0
+                if ipaSize > 0 {
+                    let docDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+                    if let docDir,
+                       let freeAttrs = try? FileManager.default.attributesOfFileSystem(forPath: docDir.path),
+                       let freeBytes = (freeAttrs[.systemFreeSize] as? NSNumber)?.int64Value {
+                        let requiredBytes = ipaSize * 4 + 200 * 1024 * 1024 // 4x + 200MB 余量
+                        if freeBytes < requiredBytes {
+                            let freeGB = Double(freeBytes) / 1_000_000_000
+                            let requiredGB = Double(requiredBytes) / 1_000_000_000
+                            throw Self.failure(
+                                title: "存储空间不足",
+                                reason: String(format: "签名此 IPA 约需 %.1fGB 临时空间，当前剩余 %.1fGB。大 IPA 解压、签名、打包各需一份副本。", requiredGB, freeGB),
+                                recovery: "清理手机存储空间后重试",
+                                code: "SEAL-SIGN-404"
+                            )
+                        }
+                    }
+                }
+            }
+
             stage = .packaging
             let prepared = try signingWorkspace.prepare(
                 ipaURL: originalIPAURL,

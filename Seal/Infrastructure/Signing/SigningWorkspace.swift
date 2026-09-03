@@ -23,6 +23,8 @@ struct SigningWorkspace: Sendable {
         preferredDisplayName: String? = nil,
         preferredIconData: Data? = nil
     ) throws -> PreparedSigningWorkspace {
+        // 大 IPA 优化：用系统 unzipItem 流式解压（ZIPFoundation extract 对 500MB+ 文件
+        // 可能因内存/写入失败报 DataError）。仍用 ZIPFoundation Archive 只读条目元数据做安全验证。
         let archive = try Archive(url: ipaURL, accessMode: .read)
         let entries = Array(archive)
         try validate(entries)
@@ -34,11 +36,9 @@ struct SigningWorkspace: Sendable {
             withIntermediateDirectories: true
         )
         do {
-            for entry in entries {
-                try Task.checkCancellation()
-                let destination = workspaceRoot.appending(path: entry.path)
-                _ = try archive.extract(entry, to: destination)
-            }
+            // 系统 API 流式解压，不加载大文件到内存
+            try fileManager.unzipItem(at: ipaURL, to: workspaceRoot)
+            try Task.checkCancellation()
 
             let payloadURL = workspaceRoot.appending(
                 path: "Payload",
