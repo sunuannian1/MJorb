@@ -88,27 +88,57 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
     private func fetchLocal(identity: AnisetteV3Identity) async throws -> ALTAnisetteData {
         try ensureBundledLibrariesCopied()
         let uuid = try self.uuid(from: identity)
-        // 从 keychain 读取已有的 adi.pb（base64）
-        let existingState = try? await store.load()
-        let existingBlob = existingState.flatMap { Data(base64Encoded: $0.adiPB) }
         let clientInfo = "<MacBookPro18,3> <macOS;26.6;25F84> <com.apple.AuthKit/1 (com.apple.dt.Xcode/26.0)>"
-        let (data, newBlob) = try await anisetteProvider.fetchAnisetteData(
-            mode: .localODA(libsDir: anisetteProvider.libsDir),
-            identifier: uuid,
-            existingAdiBlob: existingBlob,
-            clientInfo: clientInfo,
-            customLocalUserID: identity.localUserID,
-            customDeviceID: identity.deviceIdentifier
-        )
-        // 保存新的 adi.pb 到 keychain
-        if let newBlob, !newBlob.isEmpty,
-           let state = AnisetteProvisioningState(identifier: identity.encodedIdentifier, adiPB: newBlob.base64EncodedString()) {
-            try? await store.save(state)
+
+        // 第一次尝试：用 keychain 中已有的 adi.pb
+        let existingState = try? await store.load()
+        var existingBlob = existingState.flatMap { Data(base64Encoded: $0.adiPB) }
+
+        do {
+            let (data, newBlob) = try await anisetteProvider.fetchAnisetteData(
+                mode: .localODA(libsDir: anisetteProvider.libsDir),
+                identifier: uuid,
+                existingAdiBlob: existingBlob,
+                clientInfo: clientInfo,
+                customLocalUserID: identity.localUserID,
+                customDeviceID: identity.deviceIdentifier
+            )
+            // 保存新的 adi.pb 到 keychain
+            if let newBlob, !newBlob.isEmpty,
+               let state = AnisetteProvisioningState(identifier: identity.encodedIdentifier, adiPB: newBlob.base64EncodedString()) {
+                try? await store.save(state)
+            }
+            guard let alt = convert(data) else {
+                throw AnisetteV3Error.localGenerationFailed("Failed to convert AnisetteData to ALTAnisetteData")
+            }
+            return alt
+        } catch {
+            // 如果错误是 "Device not provisioned" (-45061)，说明 keychain 中的 adi.pb 无效或过期
+            // 清除旧数据，强制重新 provisioning（需要访问 gsa.apple.com）
+            let msg = error.localizedDescription
+            if msg.contains("Device not provisioned") || msg.contains("-45061") {
+                Self.logger.warning("检测到 Device not provisioned，清除旧 adi.pb 重新 provisioning")
+                try? await store.remove()
+                existingBlob = nil
+                let (data, newBlob) = try await anisetteProvider.fetchAnisetteData(
+                    mode: .localODA(libsDir: anisetteProvider.libsDir),
+                    identifier: uuid,
+                    existingAdiBlob: nil,
+                    clientInfo: clientInfo,
+                    customLocalUserID: identity.localUserID,
+                    customDeviceID: identity.deviceIdentifier
+                )
+                if let newBlob, !newBlob.isEmpty,
+                   let state = AnisetteProvisioningState(identifier: identity.encodedIdentifier, adiPB: newBlob.base64EncodedString()) {
+                    try? await store.save(state)
+                }
+                guard let alt = convert(data) else {
+                    throw AnisetteV3Error.localGenerationFailed("Failed to convert AnisetteData to ALTAnisetteData")
+                }
+                return alt
+            }
+            throw AnisetteV3Error.localGenerationFailed(error.localizedDescription)
         }
-        guard let alt = convert(data) else {
-            throw AnisetteV3Error.localGenerationFailed("Failed to convert AnisetteData to ALTAnisetteData")
-        }
-        return alt
     }
 
 
