@@ -1612,9 +1612,14 @@ actor ApplePortalSigningService {
                 let pluginInfoURL = pluginURL.appendingPathComponent("Info.plist")
                 let pluginBundleID = (try? NSDictionary(contentsOf: pluginInfoURL))?["CFBundleIdentifier"] as? String ?? ""
                 let pluginProfile = profiles.first(where: { $0.bundleIdentifier == pluginBundleID })
+                let pluginEntitlementsData: Data?
                 if let pluginProfile {
                     let profileURL = pluginURL.appendingPathComponent("embedded.mobileprovision")
                     try pluginProfile.data.write(to: profileURL)
+                    let stringKeyed = Dictionary(uniqueKeysWithValues: pluginProfile.entitlements.map { ($0.key.rawValue, $0.value) })
+                    pluginEntitlementsData = try? PropertyListSerialization.data(fromPropertyList: stringKeyed, format: .xml, options: 0)
+                } else {
+                    pluginEntitlementsData = entitlementsData
                 }
                 try MachOFullSigner.signAllBinaries(
                     in: pluginURL,
@@ -1622,7 +1627,7 @@ actor ApplePortalSigningService {
                     privateKey: privateKey,
                     teamID: team.identifier,
                     bundleID: pluginBundleID,
-                    entitlements: entitlementsData
+                    entitlements: pluginEntitlementsData
                 )
             }
         }
