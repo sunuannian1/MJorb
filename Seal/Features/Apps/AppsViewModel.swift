@@ -89,7 +89,7 @@ final class AppsViewModel: ObservableObject {
         notificationScheduler: ExpiryNotificationScheduler,
         notificationPreferences: NotificationPreferences,
         signingPreferenceStore: SigningPreferenceStore,
-        operationCoordinator: OperationCoordinator? = nil
+        operationCoordinator: OperationCoordinator? = nil,
         signingVerificationBroker: VerificationCodeBroker
     ) {
         self.workflow = workflow
