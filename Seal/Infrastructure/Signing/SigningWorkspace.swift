@@ -531,7 +531,10 @@ struct SigningWorkspace: Sendable {
                     $0.load(fromByteOffset: archOffset + 12, as: UInt32.self)
                 }.bigEndian
 
-                if cputype == 0x0100000C && cpusubtype != 2 {
+                // ARM64 架构：cputype=0x0100000C
+                // cpusubtype 低24位是 subtype(0=ALL,1=V8,2=arm64e)，高8位是 capability bits
+                // 排除 arm64e(subtype=2)，保留普通 arm64(subtype=0或1)
+                if cputype == 0x0100000C && (cpusubtype & 0x00FFFFFF) != 2 {
                     arm64Offset = offset
                     arm64Size = size
                     found = true

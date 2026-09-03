@@ -1418,6 +1418,7 @@ final class AppsViewModel: ObservableObject {
                 requestedBundleIdentifier: requestedBundleIdentifier,
                 selectedCertificateSerialNumber: selectedCertificateSerialNumber,
                 allowDroppingExtensions: allowDroppingExtensions,
+                forceResign: isRenewal,
                 progress: { [weak self] stage in
                     await self?.updateSigningStage(stage)
                 }

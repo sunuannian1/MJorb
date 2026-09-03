@@ -27,7 +27,7 @@ struct SigningProgressView: View {
         .interactiveDismissDisabled(isRunning)
         .sheet(isPresented: Binding(
             get: { viewModel.signingVerificationBroker.isRequested },
-            set: { if $0 == false { viewModel.signingVerificationBroker.cancel() } }
+            set: { _ in }
         )) {
             verificationCodeSheet
         }
@@ -399,23 +399,6 @@ struct SigningProgressView: View {
         onFinish(completionMode)
         dismiss()
     }
-}
-
-private extension SigningStage {
-    func userVisibleTitle(isRenewal: Bool) -> String {
-        switch self {
-        case .waitingForChannel: return "准备设备"
-        case .preparingAccount: return "验证 Apple ID"
-        case .preparingCertificate: return "准备 Apple ID 证书"
-        case .preparingAppID: return "准备 App ID"
-        case .preparingProfiles: return "准备描述文件"
-        case .signing: return "正在签名"
-        case .installing: return "正在安装"
-        case .verifying: return "正在验证安装"
-        }
-    }
-}
-
     @ViewBuilder
     private var verificationCodeSheet: some View {
         NavigationStack {
@@ -459,3 +442,20 @@ private extension SigningStage {
             .interactiveDismissDisabled(true)
         }
     }
+}
+
+
+private extension SigningStage {
+    func userVisibleTitle(isRenewal: Bool) -> String {
+        switch self {
+        case .waitingForChannel: return "准备设备"
+        case .preparingAccount: return "验证 Apple ID"
+        case .preparingCertificate: return "准备 Apple ID 证书"
+        case .preparingAppID: return "准备 App ID"
+        case .preparingProfiles: return "准备描述文件"
+        case .signing: return "正在签名"
+        case .installing: return "正在安装"
+        case .verifying: return "正在验证安装"
+        }
+    }
+}

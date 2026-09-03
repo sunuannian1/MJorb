@@ -142,7 +142,7 @@ struct AppContainer {
                     notificationScheduler: notificationScheduler,
                     notificationPreferences: notificationPreferences,
                     signingPreferenceStore: signingPreferenceStore,
-                    operationCoordinator: operationCoordinator
+                    operationCoordinator: operationCoordinator,
                     signingVerificationBroker: signingVerificationBroker,
                 ),
                 settingsViewModel: SettingsViewModel(
