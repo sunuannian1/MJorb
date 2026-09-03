@@ -1565,17 +1565,9 @@ actor ApplePortalSigningService {
     /// 从描述文件 entitlements 中提取 appGroups 数组
     private func extractAppGroups(from profile: ALTProvisioningProfile) -> [String] {
         guard let value = profile.entitlements[ALTEntitlement.appGroups] else { return [] }
-        if case let .array(values) = value {
-            return values.compactMap { v in
-                if case let .string(s) = v { return s }
-                return nil
-            }
-        }
-        return []
+        return value as? [String] ?? []
     }
 
-    /// 对齐 AltStore：把描述文件中的 appGroups 写入 Info.plist 的 ALTAppGroups 键
-    /// 同时处理文件提供者扩展的 NSExtensionFileProviderDocumentGroup 替换
     private func writeAppGroupsToInfoPlist(at bundleURL: URL, appGroups: [String]) throws {
         guard appGroups.isEmpty == false else { return }
         let infoURL = bundleURL.appendingPathComponent("Info.plist")
