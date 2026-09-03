@@ -260,59 +260,15 @@ actor ApplePortalSigningService {
                 progress: progress
             )
         } catch let failure as ImportFailure where failure.code == "SEAL-AUTH-107" {
-            // Apple 会话过期（1100），如果保存了密码则自动重新登录
-            let currentSecret = await secretState.value()
-            guard let password = currentSecret.password else { throw failure }
-            do {
-                let newSecret: AccountSecret
-                if let verificationCodeProvider {
-                    newSecret = try await accountClient.reauthenticate(
-                        email: currentSecret.email,
-                        password: password,
-                        verificationCode: verificationCodeProvider
-                    )
-                } else {
-                    newSecret = try await accountClient.reauthenticate(
-                        email: currentSecret.email,
-                        password: password,
-                        verificationCode: { nil }
-                    )
-                }
-                try await persistSigningMaterial(newSecret, currentSecret.certificateSerialNumber ?? "")
-                await secretState.update(newSecret)
-                return try await signOnce(
-                    app: app,
-                    account: account,
-                    secret: newSecret,
-                    deviceIdentifier: deviceIdentifier,
-                    originalIPAURL: originalIPAURL,
-                    workspaceRoot: workspaceRoot,
-                    targetBundleIdentifier: targetBundleIdentifier,
-                    preferredIconData: preferredIconData,
-                    selectedCertificateSerialNumber: selectedCertificateSerialNumber,
-                    allowDroppingExtensions: allowDroppingExtensions,
-                    persistSigningMaterial: persistence,
-                    progress: progress
-                )
-            } catch {
-                // 自动重登失败：区分网络错误和认证错误，给出明确提示
-                let isNetworkError = AppleServiceFailurePolicy.isNetworkError(error)
-                if isNetworkError {
-                    throw Self.failure(
-                        title: "网络无法访问 Apple 服务器",
-                        reason: "Apple ID 登录状态已过期，自动重新登录时网络无法访问 Apple 认证服务器。请开启代理/VPN 后重试。",
-                        recovery: "开启代理后重试",
-                        code: "SEAL-AUTH-107b"
-                    )
-                } else {
-                    throw Self.failure(
-                        title: "需要重新验证 Apple ID",
-                        reason: "Apple ID 登录状态已过期，自动重新登录失败。请前往「我的」页面，重新验证该 Apple ID 后再签名。",
-                        recovery: "去验证 Apple ID",
-                        code: "SEAL-AUTH-107a"
-                    )
-                }
-            }
+            // Apple 会话过期（1100）：签名/续签时是 LocalDevVPN 环境，
+            // 自动重登需要访问 Apple 认证服务器，网络不匹配必败。
+            // 直接提示用户去「我的」页面重新验证（那里用户会自己挂梯子），不标记 ID 失效。
+            throw Self.failure(
+                title: "Apple ID 会话已过期",
+                reason: "该 Apple ID 的登录状态已过期。签名过程中无法重新认证（网络环境不匹配），请前往「我的」页面重新验证该 Apple ID 后再签名。",
+                recovery: "去「我的」页面重新验证 Apple ID",
+                code: "SEAL-AUTH-107"
+            )
         } catch let failure as ImportFailure where Self.shouldRetryWithFreshSigningCertificate(failure) {
             var refreshedSecret = await secretState.value()
             refreshedSecret.certificateP12 = nil
