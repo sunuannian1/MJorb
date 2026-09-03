@@ -25,8 +25,7 @@ packages:
   Minimuxer:
     path: Vendor/Minimuxer
   RorkSign:
-    url: https://github.com/dmjorb/rork-sign
-    branch: main
+    path: Vendor/rork-sign
 targets:
   Seal:
     type: application
