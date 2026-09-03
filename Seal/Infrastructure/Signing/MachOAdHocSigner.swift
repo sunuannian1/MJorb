@@ -55,12 +55,13 @@ struct MachOAdHocSigner {
     static func signFile(at url: URL) throws -> Bool {
         let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
 
-        // 大文件且已有签名：走流式路径，不加载整个文件
+        // 大文件：只走流式路径，绝不回退全量加载（400MB 全量加载会 jetsam 闪退）。
+        // ad-hoc 只是临时占位，ldid 重签时会覆盖；流式失败就跳过，让 ldid 直接处理。
         if let size = fileSize, size > 50 * 1024 * 1024 {
             if let result = try? signThinBinaryStreaming(at: url), result {
                 return true
             }
-            // 流式失败回退到全量（如 FAT 二进制）
+            return false
         }
 
         let data = try Data(contentsOf: url)
@@ -82,7 +83,17 @@ struct MachOAdHocSigner {
     /// 仅适用于已有 LC_CODE_SIGNATURE 的 thin arm64 二进制（App Store 下载的大文件都是这种）
     private static func signThinBinaryStreaming(at url: URL) throws -> Bool {
         let handle = try FileHandle(forReadingFrom: url)
-        defer { handle.closeFile() }
+        // 手动管理生命周期：函数中段需关闭读句柄后开写句柄，
+        // 不能用 defer（会与手动 close 重复关闭，iOS 上重复 close FileHandle 会抛异常闪退）。
+        var readHandleClosed = false
+        func closeReadHandle() {
+            if !readHandleClosed {
+                try? handle.close()
+                readHandleClosed = true
+            }
+        }
+        // 提前 return 前必须关闭读句柄
+        defer { closeReadHandle() }
 
         // 1. 读取文件头（前 32KB 足够包含所有 load commands）
         guard let headerData = try? handle.readData(ofLength: 32 * 1024),
@@ -212,7 +223,7 @@ struct MachOAdHocSigner {
         superBlob.append(codeDirectory)
 
         // 6. 关闭读句柄，用写句柄追加签名 + 修改 LC_CODE_SIGNATURE
-        handle.closeFile()
+        closeReadHandle()
 
         let writeHandle = try FileHandle(forWritingTo: url)
         defer { writeHandle.closeFile() }
