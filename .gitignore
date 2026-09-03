@@ -25,3 +25,6 @@ build*.txt
 build_logs_*/
 artifacts*.json
 *.ipa
+
+# AI dev workspace (forks, temp assets, screenshots)
+.dev-workspace/
