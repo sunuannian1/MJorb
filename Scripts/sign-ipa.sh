@@ -9,6 +9,13 @@ MOBILEPROVISION="${3:?main mobileprovision required}"
 OUTPUT_IPA="${4:?output required}"
 EXT_MOBILEPROVISION="${5:-}"
 
+# 转绝对路径（脚本内会 cd 到临时目录，相对路径会失效）
+UNSIGNED_IPA="$(cd "$(dirname "$UNSIGNED_IPA")" && pwd)/$(basename "$UNSIGNED_IPA")"
+P12="$(cd "$(dirname "$P12")" && pwd)/$(basename "$P12")"
+MOBILEPROVISION="$(cd "$(dirname "$MOBILEPROVISION")" && pwd)/$(basename "$MOBILEPROVISION")"
+OUTPUT_IPA="$(cd "$(dirname "$OUTPUT_IPA")" && pwd)/$(basename "$OUTPUT_IPA")"
+[ -n "$EXT_MOBILEPROVISION" ] && EXT_MOBILEPROVISION="$(cd "$(dirname "$EXT_MOBILEPROVISION")" && pwd)/$(basename "$EXT_MOBILEPROVISION")"
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
