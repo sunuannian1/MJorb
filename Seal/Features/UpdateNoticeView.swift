@@ -4,7 +4,26 @@ import SwiftUI
 struct UpdateNoticeView: View {
     let notice: UpdateNotice
     let onDismiss: () -> Void
-    @State private var wechatCopied = false
+
+    /// 将 GitHub Release 的 Markdown body 转为适合弹窗显示的纯文本
+    private func plainText(from markdown: String) -> String {
+        var text = markdown
+        // 去掉标题标记 ## / ###，保留文字
+        text = text.replacingOccurrences(of: "(?m)^#{1,6}\\s+", with: "", options: .regularExpression)
+        // 去掉粗体 **text**
+        text = text.replacingOccurrences(of: "\\*\\*(.+?)\\*\\*", with: "$1", options: .regularExpression)
+        // 去掉斜体 *text*
+        text = text.replacingOccurrences(of: "(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)", with: "$1", options: .regularExpression)
+        // 无序列表 - / * 换成 •
+        text = text.replacingOccurrences(of: "(?m)^\\s*[-*]\\s+", with: "• ", options: .regularExpression)
+        // 去掉链接 [text](url)，保留 text
+        text = text.replacingOccurrences(of: "\\[(.+?)\\]\\(.+?\\)", with: "$1", options: .regularExpression)
+        // 去掉行内代码 `code`
+        text = text.replacingOccurrences(of: "`(.+?)`", with: "$1", options: .regularExpression)
+        // 合并 3 个以上换行为 2 个
+        text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var body: some View {
         ZStack {
@@ -22,36 +41,29 @@ struct UpdateNoticeView: View {
                     Text(notice.title)
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
                 .padding(.bottom, 16)
 
-                // 更新列表（左对齐，更易读）
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(notice.message)
+                // 更新内容（左对齐，可滚动）
+                ScrollView {
+                    Text(plainText(from: notice.message))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxHeight: 320)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
 
                 // 按钮区
                 VStack(spacing: 10) {
-                    Button(action: {
-                        UIPasteboard.general.string = "MJorb"
-                        wechatCopied = true
-                        if let url = URL(string: "weixin://") {
-                            UIApplication.shared.open(url)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            wechatCopied = false
-                        }
-                    }) {
-                        Text(wechatCopied ? "已复制，去微信搜索" : "复制名称并打开微信")
+                    Button(action: onDismiss) {
+                        Text("确定")
                             .font(.headline.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -60,13 +72,6 @@ struct UpdateNoticeView: View {
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                                     .fill(Color.sealAccent)
                             )
-                    }
-                    Button(action: onDismiss) {
-                        Text("忽略此版本")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
                     }
                 }
                 .padding(.horizontal, 20)
