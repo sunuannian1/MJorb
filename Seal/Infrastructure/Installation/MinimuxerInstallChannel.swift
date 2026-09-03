@@ -339,8 +339,10 @@ actor MinimuxerInstallChannel: InstallChannel {
         do {
             try await installPushedIpa(bundleID: bundleID, isSelfReplacement: isSelfReplacement)
         } catch {
-            let msg = error.localizedDescription
-            if msg.contains("MissingPackagePath") || msg.contains("missing package path") {
+            // ImportFailure.errorDescription 返回 title（"安装失败"），reason 才包含原始设备错误。
+            // 必须检查 reason，否则 MissingPackagePath 重试永远不触发。
+            let detail = (error as? ImportFailure)?.reason ?? error.localizedDescription
+            if detail.contains("MissingPackagePath") || detail.contains("missing package path") {
                 NSLog("[Seal] MissingPackagePath detected, re-pushing IPA and retrying install")
                 try await pushIpa(ipaData: ipaData, bundleID: bundleID)
                 try await installPushedIpa(bundleID: bundleID, isSelfReplacement: isSelfReplacement)
