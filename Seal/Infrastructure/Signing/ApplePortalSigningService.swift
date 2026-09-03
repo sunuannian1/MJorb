@@ -1425,6 +1425,36 @@ actor ApplePortalSigningService {
         mainBundleID: String,
         profiles: [ALTProvisioningProfile]
     ) async throws {
+        guard let p12Data, p12Data.isEmpty == false else {
+            throw ApplePortalSigningFailure.make(
+                stage: .signing,
+                error: RorkAppSigner.SignError.missingCertificate
+            )
+        }
+
+        // 用 AltSign 自己的 ALTCertificate 解析 P12（OpenSSL 实现，与上游一致）。
+        // 不能用 iOS 原生 SecPKCS12Import（OpenSSL 生成的无密码 P12 报 errSecAuthFailed），
+        // 也不能用 rork-sign 自带 PKCS12 解析器（与 Apple/OpenSSL 的 MAC KDF 不兼容）。
+        let altCert: ALTCertificate
+        do {
+            altCert = try ALTCertificate(p12Data: p12Data, password: nil)
+        } catch {
+            throw ApplePortalSigningFailure.make(
+                stage: .signing,
+                error: RorkAppSigner.SignError.identityImportFailed(
+                    "ALTCertificate 解析 P12 失败：\(error.localizedDescription)，请重新登录 Apple ID"
+                )
+            )
+        }
+
+        guard let certificateData = altCert.data, certificateData.isEmpty == false else {
+            throw ApplePortalSigningFailure.make(
+                stage: .signing,
+                error: RorkAppSigner.SignError.missingCertificate
+            )
+        }
+        let privateKeyData = altCert.privateKey
+
         // 在 actor 上先提取 Sendable 数据（ALTProvisioningProfile 是 ObjC 非 Sendable 类型）
         let materials = profiles.map {
             RorkAppSigner.ProfileMaterial(bundleID: $0.bundleIdentifier, data: $0.data)
@@ -1433,7 +1463,8 @@ actor ApplePortalSigningService {
         try await Task.detached(priority: .userInitiated) {
             try RorkAppSigner.signAppBundle(
                 at: appURL,
-                p12Data: p12Data,
+                certificateData: certificateData,
+                privateKeyData: privateKeyData,
                 mainBundleID: mainBundleID,
                 profiles: materials
             )
