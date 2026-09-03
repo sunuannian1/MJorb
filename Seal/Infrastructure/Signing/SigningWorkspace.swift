@@ -593,3 +593,17 @@ struct SigningWorkspace: Sendable {
             }
         }
     }
+
+
+    private static func signingFailure(
+        reason: String,
+        code: String
+    ) -> ImportFailure {
+        ImportFailure(
+            title: "无法签名",
+            reason: reason,
+            recovery: "检查 IPA",
+            code: code
+        )
+    }
+}
