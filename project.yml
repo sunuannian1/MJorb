@@ -37,6 +37,22 @@ targets:
           - "Resources/Anisette/*.so"
     resources:
       - path: Seal/Resources/Anisette
+    buildPhases:
+      - name: Copy Anisette ADI Libraries
+        script: |
+          set -e
+          ANISETTE_SRC="$SRCROOT/Seal/Resources/Anisette"
+          ANISETTE_DST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Anisette"
+          mkdir -p "$ANISETTE_DST"
+          for f in "$ANISETTE_SRC"/*.so; do
+            if [ -f "$f" ]; then
+              cp "$f" "$ANISETTE_DST/"
+              echo "Copied $(basename $f)"
+            fi
+          done
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Anisette/libCoreADI.so
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Anisette/libstoreservicescore.so
     dependencies:
       - package: ZIPFoundation
       - package: AltSign
