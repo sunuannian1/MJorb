@@ -31,5 +31,22 @@ xcodebuild build \
 test -d "$product"
 mkdir -p "$package_root/Payload"
 ditto "$product" "$package_root/Payload/Seal.app"
+
+# Copy Anisette ADI libraries into app bundle.
+# Xcode treats .so as Mach-O binaries and skips them in resources;
+# without these, local anisette generation falls back to remote servers
+# (machineID drift -> Apple ID session invalidation).
+anisette_src="$PWD/Seal/Resources/Anisette"
+anisette_dst="$package_root/Payload/Seal.app/Anisette"
+if [ -d "$anisette_src" ]; then
+  mkdir -p "$anisette_dst"
+  cp "$anisette_src"/libCoreADI.so "$anisette_dst/" 2>/dev/null || true
+  cp "$anisette_src"/libstoreservicescore.so "$anisette_dst/" 2>/dev/null || true
+  echo "Copied Anisette libraries:"
+  ls -la "$anisette_dst/"
+else
+  echo "WARNING: $anisette_src not found, Anisette libraries will be missing" >&2
+fi
+
 (cd "$package_root" && /usr/bin/zip -qry "$archive" Payload)
 shasum -a 256 "$archive" > "$archive.sha256"
