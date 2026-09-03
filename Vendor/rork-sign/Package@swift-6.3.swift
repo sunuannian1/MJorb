@@ -71,8 +71,8 @@ let package = Package(
     ] + objectiveCProducts,
     dependencies: [
         .package(
-            url: "https://github.com/rorkai/swift-crypto.git",
-            exact: "4.5.0-rork.1"
+            url: "https://github.com/apple/swift-crypto.git",
+            exact: "4.5.2"
         ),
         .package(
             url: "https://github.com/apple/swift-log.git",
