@@ -62,7 +62,8 @@ enum RorkAppSigner {
         certificateData: Data,
         privateKeyData: Data,
         mainBundleID: String,
-        profiles: [ProfileMaterial]
+        profiles: [ProfileMaterial],
+        appGroupIdentifiers: [String] = []
     ) throws {
         guard certificateData.isEmpty == false else {
             throw SignError.missingCertificate
@@ -103,6 +104,7 @@ enum RorkAppSigner {
             bundleIdentifier: mainBundleID,
             rootProvisioningProfile: mainProfile.data,
             provisioningProfilesByBundleIdentifier: extensionProfiles,
+            appGroupIdentifiers: appGroupIdentifiers,
             embedProvisioningProfiles: true,
             codeDirectoryHashingMode: .sha256Only
         )

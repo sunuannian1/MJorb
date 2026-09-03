@@ -1576,12 +1576,29 @@ actor ApplePortalSigningService {
                 try? infoDictionary.write(to: infoURL)
             }
 
+            // 从主应用描述文件提取映射后的 appGroups，传给 RorkSigner 确保 entitlements 中 appGroups 正确
+            let mainProfileData = materials.first(where: {
+                $0.bundleID.caseInsensitiveCompare(mainBundleID) == .orderedSame
+            })?.data ?? materials.first?.data
+            let appGroups: [String]
+            if let data = mainProfileData,
+               let details = try? ProvisioningProfileReader().details(from: data),
+               case let .array(values) = details.entitlements["com.apple.security.application-groups"] {
+                appGroups = values.compactMap { v in
+                    if case let .string(s) = v { return s }
+                    return nil
+                }
+            } else {
+                appGroups = []
+            }
+
             try RorkAppSigner.signAppBundle(
                 at: appURL,
                 certificateData: certificateData,
                 privateKeyData: privateKeyData,
                 mainBundleID: mainBundleID,
-                profiles: materials
+                profiles: materials,
+                appGroupIdentifiers: appGroups
             )
         }.value
     }
