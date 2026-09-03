@@ -505,6 +505,8 @@ final class AppleAccountClient {
                 code = "SEAL-ANI-112"
             case .unavailable:
                 code = "SEAL-ANI-113"
+            case .localGenerationFailed:
+                code = "SEAL-ANI-114"
             }
             return ImportFailure(
                 title: "无法获取设备环境",
