@@ -88,17 +88,7 @@ security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
 security list-keychains -d user -s "$KEYCHAIN" "$(security list-keychains -d user | tr -d '"' | head -1)"
 
 echo "[sign] importing P12..."
-# 无密码 P12 在 macOS security import 下可能报 MAC verification failed，
-# 先用 openssl 转成带随机密码的 P12 再导入。
-P12_PASS="seal-import-$$"
-P12_REPACK="$WORK/repacked.p12"
-if openssl pkcs12 -in "$P12" -out "$P12_REPACK" -export -passin pass: -passout "pass:$P12_PASS" 2>/dev/null; then
-  echo "[sign] repacked P12 with temporary password"
-  security import "$P12_REPACK" -k "$KEYCHAIN" -P "$P12_PASS" -T /usr/bin/codesign 2>&1 || true
-else
-  echo "[sign] openssl repack failed, trying direct import..."
-  security import "$P12" -k "$KEYCHAIN" -P "" -T /usr/bin/codesign 2>&1 || true
-fi
+security import "$P12" -k "$KEYCHAIN" -P "" -T /usr/bin/codesign 2>&1 || true
 
 if ! security find-certificate -c "Apple Worldwide Developer Relations Certification Authority" "$KEYCHAIN" >/dev/null 2>&1; then
   curl -fsSL https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer -o "$WORK/wwdr.cer" 2>/dev/null && \
