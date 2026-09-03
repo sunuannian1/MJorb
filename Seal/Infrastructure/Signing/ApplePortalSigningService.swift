@@ -1524,6 +1524,58 @@ actor ApplePortalSigningService {
         }
         // rork-sign 是 CPU 密集型同步操作，丢到后台线程，避免长时间占用 actor
         try await Task.detached(priority: .userInitiated) {
+            // 对齐 AltStore：签名前把每个描述文件的 appGroups 写入对应 bundle 的 Info.plist
+            let reader = ProvisioningProfileReader()
+            for material in materials {
+                let groups: [String]
+                if let details = try? reader.details(from: material.data),
+                   case let .array(values) = details.entitlements["com.apple.security.application-groups"] {
+                    groups = values.compactMap { v in
+                        if case let .string(s) = v { return s }
+                        return nil
+                    }
+                } else {
+                    groups = []
+                }
+                guard groups.isEmpty == false else { continue }
+
+                let bundleURL: URL
+                if material.bundleID.caseInsensitiveCompare(mainBundleID) == .orderedSame {
+                    bundleURL = appURL
+                } else {
+                    // 扩展：在 PlugIns 目录中按 CFBundleIdentifier 匹配
+                    let pluginsURL = appURL.appendingPathComponent("PlugIns")
+                    guard let pluginFiles = try? FileManager.default.contentsOfDirectory(
+                        at: pluginsURL, includingPropertiesForKeys: nil
+                    ) else { continue }
+                    guard let matched = pluginFiles.first(where: { ext in
+                        guard ext.pathExtension == "appex" else { return false }
+                        let info = try? NSDictionary(
+                            contentsOf: ext.appendingPathComponent("Info.plist")
+                        )
+                        let bid = info?["CFBundleIdentifier"] as? String
+                        return bid?.caseInsensitiveCompare(material.bundleID) == .orderedSame
+                    }) else { continue }
+                    bundleURL = matched
+                }
+
+                let infoURL = bundleURL.appendingPathComponent("Info.plist")
+                guard let infoDictionary = NSMutableDictionary(contentsOf: infoURL) else { continue }
+                infoDictionary["ALTAppGroups"] = groups
+
+                // 文件提供者扩展：替换 NSExtensionFileProviderDocumentGroup
+                if var extInfo = infoDictionary["NSExtension"] as? [String: Any],
+                   let originalGroup = extInfo["NSExtensionFileProviderDocumentGroup"] as? String {
+                    let matched = groups.first(where: { $0.contains(originalGroup) }) ?? groups.first
+                    if let matched {
+                        extInfo["NSExtensionFileProviderDocumentGroup"] = matched
+                        infoDictionary["NSExtension"] = extInfo
+                    }
+                }
+
+                try? infoDictionary.write(to: infoURL)
+            }
+
             try RorkAppSigner.signAppBundle(
                 at: appURL,
                 certificateData: certificateData,
@@ -1560,36 +1612,6 @@ actor ApplePortalSigningService {
     }
 
     /// 用纯 Swift MachOFullSigner 签名整个 app（替代 ALTSigner/ldid）
-    // MARK: - Info.plist App Groups 对齐 AltStore
-
-    /// 从描述文件 entitlements 中提取 appGroups 数组
-    private func extractAppGroups(from profile: ALTProvisioningProfile) -> [String] {
-        guard let value = profile.entitlements[ALTEntitlement.appGroups] else { return [] }
-        return value as? [String] ?? []
-    }
-
-    private func writeAppGroupsToInfoPlist(at bundleURL: URL, appGroups: [String]) throws {
-        guard appGroups.isEmpty == false else { return }
-        let infoURL = bundleURL.appendingPathComponent("Info.plist")
-        guard let infoDictionary = NSMutableDictionary(contentsOf: infoURL) else { return }
-
-        // 对齐 AltStore Bundle.Info.appGroups = "ALTAppGroups"
-        infoDictionary["ALTAppGroups"] = appGroups
-
-        // 文件提供者扩展：替换 NSExtensionFileProviderDocumentGroup 为映射后的 appGroup
-        if var extensionInfo = infoDictionary["NSExtension"] as? [String: Any],
-           let originalGroup = extensionInfo["NSExtensionFileProviderDocumentGroup"] as? String {
-            // 优先选包含原始 group 标识的，否则选第一个
-            let matched = appGroups.first(where: { $0.contains(originalGroup) }) ?? appGroups.first
-            if let matched {
-                extensionInfo["NSExtensionFileProviderDocumentGroup"] = matched
-                infoDictionary["NSExtension"] = extensionInfo
-            }
-        }
-
-        try infoDictionary.write(to: infoURL)
-    }
-
     private func signAppWithFullSigner(
         at appURL: URL,
         team: ALTTeam,
@@ -1615,11 +1637,6 @@ actor ApplePortalSigningService {
             try mainProfile.data.write(to: profileURL)
         }
 
-        // 对齐 AltStore：把描述文件中的 appGroups 写入主应用 Info.plist
-        if let mainProfile {
-            let mainAppGroups = extractAppGroups(from: mainProfile)
-            try writeAppGroupsToInfoPlist(at: appURL, appGroups: mainAppGroups)
-        }
 
         // 3.5 从描述文件生成 entitlements XML（对齐 ldid 签名要求）
         let entitlementsData: Data?
@@ -1655,9 +1672,6 @@ actor ApplePortalSigningService {
                     try pluginProfile.data.write(to: profileURL)
                     let stringKeyed = Dictionary(uniqueKeysWithValues: pluginProfile.entitlements.map { ($0.key.rawValue, $0.value) })
                     pluginEntitlementsData = try? PropertyListSerialization.data(fromPropertyList: stringKeyed, format: .xml, options: 0)
-                    // 对齐 AltStore：把描述文件中的 appGroups 写入扩展 Info.plist
-                    let pluginAppGroups = extractAppGroups(from: pluginProfile)
-                    try? writeAppGroupsToInfoPlist(at: pluginURL, appGroups: pluginAppGroups)
                 } else {
                     pluginEntitlementsData = entitlementsData
                 }
