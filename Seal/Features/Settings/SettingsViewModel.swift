@@ -1551,11 +1551,7 @@ final class SettingsViewModel: ObservableObject {
                 account.lastVerifiedAt = Date()
                 try await accountRepository.save(account)
             } catch let failure as ImportFailure {
-                if let reason = AppleServiceFailurePolicy.verificationFailureReason(for: failure) {
-                    account.status = .needsVerification
-                    account.verificationFailureReason = reason
-                    try await accountRepository.save(account)
-                }
+                // 不标记 ID 失效：添加后永久保留，只抛出错误提示
                 throw failure
             } catch {
                 if AppleServiceFailurePolicy.isNetworkError(error) {
@@ -1626,11 +1622,8 @@ final class SettingsViewModel: ObservableObject {
         _ reason: AccountVerificationFailureReason,
         for account: AppleAccountRecord
     ) async throws {
-        guard let accountRepository else { return }
-        var updated = account
-        updated.status = .needsVerification
-        updated.verificationFailureReason = reason
-        try await accountRepository.save(updated)
+        // 不标记 ID 失效：添加后永久保留，只记录日志
+        // 调用方会抛出对应错误提示用户
     }
 
     private func repairLegacyAccountStatuses(

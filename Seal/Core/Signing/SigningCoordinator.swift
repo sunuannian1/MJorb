@@ -53,9 +53,7 @@ actor SigningCoordinator {
             )
         }
         guard var secret = try await keychain.load(accountID: accountID) else {
-            account.status = .needsVerification
-            account.verificationFailureReason = .localCredentialsMissing
-            try await persistAccountState(account)
+            // 不标记 ID 失效：添加后永久保留，只报错提示用户重新验证
             throw Self.failure(
                 reason: "本机 Keychain 中缺少当前 Apple ID 的登录凭据。",
                 recovery: "重新验证 Apple ID",
@@ -225,11 +223,7 @@ actor SigningCoordinator {
             try await persistAppState(app)
             throw CancellationError()
         } catch let failure as ImportFailure {
-            if let reason = AppleServiceFailurePolicy.verificationFailureReason(for: failure) {
-                account.status = .needsVerification
-                account.verificationFailureReason = reason
-                try await persistAccountState(account)
-            }
+            // 不标记 ID 失效：添加后永久保留，只报错提示
             if didPersistNewSignedArtifact || failure.code.hasPrefix("SEAL-INSTALL-") {
                 app.state = originalState == .installed ? .installed : .signed
                 app.signedArtifactStatus = .installFailed
