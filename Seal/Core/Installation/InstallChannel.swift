@@ -8,6 +8,7 @@ protocol InstallChannel: Actor {
     func reset() async
     func pushIpa(ipaData: Data, bundleID: String) async throws
     func installPushedIpa(bundleID: String, isSelfReplacement: Bool) async throws
+    func install(ipaData: Data, bundleID: String, isSelfReplacement: Bool) async throws
     func verifyInstalled(bundleID: String) async throws
 }
 
