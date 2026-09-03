@@ -21,6 +21,9 @@ packages:
     revision: 433084d91c1ddbca84f988f0e3b204eedc0fda27
   Minimuxer:
     path: Vendor/Minimuxer
+  RorkSign:
+    url: https://github.com/rorkai/rork-sign
+    from: 0.6.5
 targets:
   Seal:
     type: application
@@ -38,6 +41,8 @@ targets:
         product: AltSign-Static
       - package: AnisetteKit
       - package: Minimuxer
+      - package: RorkSign
+        product: RorkSign
       - target: DeviceSupport
       - target: SealTunnel
         embed: true

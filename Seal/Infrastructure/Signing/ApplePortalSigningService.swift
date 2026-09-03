@@ -486,8 +486,8 @@ actor ApplePortalSigningService {
             stage = .signing
             try await signApp(
                 at: prepared.appURL,
-                team: team,
-                certificate: identity.certificate,
+                p12Data: identity.secret.certificateP12,
+                mainBundleID: prepared.mappedMainBundleID,
                 profiles: profilePreparation.profiles
             )
             try Task.checkCancellation()
@@ -1421,24 +1421,23 @@ actor ApplePortalSigningService {
 
     private func signApp(
         at appURL: URL,
-        team: ALTTeam,
-        certificate: ALTCertificate,
+        p12Data: Data?,
+        mainBundleID: String,
         profiles: [ALTProvisioningProfile]
     ) async throws {
-        // ldid 已修复大二进制内存问题（dmjorb/ldid@07b6abb: temp file + mmap），全部走 ALTSigner/ldid
-        let signer = ALTSigner(team: team, certificate: certificate)
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, any Error>) in
-            _ = signer.signApp(at: appURL, provisioningProfiles: profiles) { success, error in
-                if success {
-                    continuation.resume()
-                } else {
-                    continuation.resume(
-                        throwing: error ?? URLError(.cannotCreateFile)
-                    )
-                }
-            }
+        // 在 actor 上先提取 Sendable 数据（ALTProvisioningProfile 是 ObjC 非 Sendable 类型）
+        let materials = profiles.map {
+            RorkAppSigner.ProfileMaterial(bundleID: $0.bundleIdentifier, data: $0.data)
         }
+        // rork-sign 是 CPU 密集型同步操作，丢到后台线程，避免长时间占用 actor
+        try await Task.detached(priority: .userInitiated) {
+            try RorkAppSigner.signAppBundle(
+                at: appURL,
+                p12Data: p12Data,
+                mainBundleID: mainBundleID,
+                profiles: materials
+            )
+        }.value
     }
 
     /// 检测 app 包中是否有大于 threshold 的 Mach-O 二进制
