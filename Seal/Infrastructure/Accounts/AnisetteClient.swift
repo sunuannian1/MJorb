@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import os
+import AnisetteKit
 @preconcurrency import AltSign
 
 struct AnisetteV3Client: AnisetteEnvironmentManaging {
