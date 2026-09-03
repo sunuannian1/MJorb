@@ -17,8 +17,11 @@ packages:
     url: https://github.com/dmjorb/AltSign
     revision: 868f0ff
   AnisetteKit:
-    url: https://github.com/mahee96/AnisetteKit
-    revision: 433084d91c1ddbca84f988f0e3b204eedc0fda27
+    url: https://github.com/dmjorb/AnisetteKit
+    revision: 081200e
+  Crypto:
+    url: https://github.com/apple/swift-crypto
+    from: 4.5.0
   Minimuxer:
     path: Vendor/Minimuxer
   RorkSign:
@@ -43,6 +46,10 @@ targets:
       - package: Minimuxer
       - package: RorkSign
         product: RorkSign
+      - package: Crypto
+        product: Crypto
+      - package: Crypto
+        product: CryptoExtras
       - target: DeviceSupport
       - target: SealTunnel
         embed: true
