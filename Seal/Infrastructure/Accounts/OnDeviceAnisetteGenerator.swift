@@ -33,9 +33,19 @@ actor OnDeviceAnisetteGenerator {
         let rootDirectory = appSupport
             .appendingPathComponent("Seal", isDirectory: true)
             .appendingPathComponent(".anisette", isDirectory: true)
-        libsDirectory = rootDirectory.appendingPathComponent("Libraries", isDirectory: true)
         provisioningDirectory = rootDirectory.appendingPathComponent("Provisioning", isDirectory: true)
         keychain = OnDeviceAnisetteKeychain()
+
+        // 优先使用 App Bundle 内置的 Anisette/ 目录（构建脚本复制进去的 .so 库）。
+        // 直接用 bundleURL 拼接路径，绕过 Bundle.url 的资源索引查找
+        // （.so 不被 Xcode 识别为资源，不在资源索引里）。
+        let bundledAnisetteDir = Bundle.main.bundleURL
+            .appendingPathComponent("Anisette", isDirectory: true)
+        if LocalAnisetteProvider.validateLibrariesExist(at: bundledAnisetteDir) {
+            libsDirectory = bundledAnisetteDir
+        } else {
+            libsDirectory = rootDirectory.appendingPathComponent("Libraries", isDirectory: true)
+        }
     }
 
     /// 本地库是否已就绪（两个 .so 都存在）
@@ -124,17 +134,21 @@ actor OnDeviceAnisetteGenerator {
 
     private func ensureLibrariesReady() async throws {
         try FileManager.default.createDirectory(
-            at: libsDirectory,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
             at: provisioningDirectory,
             withIntermediateDirectories: true
         )
 
-        if !LocalAnisetteProvider.validateLibrariesExist(at: libsDirectory) {
-            try await prepareLibraries()
+        // 如果 libsDirectory 已就绪（通常是 App Bundle 内置目录），跳过复制/下载
+        if LocalAnisetteProvider.validateLibrariesExist(at: libsDirectory) {
+            return
         }
+
+        // 工作目录需要创建
+        try FileManager.default.createDirectory(
+            at: libsDirectory,
+            withIntermediateDirectories: true
+        )
+        try await prepareLibraries()
     }
 
     private func prepareLibraries() async throws {
