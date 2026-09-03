@@ -115,20 +115,5 @@ jobs:
         with:
           name: Seal-${{ github.run_number }}
           if-no-files-found: error
-          path: |
-            build/Seal.ipa
-            build/Seal-Info.plist
-            build/SealTunnel-Info.plist
-          retention-days: 14
-
-      - name: Upload build metadata
-        if: always()
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: Seal-Build-Metadata-${{ github.run_number }}
-          if-no-files-found: warn
-          path: |
-            build/Seal.ipa.sha256
-            build/Seal-Info.plist
-            build/SealTunnel-Info.plist
+          path: build/Seal.ipa
           retention-days: 14
