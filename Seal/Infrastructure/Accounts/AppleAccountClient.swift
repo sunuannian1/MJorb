@@ -62,32 +62,16 @@ final class AppleAccountClient {
         password: String,
         verificationCode: @escaping @MainActor @Sendable () async -> String?
     ) async throws -> AuthenticatedAppleAccount {
+        // 认证时强制使用本地 anisette（fetchForAuthentication），不允许降级远程。
+        // 用远程 machineID 认证会导致 authToken 与远程绑定，之后切回本地时
+        // machineID 漂移，Apple 判定会话异常返回 1100，表现为"添加 ID 后就失效"。
+        // 本地生成失败直接报错，让用户重试，不要用远程添加 ID。
         try await withTimeout(seconds: 120) {
-            do {
-                return try await self.authenticateOnce(
-                    email: email,
-                    password: password,
-                    verificationCode: verificationCode
-                )
-            } catch let error where Self.shouldRetryWithRemoteAnisette(error) {
-                // 本地 Anisette 指纹被 Apple 拒绝（返回 HTML/plist 解析失败/503）或被判无效：
-                // 清掉本地 provisioning，下一次强制走远程公共服务器换一套指纹，仅自动重试一次
-                await self.anisetteProvider.resetProvisioning()
-                await self.anisetteProvider.preferRemoteOnNextFetch()
-                // 503 等服务端错误稍等再试，避免立即撞同一个失败状态
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                do {
-                    return try await self.authenticateOnce(
-                        email: email,
-                        password: password,
-                        verificationCode: verificationCode
-                    )
-                } catch let failure as ImportFailure {
-                    throw failure
-                } catch {
-                    throw Self.failure(from: error)
-                }
-            }
+            try await self.authenticateOnce(
+                email: email,
+                password: password,
+                verificationCode: verificationCode
+            )
         }
     }
 
@@ -130,7 +114,7 @@ final class AppleAccountClient {
         password: String,
         verificationCode: @escaping @MainActor @Sendable () async -> String?
     ) async throws -> AccountSecret {
-        let anisetteData = try await anisetteProvider.fetch()
+        let anisetteData = try await anisetteProvider.fetchForAuthentication()
         let auth = try await authenticate(
             email: email,
             password: password,
@@ -154,7 +138,7 @@ final class AppleAccountClient {
         var stage: AppleAuthenticationStage = .signIn
         do {
             try Task.checkCancellation()
-            let anisetteData = try await anisetteProvider.fetch()
+            let anisetteData = try await anisetteProvider.fetchForAuthentication()
             let auth = try await authenticate(
                 email: email,
                 password: password,

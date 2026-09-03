@@ -104,6 +104,24 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         throw lastError ?? AnisetteV3Error.unavailable
     }
 
+    func fetchForAuthentication() async throws -> ALTAnisetteData {
+        // 认证时强制使用本地 anisette，不允许降级远程。
+        // 用远程 machineID 认证会导致 authToken 与远程绑定，
+        // 之后切回本地时 machineID 漂移，Apple 判定会话异常返回 1100，
+        // 表现为"第一次添加 ID 后就失效"。
+        let identity = try await loadIdentity()
+        do {
+            let data = try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
+                try await onDevice.makeAnisetteData(identity: identity)
+            }
+            UserDefaults.standard.set(true, forKey: Self.localSucceededKey)
+            return data
+        } catch {
+            Self.logger.error("认证时本地 Anisette 生成失败，拒绝降级远程以避免 machineID 漂移：\(String(describing: error), privacy: .public)")
+            throw AnisetteV3Error.localGenerationFailed
+        }
+    }
+
     func resetProvisioning() async {
         // 只清除远程 v3 provisioning session，不清除本地 adi.pb 和 identifier。
         // adi.pb 是本地 machineID 的来源，与 Apple authToken 绑定；
