@@ -8,6 +8,8 @@ build/
 Seal.xcodeproj/
 .swiftpm/
 .build/
+# RustBridge host-side cargo cache (local type-check only; CI rebuilds the iOS .a)
+Vendor/Minimuxer/RustBridge/target/
 .vendor-cache/
 dist/
 Vendor/Build/
