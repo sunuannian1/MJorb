@@ -80,6 +80,15 @@ jobs:
             -showBuildSettings | awk -F ' = ' '/^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET = / { print $2; exit }')"
           echo "Seal IPHONEOS_DEPLOYMENT_TARGET=$TARGET"
           test "$TARGET" = "16.0"
+          # UIDeviceFamily 改由 TARGETED_DEVICE_FAMILY 构建设置注入（消除 Info.plist 覆盖警告），断言仍为 iPhone+iPad
+          FAMILY="$(xcodebuild \
+            -project Seal.xcodeproj \
+            -target Seal \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -showBuildSettings | awk -F ' = ' '/^[[:space:]]*TARGETED_DEVICE_FAMILY = / { print $2; exit }')"
+          echo "Seal TARGETED_DEVICE_FAMILY=$FAMILY"
+          test "$FAMILY" = "1,2"
 
       - name: Verify SealTunnel target and Packet Tunnel configuration
         run: |
