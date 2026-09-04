@@ -149,3 +149,34 @@ jobs:
             build/Seal-Info.plist
             build/SealTunnel-Info.plist
           retention-days: 14
+
+  # rork-sign 纯 Swift 签名核心自带测试（Mach-O 签名、CodeResources、描述文件、
+  # 证书请求、OCSP、Bundle 递归签名等）。在 macOS host 上用 SPM 直接 swift test，
+  # 作为签名核心的独立回归门，与主 App 完整门并行，避免签名器演进悄悄破坏既有行为。
+  rork-sign-tests:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Select pinned Xcode 26.5
+        run: |
+          test -d /Applications/Xcode_26.5.app
+          sudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer
+          swift --version
+
+      - name: Cache rork-sign SwiftPM artifacts
+        uses: actions/cache@v4
+        with:
+          path: Vendor/rork-sign/.build
+          key: rorksign-spm-${{ runner.os }}-${{ hashFiles('Vendor/rork-sign/Package.resolved') }}
+          restore-keys: |
+            rorksign-spm-${{ runner.os }}-
+
+      - name: Resolve rork-sign dependencies
+        working-directory: Vendor/rork-sign
+        run: swift package resolve
+
+      - name: Run rork-sign unit tests
+        working-directory: Vendor/rork-sign
+        run: swift test
