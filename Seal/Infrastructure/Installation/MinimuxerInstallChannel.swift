@@ -410,21 +410,21 @@ actor MinimuxerInstallChannel: InstallChannel {
     private func readyDeviceIdentifier() async throws -> String? {
         guard await isReady() else { return nil }
         let outcome = await offThread(seconds: Self.blockingCallTimeoutSeconds) {
-            () -> Result<String, String> in
+            () -> DeviceIdentifierFetch in
             do {
-                return .success(try Minimuxer.fetchUDIDDetailed())
+                return .identified(try Minimuxer.fetchUDIDDetailed())
             } catch {
                 let nsError = error as NSError
-                return .failure("\(nsError.domain) (\(nsError.code)): \(nsError.localizedDescription)")
+                return .rejected("\(nsError.domain) (\(nsError.code)): \(nsError.localizedDescription)")
             }
         }
         // offThread 会把闭包结果再包一层 Result，这里需要两层解包：
         // 外层区分“后台执行是否超时/抛错”，内层区分“取 UDID 成功还是设备给出了具体拒绝原因”。
         guard case .some(.success(let inner)) = outcome else { return nil }
         switch inner {
-        case .success(let udid):
+        case .identified(let udid):
             return udid.isEmpty ? nil : udid
-        case .failure(let detail):
+        case .rejected(let detail):
             // 保留 Rust 真实拒绝原因（PairVerifyFailed / Socket / TLS-RSD handshake…），
             // 供最终失败精准分类，不再把一切吞成“设备未响应/连接失败”。
             lastDiscoveryDetail = detail
@@ -497,6 +497,13 @@ actor MinimuxerInstallChannel: InstallChannel {
         return "\(nsError.domain) (\(nsError.code)): \(nsError.localizedDescription)"
     }
     #endif
+
+    /// offThread 后台取 UDID 的结果：跨 @Sendable 线程只能携带 Sendable 值，
+    /// 故用枚举同时表达成功标识与设备给出的具体拒绝原因（Result 的 Failure 必须遵循 Error，String 不行）。
+    private enum DeviceIdentifierFetch: Sendable {
+        case identified(String)
+        case rejected(String)
+    }
 
     /// 底层错误文本 → 拿不到设备标识的根因类别。纯字符串判定，可在模拟器单测。
     enum DeviceDiscoveryCause: Equatable { case pairingNotTrusted, handshake, tunnel, unknown }
