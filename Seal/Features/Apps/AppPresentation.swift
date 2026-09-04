@@ -50,7 +50,9 @@ struct AppOperationPresentation: Equatable, Sendable {
         validity = AppValidityPresentation(
             text: "\(days)天",
             detailText: "\(days)天",
-            tone: days <= 3 ? .warning : .success
+            // 充裕期（>3天）用中性陈述，不使用 success 绿色：剩余可续签天数不是一种“成功”，
+            // success 语义保留给证书校验可用（CertificateValidationStatus.available）。
+            tone: days <= 3 ? .warning : .neutral
         )
     }
 

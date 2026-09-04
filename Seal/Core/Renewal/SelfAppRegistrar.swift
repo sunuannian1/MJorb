@@ -37,6 +37,18 @@ actor SelfAppRegistrar {
             currentBundleIdentifier: metadata.bundleIdentifier
         )
 
+        // 已导入、待下次安装生效的自更新源（hasPendingSelfUpdateSource）：
+        // 其版本通常比当前运行中的 Bundle 新。此窗口内 App 若重启，仍运行旧版，
+        // 绝不能用当前旧 metadata 覆盖这条待安装记录与文件，否则更新源丢失。
+        // 仅当待安装源文件仍在时保留；文件已缺失则落到下面的原子更新兜底重建。
+        if let existing,
+           existing.hasPendingSelfUpdateSource,
+           existing.ipaRelativePath.isEmpty == false,
+           try await fileStore.exists(relativePath: existing.ipaRelativePath) {
+            try await cleanupDuplicateSealRecords(records: records, keepID: existing.id)
+            return
+        }
+
         // 版本一致且文件存在 → 直接跳过，只清理重复记录
         if let existing,
            existing.version == metadata.version,

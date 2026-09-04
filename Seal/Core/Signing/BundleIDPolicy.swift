@@ -49,10 +49,16 @@ enum BundleIDPolicy {
     }
 
     static func recommendedBundleIdentifier(for original: String, teamID: String) -> String {
-        let value = normalized(original) ?? original
+        var value = normalized(original) ?? original
         // 对齐 AltStore 官方格式（原始+teamID），同时保留 Seal 标识：原始.seal.teamID
         // 恒定不变，同一个应用+同一个 team 永远是同一个 Bundle ID，不随机
         // 已安装应用续签时复用之前的 mappedBundleIdentifier，不受此格式影响
+        // 若输入已带 .seal 后缀（大小写不敏感，例如对 Seal 签过的包再次签名），先剥离，
+        // 避免重复追加得到 xxx.seal.seal.teamID
+        let sealSuffix = ".seal"
+        if value.lowercased().hasSuffix(sealSuffix) {
+            value = String(value.dropLast(sealSuffix.count))
+        }
         return "\(value).seal.\(teamID)"
     }
 
