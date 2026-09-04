@@ -41,9 +41,20 @@ actor PairingStore {
         let dictionary = try Self.parseDictionary(from: data)
         let inspection = try Self.inspect(dictionary)
 
+        // RemotePairing 归一化：不同来源（配对助手 / SideStore / Feather / pymobiledevice3）可能把
+        // 公私钥写成嵌套、驼峰键名或 base64/hex 字符串；Rust 只认“顶层 public_key/private_key 各为
+        // 恰好 32 字节 Data + identifier 字符串”。统一成规范三键再落盘，Lockdown 配对不受影响。
+        let exportDictionary: [String: Any]
+        if inspection.isRemote,
+           let normalizedRemote = Self.normalizedRemotePairingDictionary(dictionary) {
+            exportDictionary = normalizedRemote
+        } else {
+            exportDictionary = dictionary
+        }
+
         // 统一转成 XML plist 保存，确保 minimuxer 能识别配对文件格式
         let normalized = try PropertyListSerialization.data(
-            fromPropertyList: dictionary,
+            fromPropertyList: exportDictionary,
             format: .xml,
             options: 0
         )
@@ -269,6 +280,114 @@ actor PairingStore {
     private func dictionary() throws -> [String: Any] {
         let data = try Data(contentsOf: fileURL)
         return try Self.parseDictionary(from: data)
+    }
+
+    // MARK: - RemotePairing 多来源归一化
+
+    /// 把任意来源的远程配对字典归一为 Rust RpPairingFile 要求的顶层三键
+    /// （public_key/private_key 各为 32B Data、identifier 为非空字符串）；无法构成完整远程配对时返回 nil。
+    static func normalizedRemotePairingDictionary(_ raw: [String: Any]) -> [String: Any]? {
+        guard let publicKey = firstValueRecursive(in: raw, keys: Self.remotePublicKeyKeys)
+                .flatMap(Self.coerceKeyData),
+              let privateKey = firstValueRecursive(in: raw, keys: Self.remotePrivateKeyKeys)
+                .flatMap(Self.coerceKeyData),
+              let identifier = firstValueRecursive(in: raw, keys: Self.remoteIdentifierKeys)
+                .flatMap(Self.coerceIdentifier),
+              publicKey.count == 32,
+              privateKey.count == 32,
+              identifier.isEmpty == false else {
+            return nil
+        }
+        return [
+            "public_key": publicKey,
+            "private_key": privateKey,
+            "identifier": identifier
+        ]
+    }
+
+    private static let remotePublicKeyKeys = ["public_key", "publicKey", "PublicKey", "public"]
+    private static let remotePrivateKeyKeys = ["private_key", "privateKey", "PrivateKey", "private"]
+    private static let remoteIdentifierKeys = ["identifier", "Identifier", "hostID", "hostId"]
+
+    /// 把键值（Data / base64 / hex / 原始 UTF8 字符串）统一成恰好 32 字节的密钥 Data。
+    static func coerceKeyData(_ value: Any) -> Data? {
+        if let data = value as? Data {
+            return data.count == 32 ? data : nil
+        }
+        guard let string = value as? String else { return nil }
+        let text = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.isEmpty == false else { return nil }
+        // 64 位十六进制（32 字节）优先，避免被当成 base64 误判。
+        if text.count == 64,
+           text.allSatisfy({ $0.isHexDigit }),
+           let hex = hexDecoded(text),
+           hex.count == 32 {
+            return hex
+        }
+        if let base64 = Data(base64Encoded: text), base64.count == 32 { return base64 }
+        if let utf8 = text.data(using: .utf8), utf8.count == 32 { return utf8 }
+        return nil
+    }
+
+    private static func coerceIdentifier(_ value: Any) -> String? {
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let data = value as? Data,
+           let string = String(data: data, encoding: .utf8) {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return nil
+    }
+
+    private static func hexDecoded(_ text: String) -> Data? {
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(text.count / 2)
+        var index = text.startIndex
+        while index < text.endIndex {
+            let next = text.index(index, offsetBy: 2)
+            guard next <= text.endIndex,
+                  let byte = UInt8(text[index..<next], radix: 16) else { return nil }
+            bytes.append(byte)
+            index = next
+        }
+        return Data(bytes)
+    }
+
+    private static func firstValueRecursive(
+        in dictionary: [String: Any],
+        keys: [String]
+    ) -> Any? {
+        if let value = firstValue(in: dictionary, keys: keys) { return value }
+        return firstValueRecursive(in: dictionary, keys: keys, depth: 0)
+    }
+
+    private static func firstValueRecursive(
+        in dictionary: [String: Any],
+        keys: [String],
+        depth: Int
+    ) -> Any? {
+        guard depth < 3 else { return nil }
+        for (_, value) in dictionary {
+            guard let nested = value as? [String: Any] else { continue }
+            if let found = firstValue(in: nested, keys: keys) { return found }
+            if let found = firstValueRecursive(in: nested, keys: keys, depth: depth + 1) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private static func firstValue(in dictionary: [String: Any], keys: [String]) -> Any? {
+        for key in keys {
+            if let value = dictionary[key] {
+                if let data = value as? Data, data.isEmpty == false { return data }
+                if let string = value as? String, string.isEmpty == false { return string }
+            }
+        }
+        return nil
     }
 
     /// 解析配对文件数据，同时支持 plist（Lockdown）和 JSON（RemotePairing）格式。

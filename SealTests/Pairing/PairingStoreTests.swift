@@ -226,6 +226,74 @@ struct PairingStoreTests {
         }
     }
 
+    @Test
+    func normalizesNestedBase64RemotePairingIntoCanonicalKeys() throws {
+        let publicKey = Data((0..<32).map(UInt8.init))
+        let privateKey = Data(repeating: 0xAB, count: 32)
+        // 模拟 SideStore/Feather 一类来源：驼峰键名、嵌套、base64 字符串。
+        let raw: [String: Any] = [
+            "wrapping": [
+                "publicKey": publicKey.base64EncodedString(),
+                "privateKey": privateKey.base64EncodedString()
+            ],
+            "Identifier": "host-uuid-xyz"
+        ]
+
+        let normalized = try #require(
+            PairingStore.normalizedRemotePairingDictionary(raw)
+        )
+        #expect(Set(normalized.keys) == ["public_key", "private_key", "identifier"])
+        #expect(normalized["public_key"] as? Data == publicKey)
+        #expect(normalized["private_key"] as? Data == privateKey)
+        #expect(normalized["identifier"] as? String == "host-uuid-xyz")
+    }
+
+    @Test
+    func coercesHexKeysAndRejectsMalformedOrIncompleteRemotePairing() {
+        let privateKey = Data(repeating: 0xCD, count: 32)
+        let hex = privateKey.map { String(format: "%02x", $0) }.joined()
+        #expect(PairingStore.coerceKeyData(hex) == privateKey)
+        // 20 字节的 base64 不满足 32 字节契约，应判为无效。
+        let shortBase64 = Data(repeating: 1, count: 20).base64EncodedString()
+        #expect(PairingStore.coerceKeyData(shortBase64) == nil)
+        // 缺 identifier 不构成完整远程配对。
+        let incomplete: [String: Any] = [
+            "public_key": Data(repeating: 2, count: 32),
+            "private_key": Data(repeating: 3, count: 32)
+        ]
+        #expect(PairingStore.normalizedRemotePairingDictionary(incomplete) == nil)
+    }
+
+    @Test
+    func importedJsonRemotePairingIsStoredAsCanonicalTopLevelData() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let source = root.appending(path: "Remote.json")
+        let publicKey = Data((10..<42).map(UInt8.init))
+        let privateKey = Data(repeating: 0x7F, count: 32)
+        let json = try JSONSerialization.data(withJSONObject: [
+            "public_key": publicKey.base64EncodedString(),
+            "private_key": privateKey.base64EncodedString(),
+            "identifier": "json-host-id"
+        ])
+        try json.write(to: source)
+        let store = PairingStore(fileURL: root.appending(path: "Pairing.plist"))
+
+        let imported = try await store.importFile(at: source)
+        #expect(imported.isRemotePairing == true)
+
+        let storedText = try await store.contents()
+        let plist = try PropertyListSerialization.propertyList(
+            from: Data(storedText.utf8),
+            options: [],
+            format: nil
+        ) as? [String: Any]
+        #expect(plist?["public_key"] as? Data == publicKey)
+        #expect((plist?["private_key"] as? Data)?.count == 32)
+        #expect(plist?["identifier"] as? String == "json-host-id")
+    }
+
     private func standardPairingDictionary(udid: String) -> [String: Any] {
         [
             "UDID": udid,
