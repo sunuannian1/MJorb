@@ -68,10 +68,13 @@ public class LockDownInstall: InstallProvider {
         print("[minimuxer] AFC: client created successfully")
 
         let pkg = MuxerConstants.pkgPath
-        // 对齐官方 idevice：固定 PublicStaging/idevice.ipa 单文件路径（旧的按 bundle id
-        // 分子目录在新版系统上会触发 MissingPackagePath）。安装串行，固定名覆盖即可。
-        mkdirP(pkg, afc: afc)
-        let stagedPath = "\(pkg)/idevice.ipa"
+        // 经典 lockdown 通道（非 RSD）沿用 SideStore minimuxer 真机验证过的布局：
+        // PublicStaging/<bundleId>/app.ipa，按 Bundle ID 建子目录。这与 RSD 通道的固定
+        // 单文件 PublicStaging/idevice.ipa 是两套不同约定，不能混用。路径不带 "./" 前缀
+        // （Swift port 已验证可行的形态，规避历史 mkdirP 空段问题）。
+        let appDir = "\(pkg)/\(bundleId)"
+        mkdirP(appDir, afc: afc)
+        let stagedPath = "\(appDir)/app.ipa"
         // 覆盖前删除旧包，避免「w」打开不截断导致旧包尾部残留成损坏 zip。
         _ = afc.remove(path: stagedPath)
 
@@ -82,6 +85,15 @@ public class LockDownInstall: InstallProvider {
         print("[minimuxer] Successfully staged IPA")
     }
     
+    /// 根据 instproxy lookup 结果决定是否走 Upgrade（纯逻辑，便于单测）。
+    /// - 返回非空 plist 字符串：设备已存在该 Bundle ID（含残留占位）→ 需要 Upgrade。
+    /// - 返回 nil（未安装）或空串：全新 Install。查询失败 lookup 也返回 nil，按首装处理，
+    ///   避免查询抖动阻断安装。
+    static func shouldUpgrade(lookupResult: String?) -> Bool {
+        guard let result = lookupResult else { return false }
+        return result.isEmpty == false
+    }
+
     private func mkdirP(_ path: String, afc: RustAfc) {
         var current = ""
         for part in path.split(separator: "/") where !part.isEmpty {
@@ -97,13 +109,26 @@ public class LockDownInstall: InstallProvider {
             print("[minimuxer] ERROR: Unable to start instproxy")
             throw MinimuxerError.CreateInstproxy
         }
-        let path = "\(MuxerConstants.pkgPath)/idevice.ipa"
-        print("[minimuxer] Installing...")
-        if let installError = inst.install(path: path) {
-            print("[minimuxer] ERROR: Install failed: \(installError)")
-            throw MinimuxerError.InstallApp(installError)
+        // 经典通道暂存布局：PublicStaging/<bundleId>/app.ipa（与 yeetAppAfc 保持一致）。
+        let path = "\(MuxerConstants.pkgPath)/\(bundleId)/app.ipa"
+
+        // 设备上已存在同一 Bundle ID（上次失败留下的占位、多开副本、续签覆盖）时必须走
+        // Upgrade；对已存在的 Bundle ID 发全新 Install 会在定位阶段报 MissingPackagePath。
+        // lookup 命中已存在记录（非空 plist）→ Upgrade；无记录或查询返回 nil → 全新 Install，
+        // 查询失败也按未安装处理，不阻断首装。
+        let alreadyInstalled = Self.shouldUpgrade(lookupResult: inst.lookup(appId: bundleId))
+        let action = alreadyInstalled ? "Upgrade" : "Install"
+        print("[minimuxer] \(action)...")
+
+        let deviceError: String? = alreadyInstalled
+            ? inst.upgrade(path: path, bundleId: bundleId)
+            : inst.install(path: path, bundleId: bundleId)
+
+        if let deviceError = deviceError {
+            print("[minimuxer] ERROR: \(action) failed: \(deviceError)")
+            throw MinimuxerError.InstallApp(deviceError)
         }
-        print("[minimuxer] Install done!")
+        print("[minimuxer] \(action) done!")
     }
 
     public func removeApp(bundleId: String) throws {

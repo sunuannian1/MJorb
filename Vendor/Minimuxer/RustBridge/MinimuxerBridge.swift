@@ -86,7 +86,10 @@ internal func _rust_bridge_afc_read_directory(_ client: UnsafeMutableRawPointer?
 internal func _rust_bridge_instproxy_new(_ device: UnsafeMutableRawPointer?, _ label: UnsafePointer<Int8>?) -> UnsafeMutableRawPointer?
 
 @_silgen_name("rust_bridge_instproxy_install")
-internal func _rust_bridge_instproxy_install(_ client: UnsafeMutableRawPointer?, _ path: UnsafePointer<Int8>?) -> UnsafeMutablePointer<CChar>?
+internal func _rust_bridge_instproxy_install(_ client: UnsafeMutableRawPointer?, _ path: UnsafePointer<Int8>?, _ bundle_id: UnsafePointer<Int8>?) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("rust_bridge_instproxy_upgrade")
+internal func _rust_bridge_instproxy_upgrade(_ client: UnsafeMutableRawPointer?, _ path: UnsafePointer<Int8>?, _ bundle_id: UnsafePointer<Int8>?) -> UnsafeMutablePointer<CChar>?
 
 @_silgen_name("rust_bridge_instproxy_uninstall")
 internal func _rust_bridge_instproxy_uninstall(_ client: UnsafeMutableRawPointer?, _ bundle_id: UnsafePointer<Int8>?) -> Bool
@@ -257,8 +260,13 @@ public final class RustInstProxy {
         guard let p = _rust_bridge_instproxy_new(device.ptr, label) else { return nil }
         return RustInstProxy(ptr: p, device: device)
     }
-    public func install(path: String) -> String? {
-        guard let p = _rust_bridge_instproxy_install(ptr, path) else { return nil }
+    public func install(path: String, bundleId: String) -> String? {
+        guard let p = _rust_bridge_instproxy_install(ptr, path, bundleId) else { return nil }
+        defer { _rust_bridge_free_string(p) }
+        return String(cString: p)
+    }
+    public func upgrade(path: String, bundleId: String) -> String? {
+        guard let p = _rust_bridge_instproxy_upgrade(ptr, path, bundleId) else { return nil }
         defer { _rust_bridge_free_string(p) }
         return String(cString: p)
     }

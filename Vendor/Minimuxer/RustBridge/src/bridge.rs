@@ -300,6 +300,18 @@ pub extern "C" fn rust_bridge_afc_read_directory(
 // --- InstProxy ---
 pub struct InstProxyWrapper<'a>(InstProxyClient<'a>);
 
+/// 构造带 CFBundleIdentifier 的 ClientOptions（对齐 SideStore minimuxer 经典通道）。
+///
+/// 经典 lockdown 通道安装时，installd 依赖 ClientOptions 里的 CFBundleIdentifier 把暂存包
+/// 与目标 App 关联；传空/None 在重装、多开、续签覆盖等场景可能让 installd 定位异常。
+/// 跨 FFI 边界不 panic：dict 写入失败时退化为空 options（等价旧行为），不中止安装流程。
+fn instproxy_bundle_options(bundle_id: &str) -> Plist {
+    let mut opts = InstProxyClient::client_options_new();
+    let key = "CFBundleIdentifier".to_string();
+    let _ = opts.dict_set_item(&key, Plist::new_string(bundle_id));
+    opts
+}
+
 #[no_mangle]
 pub extern "C" fn rust_bridge_instproxy_free(ptr: *mut InstProxyWrapper<'static>) {
     if !ptr.is_null() {
@@ -326,10 +338,35 @@ pub extern "C" fn rust_bridge_instproxy_new(
 pub extern "C" fn rust_bridge_instproxy_install(
     client: *mut InstProxyWrapper,
     path: *const c_char,
+    bundle_id: *const c_char,
 ) -> *mut c_char {
     let Some(c) = (unsafe { client.as_ref() }) else { return to_char("invalid client".into()); };
     let Some(path) = c_string_arg(path) else { return to_char("invalid path".into()); };
-    match c.0.install(&path, None) {
+    let Some(bundle_id) = c_string_arg(bundle_id) else {
+        return to_char("invalid bundle id".into());
+    };
+    let opts = instproxy_bundle_options(&bundle_id);
+    match c.0.install(&path, Some(opts)) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(e) => to_char(format!("{:?}", e)),
+    }
+}
+
+/// 对设备上已存在的同一 Bundle ID 执行 Upgrade（重装 / 多开覆盖 / 续签覆盖）。
+/// 参数与 install 一致；返回 NULL 表示成功，否则返回设备错误描述字符串（调用方负责释放）。
+#[no_mangle]
+pub extern "C" fn rust_bridge_instproxy_upgrade(
+    client: *mut InstProxyWrapper,
+    path: *const c_char,
+    bundle_id: *const c_char,
+) -> *mut c_char {
+    let Some(c) = (unsafe { client.as_ref() }) else { return to_char("invalid client".into()); };
+    let Some(path) = c_string_arg(path) else { return to_char("invalid path".into()); };
+    let Some(bundle_id) = c_string_arg(bundle_id) else {
+        return to_char("invalid bundle id".into());
+    };
+    let opts = instproxy_bundle_options(&bundle_id);
+    match c.0.upgrade(&path, Some(opts)) {
         Ok(_) => std::ptr::null_mut(),
         Err(e) => to_char(format!("{:?}", e)),
     }
