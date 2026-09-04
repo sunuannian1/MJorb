@@ -68,10 +68,14 @@ public class LockDownInstall: InstallProvider {
         print("[minimuxer] AFC: client created successfully")
 
         let pkg = MuxerConstants.pkgPath
-        let appDir = "\(pkg)/\(bundleId)"
-        mkdirP(appDir, afc: afc)
+        // 对齐官方 idevice：固定 PublicStaging/idevice.ipa 单文件路径（旧的按 bundle id
+        // 分子目录在新版系统上会触发 MissingPackagePath）。安装串行，固定名覆盖即可。
+        mkdirP(pkg, afc: afc)
+        let stagedPath = "\(pkg)/idevice.ipa"
+        // 覆盖前删除旧包，避免「w」打开不截断导致旧包尾部残留成损坏 zip。
+        _ = afc.remove(path: stagedPath)
 
-        if !afc.writeFile(path: "\(appDir)/app.ipa", data: ipaBytes) {
+        if !afc.writeFile(path: stagedPath, data: ipaBytes) {
             print("[minimuxer] ERROR: Unable to write IPA to device")
             throw MinimuxerError.RwAfc
         }
@@ -93,7 +97,7 @@ public class LockDownInstall: InstallProvider {
             print("[minimuxer] ERROR: Unable to start instproxy")
             throw MinimuxerError.CreateInstproxy
         }
-        let path = "\(MuxerConstants.pkgPath)/\(bundleId)/app.ipa"
+        let path = "\(MuxerConstants.pkgPath)/idevice.ipa"
         print("[minimuxer] Installing...")
         if let installError = inst.install(path: path) {
             print("[minimuxer] ERROR: Install failed: \(installError)")

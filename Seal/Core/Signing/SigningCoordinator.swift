@@ -539,6 +539,16 @@ actor SigningCoordinator {
 
         let signedData = try await fileStore.read(relativePath: signedPath)
 
+        // 对齐官方 idevice：安装/校验以「成品包内 Info.plist 的真实 Bundle ID」为准，
+        // 外部计算值仅在包内回读失败时回退，消除暂存路径 / ClientOptions / 包内 ID 不一致。
+        let effectiveBundleID = SignedArtifactBundleIDReader.bundleIdentifier(in: signedData)
+            ?? bundleIdentifier
+        // 非标准包上回读值可能与外部计算值不同：以装到设备上的真实 ID 为准回写记录，
+        // 否则后续续签用旧计算值做 lookup 会找不到应用，陷入重复签名。
+        if effectiveBundleID != bundleIdentifier {
+            updated.mappedBundleIdentifier = effectiveBundleID
+        }
+
         if app.isSeal {
             // Persist the real signed-profile expiry before iOS replaces this running app.
             updated.state = .installed
@@ -552,7 +562,7 @@ actor SigningCoordinator {
             await progress(.pushing)
             try await installChannel.install(
                 ipaData: signedData,
-                bundleID: bundleIdentifier,
+                bundleID: effectiveBundleID,
                 isSelfReplacement: true
             )
             updated.hasPendingSelfUpdateSource = false
@@ -565,13 +575,13 @@ actor SigningCoordinator {
             await progress(.pushing)
             try await installChannel.install(
                 ipaData: signedData,
-                bundleID: bundleIdentifier,
+                bundleID: effectiveBundleID,
                 isSelfReplacement: false
             )
 
             try await updateState(appID: app.id, stage: .verifying)
             await progress(.verifying)
-            try await installChannel.verifyInstalled(bundleID: bundleIdentifier)
+            try await installChannel.verifyInstalled(bundleID: effectiveBundleID)
 
             updated.state = .installed
             updated.signedArtifactStatus = .installed
@@ -588,7 +598,7 @@ actor SigningCoordinator {
             for _ in 0..<5 {
                 try? await Task.sleep(for: .seconds(3))
                 let deviceHasApp = (try? await InstalledAppDeviceVerifier.isInstalled(
-                    bundleIdentifier: bundleIdentifier
+                    bundleIdentifier: effectiveBundleID
                 )) ?? false
                 if deviceHasApp {
                     updated.state = .installed
