@@ -301,7 +301,7 @@ struct SigningProgressView: View {
     }
 
     private var successTitle: String {
-        guard let session else { return "签名完成" }
+        guard session != nil else { return "签名完成" }
         return isRenewal ? "续签并安装成功" : "签名并安装成功"
     }
 

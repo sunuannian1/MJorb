@@ -62,7 +62,10 @@ struct IPAParserService: Sendable {
             }
             try nestedData.write(to: nestedIPATempURL)
 
-            guard let nestedArchive = Archive(url: nestedIPATempURL, accessMode: .read) else {
+            let nestedArchive: Archive
+            do {
+                nestedArchive = try Archive(url: nestedIPATempURL, accessMode: .read)
+            } catch {
                 throw failure(
                     title: "无法读取 IPA",
                     reason: "嵌套的 IPA 文件已损坏",

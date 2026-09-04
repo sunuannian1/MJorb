@@ -185,7 +185,12 @@ actor AppFileStore {
     /// 检测并解包嵌套 IPA（外层 zip 只有一个 .ipa 文件，没有 Payload 目录）
     /// 部分第三方平台下载的 IPA 是这种结构，不解包会导致签名时找不到 Payload
     private func extractNestedIPAIfNeeded(at ipaURL: URL, fileManager: FileManager) throws {
-        guard let archive = Archive(url: ipaURL, accessMode: .read) else { return }
+        let archive: Archive
+        do {
+            archive = try Archive(url: ipaURL, accessMode: .read)
+        } catch {
+            return
+        }
         let entries = Array(archive)
 
         // 检查是否有 Payload 目录

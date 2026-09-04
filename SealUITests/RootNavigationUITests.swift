@@ -26,6 +26,7 @@ final class RootNavigationUITests: XCTestCase {
         add(attachment)
     }
 
+    @MainActor
     private func tabButton(identifier: String, title: String, in app: XCUIApplication) -> XCUIElement {
         let identified = app.buttons[identifier]
         if identified.waitForExistence(timeout: 2) {

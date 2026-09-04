@@ -203,7 +203,7 @@ actor SigningCoordinator {
 
             // 签名时通道若未就绪，安装前再试一次启动（签名期间通道可能已恢复）
             if channelReady == false {
-                try? await installChannel.start()
+                _ = try? await installChannel.start()
             }
 
             let installed = try await installSignedIPA(
@@ -585,7 +585,7 @@ actor SigningCoordinator {
         } catch {
             // 安装/验证失败时，应用可能实际已装到设备上（如 installd 后台安装中）。
             // 多次重试查设备状态，已装则静默标记为已安装，不弹失败。
-            for attempt in 0..<5 {
+            for _ in 0..<5 {
                 try? await Task.sleep(for: .seconds(3))
                 let deviceHasApp = (try? await InstalledAppDeviceVerifier.isInstalled(
                     bundleIdentifier: bundleIdentifier

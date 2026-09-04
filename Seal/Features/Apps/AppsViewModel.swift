@@ -711,7 +711,6 @@ final class AppsViewModel: ObservableObject {
             return
         }
 
-        let isInstalledRecord = app.belongsInInstalledList
         // 宽松策略：已安装应用没有记录签名账号时，不拒绝，让用户选择账号进行续签
         continueSigningRequest(for: app, availableAccounts: availableAccounts)
     }

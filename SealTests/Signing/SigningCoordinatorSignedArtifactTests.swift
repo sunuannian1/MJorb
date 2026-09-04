@@ -130,10 +130,18 @@ private extension SigningCoordinatorSignedArtifactTests {
 private actor SignedArtifactInstallChannel: InstallChannel {
     private(set) var installCount = 0
     private(set) var verifyCount = 0
+    private(set) var pushCount = 0
+    private(set) var pushedInstallCount = 0
 
     func start() async throws -> String { "DEVICE-1" }
     func diagnose() async -> InstallChannelDiagnostics { .empty }
     func isReady() async -> Bool { true }
+    func pushIpa(ipaData: Data, bundleID: String) async throws {
+        pushCount += 1
+    }
+    func installPushedIpa(bundleID: String, isSelfReplacement: Bool) async throws {
+        pushedInstallCount += 1
+    }
     func install(ipaData: Data, bundleID: String, isSelfReplacement: Bool) async throws {
         installCount += 1
     }

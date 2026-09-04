@@ -1506,7 +1506,7 @@ actor ApplePortalSigningService {
                     ) else { continue }
                     guard let matched = pluginFiles.first(where: { ext in
                         guard ext.pathExtension == "appex" else { return false }
-                        let info = try? NSDictionary(
+                        let info = NSDictionary(
                             contentsOf: ext.appendingPathComponent("Info.plist")
                         )
                         let bid = info?["CFBundleIdentifier"] as? String
