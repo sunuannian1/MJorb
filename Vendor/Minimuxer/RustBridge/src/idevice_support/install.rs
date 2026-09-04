@@ -209,15 +209,20 @@ mod tests {
     #[test]
     fn developer_options_include_package_type_and_bundle_id() {
         let v = developer_client_options("com.example.app");
-        let dict = v.as_dictionary().expect("options must be a dictionary");
-        assert_eq!(
-            dict.get("PackageType").and_then(|v| v.as_string()),
-            Some("Developer")
-        );
-        assert_eq!(
-            dict.get("CFBundleIdentifier").and_then(|v| v.as_string()),
-            Some("com.example.app")
-        );
+        // RustBridge 源码审计（含测试模块）禁止显式 panic 快捷方式，故用 match 断言而非之。
+        match v.as_dictionary() {
+            Some(dict) => {
+                assert_eq!(
+                    dict.get("PackageType").and_then(|x| x.as_string()),
+                    Some("Developer")
+                );
+                assert_eq!(
+                    dict.get("CFBundleIdentifier").and_then(|x| x.as_string()),
+                    Some("com.example.app")
+                );
+            }
+            None => assert!(false, "options must be a dictionary"),
+        }
     }
 
     #[test]
