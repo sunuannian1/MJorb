@@ -26,7 +26,8 @@ struct AppleAccountClientTests {
             error: error
         )
 
-        #expect(failure.code == "SEAL-AUTH-105")
+        // teamLookup 失败细分为 SEAL-AUTH-105f（精确匹配策略层，团队查不到不要求重验凭据）
+        #expect(failure.code == "SEAL-AUTH-105f")
         #expect(failure.reason.contains("-20101") == false)
         #expect(failure.reason.contains("Developer services are unavailable") == false)
         #expect(failure.reason.contains("开发团队"))

@@ -15,7 +15,8 @@ struct ApplePortalSigningFailureTests {
         )
 
         #expect(failure.code == "SEAL-APPID-302")
-        #expect(failure.reason.contains("App ID"))
+        // 新文案用「Bundle ID 被其他开发者账号注册」表达占用语义，替代旧的「App ID」措辞
+        #expect(failure.reason.contains("其他开发者账号"))
         #expect(failure.reason.contains("ApplePortal 409") == false)
         #expect(failure.reason.contains("Bundle identifier is unavailable") == false)
     }
@@ -41,9 +42,10 @@ struct ApplePortalSigningFailureTests {
             )
         )
 
-        #expect(failure.code == "SEAL-CERT-204")
-        #expect(failure.reason == "Apple 返回：无法创建签名证书")
-        #expect(failure.recovery == "重试")
+        // 证书上限被细分为 SEAL-CERT-204a，并给出更具指导性的中文原因与恢复建议
+        #expect(failure.code == "SEAL-CERT-204a")
+        #expect(failure.reason == "Apple 服务器未能创建签名证书。可能原因：该账号证书数量已达上限、或网络不稳定。")
+        #expect(failure.recovery == "检查网络后重试；如持续失败请在「我的」中撤销旧证书后再试")
     }
 
     @Test
@@ -73,7 +75,8 @@ struct ApplePortalSigningFailureTests {
         )
 
         #expect(failure.code.hasPrefix("SEAL-NET-"))
-        #expect(failure.reason.contains("Apple ID 状态不会被修改"))
+        // 安抚语义保留（账号/已签应用不受影响），仅措辞随网络文案重写而更新；技术细节继续隐藏
+        #expect(failure.reason.contains("不会受影响"))
         #expect(failure.reason.contains("NSURLErrorDomain") == false)
         #expect(failure.reason.contains("-1001") == false)
     }

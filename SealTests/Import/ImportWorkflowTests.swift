@@ -111,7 +111,7 @@ struct ImportWorkflowTests {
     }
 
     @Test
-    func duplicateBundleIdentifierIsReplacedAtomically() async throws {
+    func duplicateOriginalBundleIDCreatesIndependentCopies() async throws {
         let environment = try makeEnvironment()
         defer { try? FileManager.default.removeItem(at: environment.root) }
         let oldID = UUID()
@@ -142,12 +142,18 @@ struct ImportWorkflowTests {
         await workflow.confirm()
 
         let records = try await environment.appStore.fetchAll()
-        #expect(records.count == 1)
-        #expect(records.first?.id == oldRecord.id)
-        #expect(records.first?.ipaRelativePath == oldRecord.ipaRelativePath)
-        #expect(records.first?.name == "Demo")
+        // 多副本设计：同一原始 Bundle ID 再次导入产生独立条目（可用不同 Bundle ID 签名并存），不替换旧记录
+        #expect(records.count == 2)
+        let imported = try requireCompleted(await workflow.state)
+        #expect(imported.id == newID)
+        #expect(imported.ipaRelativePath == "Apps/\(newID.uuidString)/Original.ipa")
+        #expect(imported.name == "Demo")
+        #expect(imported.state == .preflightPassed)
+        // 旧记录与其原始文件原样保留，不被覆盖或删除
+        let keptOld = try #require(records.first { $0.id == oldID })
+        #expect(keptOld.ipaRelativePath == oldRecord.ipaRelativePath)
         #expect(FileManager.default.fileExists(atPath: oldIPA.path))
-        #expect(try Data(contentsOf: oldIPA) != Data("old".utf8))
+        #expect(try Data(contentsOf: oldIPA) == Data("old".utf8))
     }
 
     @Test
@@ -196,7 +202,9 @@ struct ImportWorkflowTests {
 
         let imported = try requireCompleted(await workflow.state)
         #expect(imported.id == newID)
-        #expect(imported.preferredBundleIdentifier == "com.example.demo.personal")
+        // 多副本设计：不继承上次签名的自定义 Bundle ID（回到原始，便于用新 Bundle ID 签出并存副本）
+        #expect(imported.preferredBundleIdentifier == nil)
+        // 但用户偏好（自定义显示名、移除的扩展、偏好图标）仍从最近签名记录继承
         #expect(imported.preferredDisplayName == "Demo Custom")
         #expect(imported.removedExtensionBundleIdentifiers == ["com.example.demo.share"])
         let inheritedIconPath = try #require(imported.preferredIconRelativePath)

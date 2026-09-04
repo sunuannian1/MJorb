@@ -4,10 +4,11 @@ import Testing
 
 struct BundleIDMapperTests {
     @Test
-    func defaultMainBundleIdentifierUsesReadableSealSuffix() {
+    func mainBundleIdentifierUsesStableSealTeamSuffix() {
         let mapper = BundleIDMapper()
         let first = mapper.mainBundleID(original: "com.example.demo", teamID: "TEAM1")
-        let repeated = mapper.mainBundleID(original: "com.example.demo", teamID: "TEAM2")
+        let sameTeam = mapper.mainBundleID(original: "com.example.demo", teamID: "TEAM1")
+        let otherTeam = mapper.mainBundleID(original: "com.example.demo", teamID: "TEAM2")
         let appExtension = mapper.extensionBundleID(
             original: "com.example.demo.share",
             originalMainBundleID: "com.example.demo",
@@ -18,10 +19,13 @@ struct BundleIDMapperTests {
             teamID: "TEAM1"
         )
 
-        #expect(first == "com.example.demo.seal")
-        #expect(first == repeated)
-        #expect(appExtension == "com.example.demo.seal.share")
-        #expect(appGroup.hasPrefix("group.com.mjorb.seal.groups."))
+        // 新格式：原始.seal.teamID（对齐 AltStore）；同 app+同 team 恒定不随机，不同 team 相互隔离
+        #expect(first == "com.example.demo.seal.TEAM1")
+        #expect(first == sameTeam)
+        #expect(otherTeam == "com.example.demo.seal.TEAM2")
+        #expect(first != otherTeam)
+        #expect(appExtension == "com.example.demo.seal.TEAM1.share")
+        #expect(appGroup == "group.com.example.demo.seal.TEAM1")
         #expect(appGroup == mapper.appGroupID(
             original: "group.com.example.demo",
             teamID: "TEAM1"
@@ -125,9 +129,12 @@ struct BundleIDMapperTests {
 
     @Test
     func recommendedBundleIdentifierDoesNotDoubleAppendSealCaseInsensitively() {
-        #expect(BundleIDPolicy.recommendedBundleIdentifier(for: "com.example.demo") == "com.example.demo.seal")
-        #expect(BundleIDPolicy.recommendedBundleIdentifier(for: "com.example.demo.seal") == "com.example.demo.seal")
-        #expect(BundleIDPolicy.recommendedBundleIdentifier(for: "com.example.demo.SEAL") == "com.example.demo.SEAL")
+        // 带 teamID 版本负责追加 .seal.teamID；输入已带 .seal（大小写不敏感）时先剥离再追加，不重复
+        #expect(BundleIDPolicy.recommendedBundleIdentifier(for: "com.example.demo", teamID: "T") == "com.example.demo.seal.T")
+        #expect(BundleIDPolicy.recommendedBundleIdentifier(for: "com.example.demo.seal", teamID: "T") == "com.example.demo.seal.T")
+        #expect(BundleIDPolicy.recommendedBundleIdentifier(for: "com.example.demo.SEAL", teamID: "T") == "com.example.demo.seal.T")
+        // 无 teamID 重载仅用于无账号上下文的兜底，原样返回 trim 后的原始值，不追加后缀
+        #expect(BundleIDPolicy.recommendedBundleIdentifier(for: "com.example.demo") == "com.example.demo")
     }
 
     @Test

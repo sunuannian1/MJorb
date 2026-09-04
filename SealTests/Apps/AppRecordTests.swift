@@ -91,7 +91,7 @@ struct AppRecordTests {
     }
 
     @Test
-    func signedButNeverInstalledRecordOnlyAppearsInSignedList() {
+    func signedButNeverInstalledRemainsInPendingListUntilInstalled() {
         let record = AppRecord(
             originalBundleIdentifier: "com.example.pending",
             mappedBundleIdentifier: "com.example.pending.seal",
@@ -108,8 +108,10 @@ struct AppRecordTests {
         )
 
         #expect(record.belongsInInstalledList == false)
-        #expect(record.belongsInSignedList)
-        #expect(record.belongsInUnsignedList == false)
+        // 两列表设计：已签但未安装、非 Seal 的副本仍归待处理（unsigned）列表，直到真正安装；
+        // 不存在独立的 signed 列表（belongsInSignedList 恒 false）
+        #expect(record.belongsInSignedList == false)
+        #expect(record.belongsInUnsignedList)
     }
 
     @Test

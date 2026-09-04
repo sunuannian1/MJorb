@@ -90,7 +90,7 @@ struct SigningCertificateSelectionPolicyTests {
             Issue.record("Expected Team mismatch failure")
         } catch let failure as ImportFailure {
             #expect(failure.code == "SEAL-AUTH-112")
-            #expect(failure.recovery == "选择 Team")
+            #expect(failure.recovery == "使用原开发者团队的 Apple ID 续签，或用当前账号重新签名安装")
         }
     }
 

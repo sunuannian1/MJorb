@@ -83,7 +83,7 @@ struct AnisetteV3ClientTests {
     }
 
     @Test
-    func resetSigningEnvironmentRemovesProvisioningAndIdentifier() async throws {
+    func resetSigningEnvironmentRemovesProvisioningButPreservesIdentifier() async throws {
         let store = TestAnisetteProvisioningStore()
         try await store.saveIdentifier("identifier")
         try await store.save(AnisetteProvisioningState(identifier: "identifier", adiPB: "adi-pb")!)
@@ -93,7 +93,9 @@ struct AnisetteV3ClientTests {
 
         let identifier = try await store.loadIdentifier()
         let state = try await store.load()
-        #expect(identifier == nil)
+        // identifier 与 authToken 绑定，清除会令所有已登录 Apple ID 会话过期（1100）而强制重登+2FA，
+        // 因此 reset 只清远程 provisioning state，必须保留本地 identifier
+        #expect(identifier == "identifier")
         #expect(state == nil)
     }
 }
