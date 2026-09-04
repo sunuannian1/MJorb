@@ -4,6 +4,10 @@ SCHEME=Minimuxer
 BUILD_DIR=lib
 FRAMEWORK_NAME=Minimuxer
 
+# RustBridge 位于 <repo>/Vendor/Minimuxer/RustBridge，仓库根在上三级。
+# CI 会显式传入绝对路径；本地手动 make 时用默认相对路径。
+REPO_ROOT ?= ../../..
+
 IPHONEOS_DEPLOYMENT_TARGET ?= 16.0
 CFLAGS_aarch64_apple_ios ?= -miphoneos-version-min=$(IPHONEOS_DEPLOYMENT_TARGET)
 CXXFLAGS_aarch64_apple_ios ?= -miphoneos-version-min=$(IPHONEOS_DEPLOYMENT_TARGET)
@@ -49,7 +53,11 @@ xcframework: rust
 		-headers $(RUST_DIR)/lib/headers \
 		-output $(RUST_DIR)/lib/RustBridge.xcframework
 
-	@echo "--- Done: RustBridge/lib/RustBridge.xcframework ---"
+	@# Record source fingerprint so CI/local can detect a stale prebuilt binary.
+	bash $(REPO_ROOT)/Scripts/rustbridge-fingerprint.sh $(RUST_DIR) \
+		> $(RUST_DIR)/lib/RustBridge.xcframework/.source-fingerprint
+
+	@echo "--- Done: RustBridge/lib/RustBridge.xcframework (fingerprint $$(cat $(RUST_DIR)/lib/RustBridge.xcframework/.source-fingerprint | cut -c1-12)) ---"
 
 
 # --- Cleanup ---

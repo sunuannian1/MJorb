@@ -38,6 +38,18 @@ jobs:
           restore-keys: |
             spm-${{ runner.os }}-
 
+      - name: Cache Rust toolchain and cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.cargo/registry
+            ~/.cargo/git
+            Vendor/Minimuxer/RustBridge/target
+          key: rustbridge-${{ runner.os }}-${{ hashFiles('Vendor/Minimuxer/RustBridge/Cargo.lock') }}
+          restore-keys: |
+            rustbridge-${{ runner.os }}-
+
       - name: Cache DerivedData for incremental builds
         uses: actions/cache@v4
         with:
@@ -63,29 +75,10 @@ jobs:
           echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/xcodegen/bin/xcodegen" --version
 
-      - name: Prepare RustBridge
-        run: |
-          device_lib="Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a"
-          simulator_lib="Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64-simulator/librust_bridge.a"
-          required_symbol="_rust_bridge_idevice_lookup_app"
-
-          test -f "$device_lib"
-          test -f "$simulator_lib"
-
-          if [[ "${{ inputs.rebuild_rustbridge }}" == "true" ]]; then
-            echo "RustBridge rebuild was requested."
-          elif xcrun nm -gU "$device_lib" | grep -q "$required_symbol"; then
-            echo "Vendored RustBridge already exports $required_symbol; using cached binary."
-            exit 0
-          else
-            echo "Vendored RustBridge is missing $required_symbol; rebuilding before packaging."
-          fi
-
-          command -v rustup
-          command -v cargo
-          command -v make
-          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-          make -C Vendor/Minimuxer/RustBridge xcframework
+      - name: Ensure RustBridge matches Rust source
+        env:
+          RUST_TOOLCHAIN: 1.97.1
+        run: bash Scripts/ensure-rustbridge.sh
 
       - name: Verify vendored RustBridge is present
         run: |

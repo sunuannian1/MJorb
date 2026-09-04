@@ -18,6 +18,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
 
+      - name: Cache Rust toolchain and cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.cargo/registry
+            ~/.cargo/git
+            Vendor/Minimuxer/RustBridge/target
+          key: rustbridge-${{ runner.os }}-${{ hashFiles('Vendor/Minimuxer/RustBridge/Cargo.lock') }}
+          restore-keys: |
+            rustbridge-${{ runner.os }}-
+
       - name: Select pinned Xcode 26.5
         run: |
           test -d /Applications/Xcode_26.5.app
@@ -33,6 +45,11 @@ jobs:
 
       - name: Audit vendored RustBridge FFI source
         run: bash Scripts/audit-rustbridge-source.sh
+
+      - name: Ensure RustBridge matches Rust source
+        env:
+          RUST_TOOLCHAIN: 1.97.1
+        run: bash Scripts/ensure-rustbridge.sh
 
       - name: Verify vendored RustBridge supports iOS 16
         run: MAX_IOS_VERSION=16.0 bash Scripts/verify-rustbridge-minos.sh
