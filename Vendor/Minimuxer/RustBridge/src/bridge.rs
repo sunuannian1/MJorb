@@ -307,6 +307,10 @@ pub struct InstProxyWrapper<'a>(InstProxyClient<'a>);
 /// 跨 FFI 边界不 panic：dict 写入失败时退化为空 options（等价旧行为），不中止安装流程。
 fn instproxy_bundle_options(bundle_id: &str) -> Plist {
     let mut opts = InstProxyClient::client_options_new();
+    // 侧载的是开发者包，显式标注 PackageType=Developer（与 RSD 通道、jas/pymobiledevice3
+    // 的做法统一），避免 installd 按默认 User 类型错误解析暂存包。
+    let pkg_type = "PackageType".to_string();
+    let _ = opts.dict_set_item(&pkg_type, Plist::new_string("Developer"));
     let key = "CFBundleIdentifier".to_string();
     let _ = opts.dict_set_item(&key, Plist::new_string(bundle_id));
     opts
