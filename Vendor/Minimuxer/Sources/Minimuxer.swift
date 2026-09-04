@@ -117,6 +117,30 @@ public struct Minimuxer {
         return udid
     }
 
+    /// 不吞错的 UDID 获取：会话未启动、RSD 通道的 Rust IdeviceError（设备未认可配对 /
+    /// 隧道不可达 / 握手失败）、经典通道取不到标识都会原样抛出，供通道诊断精准分类。
+    public static func fetchUDIDDetailed() throws -> String {
+        guard Muxer.started else {
+            print("[minimuxer] ERROR: minimuxer has not started!")
+            throw NSError(
+                domain: "minimuxer",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "minimuxer has not started"]
+            )
+        }
+        if Muxer.isrppairing {
+            return try RustIdevice.fetchUDIDDetailed()
+        }
+        guard let udid = try Device.getFirstDevice().getUDID(), udid.isEmpty == false else {
+            throw NSError(
+                domain: "minimuxer",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "lockdown returned no device identifier"]
+            )
+        }
+        return udid
+    }
+
     public static func testDeviceConnection(ifaddr: String?) -> Bool {
         guard let ip = ifaddr, ip.isEmpty == false else { return false }
 

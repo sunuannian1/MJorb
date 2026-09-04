@@ -77,10 +77,18 @@ public class Muxer {
         }
 
         stateLock.lock()
-        if _started {
+        var staleListenerFD: Int32?
+        if _started, cachedPairingXml == pairingXml {
+            // 同一份配对：幂等跳过，保留既有会话，避免重复建连。
             stateLock.unlock()
-            print("[minimuxer] Already started minimuxer, skipping")
+            print("[minimuxer] Already started with the same pairing, skipping")
             return
+        }
+        if _started {
+            // 配对身份发生变化（换了另一台设备 / 重新导入配对）：先拆除旧会话再用新配对重建。
+            // 绝不能沿用旧设备的配对身份，否则新设备会一直 pair-verify 失败、卡在“已导入，待验证”。
+            staleListenerFD = teardownLocked()
+            print("[minimuxer] Pairing identity changed while running; rebuilding the session")
         }
         generation &+= 1
         let startGeneration = generation
@@ -90,6 +98,11 @@ public class Muxer {
         _started = true
         _usbmuxdReady = remotePairing
         stateLock.unlock()
+
+        if let fd = staleListenerFD {
+            Heartbeat.reset()
+            _ = shutdown(fd, SHUT_RDWR)
+        }
 
         do {
             if remotePairing {
@@ -110,6 +123,20 @@ public class Muxer {
     /// `accept()`, avoiding a double-close/reused-fd race.
     public static func reset() {
         stateLock.lock()
+        let fd = teardownLocked()
+        stateLock.unlock()
+
+        Heartbeat.reset()
+        if let fd {
+            _ = shutdown(fd, SHUT_RDWR)
+        }
+        print("[minimuxer] minimuxer state reset")
+    }
+
+    /// Clear every session-scoped field and bump the generation so any in-flight
+    /// listener/heartbeat retires. The caller MUST already hold `stateLock`.
+    @discardableResult
+    private static func teardownLocked() -> Int32? {
         generation &+= 1
         _started = false
         _usbmuxdReady = false
@@ -120,13 +147,7 @@ public class Muxer {
         currentEvent = nil
         let fd = listenerFD
         listenerFD = nil
-        stateLock.unlock()
-
-        Heartbeat.reset()
-        if let fd {
-            _ = shutdown(fd, SHUT_RDWR)
-        }
-        print("[minimuxer] minimuxer state reset")
+        return fd
     }
 
     public static func isCurrentGeneration(_ candidate: UInt64) -> Bool {

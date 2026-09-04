@@ -1861,7 +1861,7 @@ final class SettingsViewModel: ObservableObject {
         try? await logStore?.append(
             category: .installation,
             level: .error,
-            message: logMessage,
+            message: "\(logMessage)｜\(effectiveFailure.title)｜\(effectiveFailure.reason)",
             code: effectiveFailure.code
         )
         logs = (try? await logStore?.entries()) ?? logs

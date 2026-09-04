@@ -7,8 +7,10 @@ actor MinimuxerInstallChannel: InstallChannel {
     private let onDemandActivator: any VPNOnDemandActivating
     private var cachedDeviceIdentifier: String?
     private var lastSuccessfulStart: Date?
+    /// 最近一次“拿不到设备标识”的底层错误文本（Rust IdeviceError Debug），用于精准分类，不再黑盒。
+    private var lastDiscoveryDetail: String?
 
-    private static let startHardTimeoutSeconds: Double = 40
+    private static let startHardTimeoutSeconds: Double = 75
     private static let blockingCallTimeoutSeconds: Double = 5.0
 
     init(
@@ -145,24 +147,31 @@ actor MinimuxerInstallChannel: InstallChannel {
                     try Minimuxer.start(pairingFile: pairing, logPath: logPath)
                 }
                 if case .some(.failure(let startError)) = startOutcome {
+                    lastDiscoveryDetail = Self.diagnostic(startError)
                     return fail(.minimuxer, Self.connectionFailure(startError))
                 }
             } catch {
+                lastDiscoveryDetail = Self.diagnostic(error)
                 return fail(.minimuxer, Self.connectionFailure(error))
             }
-            // 优化：轮询检查设备，成功即退出，最多等待 10 秒
+            // 首次 RSD 握手（pair-verify + TLS-PSK + RSD handshake）在无线/冷启动时可能超过旧的 10 秒，
+            // 过短会把“正在建立”误判成“设备未响应/连接失败”。延长到约 18 秒，成功即退出。
             var resolvedUDID: String?
-            for _ in 0..<20 {
+            for attempt in 0..<36 {
                 NetworkObserver.shared.refreshEndpoint()
                 resolvedUDID = try await readyDeviceIdentifier()
                 if resolvedUDID != nil { break }
+                if attempt == 12, tunnelReachable == false {
+                    // 中途再给 LocalDevVPN 一次按需拉起/探测机会，避免首次 probe 过早判死。
+                    if await onDemandActivator.probeTunnel() { pass(.vpnTunnel) }
+                }
                 try? await Task.sleep(for: .milliseconds(500))
             }
             guard let udid = resolvedUDID else {
-                if tunnelReachable == false {
-                    return fail(.vpnTunnel, Self.vpnTunnelUnavailableFailure)
-                }
-                return fail(.deviceIdentifier, Self.deviceNotRespondingFailure)
+                return fail(
+                    .deviceIdentifier,
+                    Self.discoveryFailure(tunnelReachable: tunnelReachable, detail: lastDiscoveryDetail)
+                )
             }
             pass(.vpnTunnel)
             deviceIdentifier = udid
@@ -401,18 +410,27 @@ actor MinimuxerInstallChannel: InstallChannel {
     private func readyDeviceIdentifier() async throws -> String? {
         guard await isReady() else { return nil }
         let outcome = await offThread(seconds: Self.blockingCallTimeoutSeconds) {
-            () -> String? in
-            guard let udid = Minimuxer.fetchUDID(), udid.isEmpty == false else {
-                return nil
+            () -> Result<String, String> in
+            do {
+                return .success(try Minimuxer.fetchUDIDDetailed())
+            } catch {
+                let nsError = error as NSError
+                return .failure("\(nsError.domain) (\(nsError.code)): \(nsError.localizedDescription)")
             }
-            return udid
         }
-        guard case .some(.success(let maybeUDID)) = outcome,
-              let udid = maybeUDID,
-              udid.isEmpty == false else {
+        // offThread 会把闭包结果再包一层 Result，这里需要两层解包：
+        // 外层区分“后台执行是否超时/抛错”，内层区分“取 UDID 成功还是设备给出了具体拒绝原因”。
+        guard case .some(.success(let inner)) = outcome else { return nil }
+        switch inner {
+        case .success(let udid):
+            return udid.isEmpty ? nil : udid
+        case .failure(let detail):
+            // 保留 Rust 真实拒绝原因（PairVerifyFailed / Socket / TLS-RSD handshake…），
+            // 供最终失败精准分类，不再把一切吞成“设备未响应/连接失败”。
+            lastDiscoveryDetail = detail
+            NSLog("[Seal] device identifier fetch failed: \(detail)")
             return nil
         }
-        return udid
     }
 
     private static func connectionFailure(_ error: Error) -> ImportFailure {
@@ -479,6 +497,75 @@ actor MinimuxerInstallChannel: InstallChannel {
         return "\(nsError.domain) (\(nsError.code)): \(nsError.localizedDescription)"
     }
     #endif
+
+    /// 底层错误文本 → 拿不到设备标识的根因类别。纯字符串判定，可在模拟器单测。
+    enum DeviceDiscoveryCause: Equatable { case pairingNotTrusted, handshake, tunnel, unknown }
+    static func classifyDiscoveryFailure(_ detail: String) -> DeviceDiscoveryCause {
+        let n = detail.lowercased()
+        let pairingMarkers = [
+            "pairverify", "pair_verify", "pairingrejected", "userdenied", "denied",
+            "consent", "verifymanualpairing", "setuppairing", "not paired", "pairing failed",
+            "pairingrejectedwitherror"
+        ]
+        let handshakeMarkers = [
+            "tls", "handshake", "rsd", "opack", "cipher", "psk", "encrypt", "certificate"
+        ]
+        let tunnelMarkers = [
+            "socket", "refused", "timed out", "timeout", "unreachable", "reset by peer",
+            "broken pipe", "econn", "network", "not started", "no route", "host is down"
+        ]
+        if pairingMarkers.contains(where: { n.contains($0) }) { return .pairingNotTrusted }
+        if handshakeMarkers.contains(where: { n.contains($0) }) { return .handshake }
+        if tunnelMarkers.contains(where: { n.contains($0) }) { return .tunnel }
+        return .unknown
+    }
+
+    /// “设备标识拿不到”的最终失败：结合隧道可达性与底层错误，给出可操作、可区分的引导，
+    /// 而不是用一句“请确认 Wi-Fi/LocalDevVPN”掩盖配对未认可、握手失败、隧道不可达等不同根因。
+    static func discoveryFailure(tunnelReachable: Bool, detail: String?) -> ImportFailure {
+        let suffix = detail.map { "（底层返回：\($0)）" } ?? ""
+        if let detail, tunnelReachable {
+            switch classifyDiscoveryFailure(detail) {
+            case .pairingNotTrusted:
+                return ImportFailure(
+                    title: "这台 iPhone 尚未信任当前配对",
+                    reason: "设备拒绝了配对校验，通常是当前配对没有在“这台”设备上完成登记（换设备、重刷或还原后常见）。请用 Seal 配对助手重新连接这台 iPhone 完成配对，再回到 Seal 导入新配对。\(suffix)",
+                    recovery: "用配对助手重新配对本机",
+                    code: "SEAL-PAIR-211"
+                )
+            case .handshake:
+                return ImportFailure(
+                    title: "与设备的安全握手未完成",
+                    reason: "LocalDevVPN 已连通，但远程配对的加密/RSD 握手失败。请保持 Seal 在前台、确认已开启开发者模式后重试；仍失败请用配对助手重新配对。\(suffix)",
+                    recovery: "保持前台后重试",
+                    code: "SEAL-INSTALL-709"
+                )
+            case .tunnel:
+                return ImportFailure(
+                    title: "无法经本地隧道连到设备",
+                    reason: "LocalDevVPN 虽显示连接，但设备服务端口暂时不可达。请断开后重连 LocalDevVPN、确认网络正常后重试。\(suffix)",
+                    recovery: "重连 LocalDevVPN 后重试",
+                    code: "SEAL-INSTALL-710"
+                )
+            case .unknown:
+                break
+            }
+        }
+        if tunnelReachable == false {
+            return ImportFailure(
+                title: vpnTunnelUnavailableFailure.title,
+                reason: vpnTunnelUnavailableFailure.reason + suffix,
+                recovery: vpnTunnelUnavailableFailure.recovery,
+                code: vpnTunnelUnavailableFailure.code
+            )
+        }
+        return ImportFailure(
+            title: deviceNotRespondingFailure.title,
+            reason: deviceNotRespondingFailure.reason + suffix,
+            recovery: deviceNotRespondingFailure.recovery,
+            code: deviceNotRespondingFailure.code
+        )
+    }
 
     private static func pairingMismatchFailure(
         expected: String?,

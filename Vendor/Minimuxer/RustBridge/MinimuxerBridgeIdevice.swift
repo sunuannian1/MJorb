@@ -143,6 +143,29 @@ public class RustIdevice {
 		return String(cString: pointer)
 	}
 
+	/// 不吞掉底层错误的 UDID 获取：把 Rust 侧 IdeviceError 的 Debug 文本（PairVerifyFailed /
+	/// PairingRejected / UserDeniedPairing / Socket / TLS-RSD handshake 等）原样抛出，
+	/// 让上层能据此给出精准引导，而不是把所有失败都笼统显示成“设备未响应/连接失败”。
+	public static func fetchUDIDDetailed() throws -> String {
+		var pointer: UnsafeMutablePointer<Int8>?
+		let error = withUnsafeMutablePointer(to: &pointer) {
+			_rust_bridge_idevice_fetch_udid($0)
+		}
+
+		try rustIdeviceThrowIfNeeded(error)
+
+		guard let pointer else {
+			throw NSError(
+				domain: "minimuxer",
+				code: -1,
+				userInfo: [NSLocalizedDescriptionKey: "fetch_udid returned no device identifier and no error"]
+			)
+		}
+
+		defer { _rust_bridge_idevice_free_string(pointer) }
+		return String(cString: pointer)
+	}
+
 	public static func yeetAppAfc(bundleId: String, ipaBytes: Data) throws {
 		let ipaLength = try rustIdeviceCheckedLength(ipaBytes.count)
 		let error = ipaBytes.withUnsafeBytes { buffer in
