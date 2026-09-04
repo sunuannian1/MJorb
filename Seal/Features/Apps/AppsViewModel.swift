@@ -1119,6 +1119,11 @@ final class AppsViewModel: ObservableObject {
             return
         }
         defer { releaseOperation(operationLease) }
+        // 批量续签只应使用已保存会话；LocalDevVPN 隔离 gsa.apple.com，交互式 2FA
+        // 在此路径必败。关闭验证码弹窗，结束（含取消/失败）后务必恢复，避免影响
+        // 后续用户主动签名安装时的正常 2FA 输入。
+        signingVerificationBroker.setInteractivePromptAllowed(false)
+        defer { signingVerificationBroker.setInteractivePromptAllowed(true) }
         do {
             let progress: @Sendable (BatchRefreshEvent) async -> Void = { [weak self] event in
                 await self?.consumeBatchEvent(event)
@@ -1146,7 +1151,7 @@ final class AppsViewModel: ObservableObject {
             batchRefreshSession = nil
             await load(force: true)
         } catch let failure as ImportFailure {
-            batchRefreshSession?.status = .failed(failure)
+            batchRefreshSession?.status = .failed(Self.renewalGuidance(for: failure))
         } catch {
             batchRefreshSession?.status = .failed(
                 ImportFailure(
@@ -1158,6 +1163,18 @@ final class AppsViewModel: ObservableObject {
             )
         }
         batchRefreshTask = nil
+    }
+
+    /// 批量续签失败文案引导：认证/会话类问题统一引导到“我的”页重新验证；
+    /// 网络类与其他失败保留原始可操作信息。
+    private static func renewalGuidance(for failure: ImportFailure) -> ImportFailure {
+        guard failure.code.hasPrefix("SEAL-AUTH-") else { return failure }
+        return ImportFailure(
+            title: "Apple ID 会话已过期",
+            reason: "批量续签需要有效的登录会话。请前往「我的」页选中该账号重新验证后再续签。",
+            recovery: "知道了",
+            code: failure.code
+        )
     }
 
     private func consumeBatchEvent(_ event: BatchRefreshEvent) {

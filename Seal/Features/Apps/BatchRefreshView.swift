@@ -3,7 +3,6 @@ import SwiftUI
 struct BatchRefreshView: View {
     @ObservedObject var viewModel: AppsViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var verificationCode = ""
 
     var body: some View {
         SealDrawer(title: drawerTitle, showsFooter: !isRunning) {
@@ -17,53 +16,6 @@ struct BatchRefreshView: View {
             action
         }
         .interactiveDismissDisabled(isRunning)
-        .sheet(isPresented: Binding(
-            get: { viewModel.signingVerificationBroker.isRequested },
-            set: { _ in }
-        )) {
-            verificationCodeSheet
-        }
-    }
-
-    private var verificationCodeSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("需要双重认证")
-                .font(.system(size: 20, weight: .bold))
-            Text("Apple 要求输入六位验证码以完成 Apple ID 验证。验证码已发送到你信任的设备。")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
-            TextField("六位验证码", text: $verificationCode)
-                .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode)
-                .multilineTextAlignment(.center)
-                .font(.title2.monospacedDigit().weight(.semibold))
-                .padding(.vertical, 16)
-                .background(Color.sealSurfaceElevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .onChange(of: verificationCode) { code in
-                    verificationCode = String(code.filter(\.isNumber).prefix(6))
-                }
-            Button {
-                viewModel.signingVerificationBroker.submit(verificationCode)
-                verificationCode = ""
-            } label: {
-                if viewModel.signingVerificationBroker.hasSubmittedCode {
-                    ProgressView().frame(maxWidth: .infinity)
-                } else {
-                    Text("验证")
-                }
-            }
-            .sealPrimaryAction()
-            .disabled(verificationCode.count < 6 || viewModel.signingVerificationBroker.hasSubmittedCode)
-            Button("取消") {
-                viewModel.signingVerificationBroker.cancel()
-                verificationCode = ""
-            }
-            .foregroundStyle(.secondary)
-        }
-        .padding(24)
-        .presentationDetents([.medium])
-        .interactiveDismissDisabled(true)
     }
 
     private var drawerTitle: String {
@@ -235,7 +187,7 @@ struct BatchRefreshView: View {
         case .preparingSealUpdate:
             return "更新 Seal 时会暂时回到主屏幕，安装完成后请重新打开。"
         case .failed:
-            return "请确认已连接 Wi-Fi 且 LocalDevVPN 已连接后重试。"
+            return "请确认已连接 Wi-Fi 且 LocalDevVPN 已连接后重试；若提示账号会话过期，请先在「我的」页重新验证。"
         case .completed, nil:
             return nil
         }

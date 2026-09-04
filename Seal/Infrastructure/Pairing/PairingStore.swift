@@ -1,14 +1,5 @@
 import Foundation
 
-/// 配对文件来源类型。
-/// - remote: iOS 17+ 生成的 .mobiledevicepairing，包含 private_key，用于 CoreDevice/RemotePairing
-/// - lockdown: iOS 17- 传统 Lockdown 配对 plist，包含 UDID / HostID / EscrowBag
-enum PairingFileKind: String, Sendable {
-    case remote
-    case lockdown
-    case unknown
-}
-
 actor PairingStore {
     private struct ValidationMetadata: Codable, Sendable {
         let status: PairingValidationStatus
@@ -332,25 +323,6 @@ actor PairingStore {
             throw Self.invalidFailure
         }
         return (udid, hasRemotePrivateKey)
-    }
-
-    /// 检测配对文件类型。
-    static func detectFileKind(_ dictionary: [String: Any]) -> PairingFileKind {
-        let hasRemotePrivateKey = containsDataOrStringRecursive(
-            in: dictionary,
-            keys: ["private_key", "privateKey", "PrivateKey", "Private Key"]
-        )
-        if hasRemotePrivateKey {
-            return .remote
-        }
-        let hasUDID = firstStringRecursive(
-            in: dictionary,
-            keys: ["UDID", "udid", "UniqueDeviceID", "device_identifier"]
-        )?.isEmpty == false
-        if hasUDID {
-            return .lockdown
-        }
-        return .unknown
     }
 
     private static func firstStringRecursive(
