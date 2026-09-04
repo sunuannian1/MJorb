@@ -1015,7 +1015,10 @@ private extension BundleSigningOptions {
         originalEntitlementsXML: String
     ) throws -> String {
         let bundleIdentifier = try bundle.requireIdentifier()
-        if let entitlementsXML = entitlementsByBundleIdentifier[bundleIdentifier] {
+        if let entitlementsXML = entitlementsByBundleIdentifier[bundleIdentifier]
+            ?? entitlementsByBundleIdentifier.first(where: {
+                $0.key.caseInsensitiveCompare(bundleIdentifier) == .orderedSame
+            })?.value {
             return entitlementsXML
         }
         if isRoot, !defaultEntitlementsXML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1041,7 +1044,10 @@ private extension BundleSigningOptions {
         guard let identifier = bundle.identifier else {
             return nil
         }
-        if let exactProfile = provisioningProfilesByBundleIdentifier[identifier] {
+        if let exactProfile = provisioningProfilesByBundleIdentifier[identifier]
+            ?? provisioningProfilesByBundleIdentifier.first(where: {
+                $0.key.caseInsensitiveCompare(identifier) == .orderedSame
+            })?.value {
             return exactProfile
         }
         return isRoot ? rootProvisioningProfile : nil

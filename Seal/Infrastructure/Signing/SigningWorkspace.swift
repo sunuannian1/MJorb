@@ -76,9 +76,9 @@ struct SigningWorkspace: Sendable {
             // 参照 SideStore/AltStore 官方逻辑，这些内容免费账号无法签名
             try removeUnsupportedBundles(in: appURL)
 
-            // 大 IPA 优化：剥离 arm64e 架构，只保留 arm6
-            // iOS 设备全是 arm64，arm64e 无用且会导致 ldid 处理大文件时内存不足崩溃
-            // 剥离后由 MachOAdHocSigner 重新加 ad-hoc 签名，RorkSigner 再覆盖正式签名
+            // 大 IPA 优化：剥离 arm64e 架构，只保留 arm64（iOS 设备均为 arm64）。
+            // 按 offset/size 字节级切出 arm64 slice，副本内部签名偏移依然有效，
+            // 后续统一由 RorkSigner 重签。
             try stripArm64eArchitecture(in: appURL)
 
             let extensionURLs = try appExtensionURLs(in: appURL)
@@ -93,12 +93,12 @@ struct SigningWorkspace: Sendable {
                 try updateBundleIdentifier(at: extensionURL, to: mapped)
                 mappings[original] = mapped
             }
-            // 移除旧的 _CodeSignature 目录（不修改 Mach-O 里的 LC_CODE_SIGNATURE）
+            // 移除旧的 _CodeSignature 目录（不修改 Mach-O 里的 LC_CODE_SIGNATURE）。
+            // Mach-O 的旧签名/未签名状态统一交给 RorkSigner 处理：有 LC_CODE_SIGNATURE
+            // 时按旧 dataoff 干净截断重签，无签名时用 load-command 空闲区插入新签名。
+            // 对齐官方 SideStore/zsign：这里不做任何 ad-hoc 预处理——预处理反而会残留旧
+            // 签名 blob、抹掉原始 entitlements、漏平移 chained-fixups 数据偏移，导致闪退。
             try removeOldSignatures(in: appURL)
-
-            // 给所有 Mach-O 加 ad-hoc 签名，避免 RorkSigner 处理未签名二进制时崩溃
-            // 参考 Fladder issue #800：未签名或签名无效的 Mach-O 会导致 ldid 断言失败
-            try MachOAdHocSigner.signAllBinaries(in: appURL)
 
             return PreparedSigningWorkspace(
                 rootURL: workspaceRoot,

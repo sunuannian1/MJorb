@@ -28,7 +28,22 @@ pub async fn yeet_app_afc_rppairing(
 
     handle.shutdown().await?;
 
-    handle.close().await
+    // close() consumes the borrowed FileDescriptor, releasing the &mut borrow
+    // on `afc` so it can be queried again below.
+    handle.close().await?;
+
+    // Read back the on-device size. Across the LocalDevVPN wireless AFC tunnel
+    // a large transfer can be truncated even though `write_all` reports success,
+    // which later surfaces as installd "MissingPackagePath". Fail fast here so
+    // the Swift `pushIpa` retry loop re-pushes instead of installing a partial
+    // file. NotEnoughBytes(got, expected) renders as "expected {1}, got {0}".
+    let device_size = afc.get_file_info(path.as_str()).await?.size;
+    let expected_size = ipa_bytes.len();
+    if device_size != expected_size {
+        return Err(IdeviceError::NotEnoughBytes(device_size, expected_size));
+    }
+
+    Ok(())
 }
 
 pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError> {

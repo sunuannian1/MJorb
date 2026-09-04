@@ -366,15 +366,16 @@ private func thinSigningCacheInput(_ data: Data) throws -> Data {
     let layout = try readThinSigningLayout(data)
     var output = data
     let signatureCommandOffset: Int
-    let codeLimit: UInt64
+    let hasExistingSignature: Bool
+    let rawCodeLimit: UInt64
 
     if let existingSignatureCommandOffset = layout.codeSignatureCommandOffset {
         guard Int(layout.codeSignatureDataOffset) <= output.count else {
             throw RorkSignError.invalidMachO("Existing LC_CODE_SIGNATURE points past the file.")
         }
         signatureCommandOffset = existingSignatureCommandOffset
-        codeLimit = UInt64(layout.codeSignatureDataOffset)
-        output.removeSubrange(Int(codeLimit)..<output.count)
+        rawCodeLimit = UInt64(layout.codeSignatureDataOffset)
+        hasExistingSignature = true
     } else {
         guard let firstContentOffset = layout.firstContentOffset,
               firstContentOffset >= layout.commandRegionEnd,
@@ -387,7 +388,16 @@ private func thinSigningCacheInput(_ data: Data) throws -> Data {
         try output.writeUInt32LE(UInt32(Constants.linkeditDataCommandSize), at: signatureCommandOffset + 4)
         try output.writeUInt32LE(layout.header.commandCount + 1, at: 16)
         try output.writeUInt32LE(layout.header.commandSize + UInt32(Constants.linkeditDataCommandSize), at: 20)
-        codeLimit = alignUp(UInt64(output.count), alignment: 16)
+        rawCodeLimit = alignUp(UInt64(output.count), alignment: 16)
+        hasExistingSignature = false
+    }
+
+    // Reproduce ldid Allocate (ldid.cpp:1464-1473): keep the cache-key prefix
+    // exactly aligned with the code limit used by the real signing pass.
+    let codeLimit = layout.adjustedCodeLimit(rawCodeLimit)
+    if hasExistingSignature {
+        output.removeSubrange(Int(codeLimit)..<output.count)
+    } else {
         output.append(Data(repeating: 0, count: Int(codeLimit) - output.count))
     }
 
@@ -458,6 +468,7 @@ private enum Constants {
     static let fatMagic64: UInt32 = 0xcafebabf
     static let lcSegment64: UInt32 = 0x19
     static let lcCodeSignature: UInt32 = 0x1d
+    static let lcSymtab: UInt32 = 0x2
     static let lcLoadDylib: UInt32 = 0xc
     static let lcLoadWeakDylib: UInt32 = 0x80000018
     static let mhExecuteFileType: UInt32 = 2
@@ -467,6 +478,7 @@ private enum Constants {
     static let loadCommandSize = 8
     static let dylibCommandSize = 24
     static let linkeditDataCommandSize = 16
+    static let symtabCommandSize = 24
     static let segmentCommand64Size = 72
     static let section64Size = 80
     static let fatHeaderSize = 8
@@ -495,10 +507,26 @@ private struct ThinSigningLayout {
     var codeSignatureCommandOffset: Int?
     var codeSignatureDataOffset: UInt32 = 0
     var codeSignatureDataSize: UInt32 = 0
+    /// LC_SYMTAB string-table end (stroff+strsize) when present and non-empty.
+    /// Reproduces ldid's symbol-table adjacency rule (ldid.cpp:1464-1473).
+    var symbolTableStringEnd: UInt64?
     var linkeditCommandOffset: Int?
     var linkeditFileOffset: UInt64 = 0
     var executableSegmentLimit: UInt64 = 0
     var embeddedInfoPlist: Data = Data()
+
+    /// Applies ldid's symbol-table adjacency rule (ldid.cpp `Allocate`,
+    /// lines 1464-1473): when the symbol string table ends within 0x10 bytes
+    /// of the tentative code limit (adjacent to the signature region), shrink
+    /// the limit to the string-table end to prevent page-aligned corruption.
+    /// `&-` mirrors C `size_t` unsigned wraparound.
+    func adjustedCodeLimit(_ base: UInt64) -> UInt64 {
+        guard let end = symbolTableStringEnd else { return base }
+        if end <= base, end >= base &- 0x10 {
+            return end
+        }
+        return base
+    }
 
     /// Returns the CodeDirectory executable-segment flags for this image.
     ///
@@ -899,6 +927,15 @@ private func readThinSigningLayout(_ data: Data) throws -> ThinSigningLayout {
             layout.codeSignatureCommandOffset = offset
             layout.codeSignatureDataOffset = dataOffset
             layout.codeSignatureDataSize = dataSize
+        } else if command == Constants.lcSymtab && commandSize >= Constants.symtabCommandSize {
+            // symtab_command: symoff@8, nsyms@12, stroff@16, strsize@20 (little-endian)
+            guard let stringOffset = data.readUInt32LE(at: offset + 16),
+                  let stringSize = data.readUInt32LE(at: offset + 20) else {
+                throw RorkSignError.invalidMachO("LC_SYMTAB payload is malformed.")
+            }
+            if stringOffset != 0 || stringSize != 0 {
+                layout.symbolTableStringEnd = UInt64(stringOffset) + UInt64(stringSize)
+            }
         } else if command == Constants.lcSegment64 && commandSize >= Constants.segmentCommand64Size {
             try readSegmentLayout(data, commandOffset: offset, commandSize: commandSize, layout: &layout)
         }
@@ -1041,15 +1078,16 @@ private func signThinMachO(_ data: Data, options: MachOSigningOptions) throws ->
     let layout = try readThinSigningLayout(data)
     var output = data
     let signatureCommandOffset: Int
-    let codeLimit: UInt64
+    let hasExistingSignature: Bool
+    let rawCodeLimit: UInt64
 
     if let existingSignatureCommandOffset = layout.codeSignatureCommandOffset {
         guard Int(layout.codeSignatureDataOffset) <= output.count else {
             throw RorkSignError.invalidMachO("Existing LC_CODE_SIGNATURE points past the file.")
         }
         signatureCommandOffset = existingSignatureCommandOffset
-        codeLimit = UInt64(layout.codeSignatureDataOffset)
-        output.removeSubrange(Int(codeLimit)..<output.count)
+        rawCodeLimit = UInt64(layout.codeSignatureDataOffset)
+        hasExistingSignature = true
     } else {
         guard let firstContentOffset = layout.firstContentOffset,
               firstContentOffset >= layout.commandRegionEnd,
@@ -1062,7 +1100,16 @@ private func signThinMachO(_ data: Data, options: MachOSigningOptions) throws ->
         try output.writeUInt32LE(UInt32(Constants.linkeditDataCommandSize), at: signatureCommandOffset + 4)
         try output.writeUInt32LE(layout.header.commandCount + 1, at: 16)
         try output.writeUInt32LE(layout.header.commandSize + UInt32(Constants.linkeditDataCommandSize), at: 20)
-        codeLimit = alignUp(UInt64(output.count), alignment: 16)
+        rawCodeLimit = alignUp(UInt64(output.count), alignment: 16)
+        hasExistingSignature = false
+    }
+
+    // Reproduce ldid Allocate (ldid.cpp:1464-1473): shrink the code limit when
+    // the symbol string table is adjacent to the signature region.
+    let codeLimit = layout.adjustedCodeLimit(rawCodeLimit)
+    if hasExistingSignature {
+        output.removeSubrange(Int(codeLimit)..<output.count)
+    } else {
         output.append(Data(repeating: 0, count: Int(codeLimit) - output.count))
     }
 
@@ -1163,15 +1210,16 @@ private func prepareThinMachOCMSCodeDirectories(
     let layout = try readThinSigningLayout(data)
     var output = data
     let signatureCommandOffset: Int
-    let codeLimit: UInt64
+    let hasExistingSignature: Bool
+    let rawCodeLimit: UInt64
 
     if let existingSignatureCommandOffset = layout.codeSignatureCommandOffset {
         guard Int(layout.codeSignatureDataOffset) <= output.count else {
             throw RorkSignError.invalidMachO("Existing LC_CODE_SIGNATURE points past the file.")
         }
         signatureCommandOffset = existingSignatureCommandOffset
-        codeLimit = UInt64(layout.codeSignatureDataOffset)
-        output.removeSubrange(Int(codeLimit)..<output.count)
+        rawCodeLimit = UInt64(layout.codeSignatureDataOffset)
+        hasExistingSignature = true
     } else {
         guard let firstContentOffset = layout.firstContentOffset,
               firstContentOffset >= layout.commandRegionEnd,
@@ -1184,7 +1232,16 @@ private func prepareThinMachOCMSCodeDirectories(
         try output.writeUInt32LE(UInt32(Constants.linkeditDataCommandSize), at: signatureCommandOffset + 4)
         try output.writeUInt32LE(layout.header.commandCount + 1, at: 16)
         try output.writeUInt32LE(layout.header.commandSize + UInt32(Constants.linkeditDataCommandSize), at: 20)
-        codeLimit = alignUp(UInt64(output.count), alignment: 16)
+        rawCodeLimit = alignUp(UInt64(output.count), alignment: 16)
+        hasExistingSignature = false
+    }
+
+    // Reproduce ldid Allocate (ldid.cpp:1464-1473): shrink the code limit when
+    // the symbol string table is adjacent to the signature region.
+    let codeLimit = layout.adjustedCodeLimit(rawCodeLimit)
+    if hasExistingSignature {
+        output.removeSubrange(Int(codeLimit)..<output.count)
+    } else {
         output.append(Data(repeating: 0, count: Int(codeLimit) - output.count))
     }
 

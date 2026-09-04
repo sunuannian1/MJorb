@@ -48,7 +48,8 @@ enum RorkAppSigner {
     /// 用 rork-sign 原地签名整个 .app bundle。
     ///
     /// 调用前 `SigningWorkspace.prepare` 已完成：解压、改 BundleID、strip arm64e、
-    /// 删除旧 _CodeSignature、ad-hoc 占位。本方法只负责正式的 CMS 签名。
+    /// 删除旧 _CodeSignature。本方法只负责正式的 CMS 签名（不做 ad-hoc 预处理，
+    /// 与 ldid / SideStore 一致，直接对原始 Mach-O 正式签名）。
     /// 可在后台线程执行。
     ///
     /// - Parameters:
@@ -106,7 +107,9 @@ enum RorkAppSigner {
             provisioningProfilesByBundleIdentifier: extensionProfiles,
             appGroupIdentifiers: appGroupIdentifiers,
             embedProvisioningProfiles: true,
-            codeDirectoryHashingMode: .sha256Only
+            // 对齐 ldid / zsign 默认：SHA-1 主 CodeDirectory + SHA-256 备用 CodeDirectory，
+            // 兼容 iOS 16.0-27 全版本（单 SHA-256 CD 在部分老系统上校验更易失败）。
+            codeDirectoryHashingMode: .compatible
         )
 
         do {
