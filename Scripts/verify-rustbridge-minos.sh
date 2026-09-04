@@ -63,7 +63,13 @@ while IFS= read -r archive; do
 
   slice_dir="$work/$slice"
   mkdir -p "$slice_dir"
-  (cd "$slice_dir" && ar -x "$OLDPWD/$archive")
+  # 兼容调用方传入绝对路径或相对路径：绝对路径直接使用，相对路径基于进入
+  # slice_dir 之前的工作目录(OLDPWD)解析，避免拼出 "$OLDPWD/绝对路径" 的重复前缀。
+  case "$archive" in
+    /*) archive_path="$archive" ;;
+    *)  archive_path="$OLDPWD/$archive" ;;
+  esac
+  (cd "$slice_dir" && ar -x "$archive_path")
 
   slice_checked=0
   slice_annotated=0

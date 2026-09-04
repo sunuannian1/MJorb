@@ -61,6 +61,6 @@ printf '%s\n' "$current" > "$FINGERPRINT_FILE"
 
 # 重编产物必须通过与专用 rebuild workflow 相同的两道质量门。
 MAX_IOS_VERSION="$DEPLOYMENT_TARGET" bash "$SCRIPT_DIR/verify-rustbridge-minos.sh" "$XCFRAMEWORK"
-bash "$SCRIPT_DIR/verify-rustbridge-symbols.sh" "$XCFRAMEWORK"
+bash "$SCRIPT_DIR/verify-rustbridge-symbols.sh" "$XCFRAMEWORK" "$XCFRAMEWORK"
 
 echo "RustBridge rebuilt and verified (fingerprint ${current:0:12})."
