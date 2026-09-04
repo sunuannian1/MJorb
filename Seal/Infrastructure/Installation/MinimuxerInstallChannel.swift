@@ -260,7 +260,9 @@ actor MinimuxerInstallChannel: InstallChannel {
         #if !targetEnvironment(simulator)
         guard await isReady() else { throw Self.channelNotReadyFailure }
         let ipaMB = Double(ipaData.count) / 1_000_000
-        let pushTimeout = min(1200.0, 120.0 + ipaMB * 2.5)
+        // yeet 现包含「上传 + 全新 AFC 通道全量回读校验」两段传输，总量约为单向上传的 2 倍，
+        // 超时预算相应放宽（封顶 30 分钟），避免大文件（如 400MB+）在无线隧道下被误判超时。
+        let pushTimeout = min(1800.0, 180.0 + ipaMB * 5.0)
         let maxAttempts = ipaMB > 100 ? 2 : 4
         var lastError: Error?
         for attempt in 1...maxAttempts {
