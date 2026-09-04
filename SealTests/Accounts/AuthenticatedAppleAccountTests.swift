@@ -10,6 +10,7 @@ struct AuthenticatedAppleAccountTests {
             accountIdentifier: "ACCOUNT",
             dsid: "DSID",
             authToken: "TOKEN",
+            password: nil,
             certificateP12: nil,
             certificateSerialNumber: nil,
             certificateMachineIdentifier: nil
