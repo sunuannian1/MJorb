@@ -751,6 +751,38 @@ enum Fixtures {
         return data
     }
 
+    /// Thin 64-bit MH_EXECUTE that still advertises FairPlay encryption
+    /// (LC_ENCRYPTION_INFO_64 carrying `cryptid`) before its code signature.
+    /// Layout: 32-byte header, 24-byte encryption command @32, 16-byte
+    /// LC_CODE_SIGNATURE @56 (ncmds = 2, sizeofcmds = 40).
+    static func machO64WithFairPlayEncryption(cryptid: UInt32 = 1) -> Data {
+        var data = Data(repeating: 0, count: 0x140)
+        data.writeUInt32LE(0xfeedfacf, at: 0)
+        data.writeUInt32LE(0x0100000c, at: 4)
+        data.writeUInt32LE(0, at: 8)
+        data.writeUInt32LE(2, at: 12)
+        data.writeUInt32LE(2, at: 16)
+        data.writeUInt32LE(40, at: 20)
+        data.writeUInt32LE(0, at: 24)
+        data.writeUInt32LE(0, at: 28)
+
+        // LC_ENCRYPTION_INFO_64: cmd@0 cmdsize@4 cryptoff@8 cryptsize@12
+        // cryptid@16 pad@20.
+        data.writeUInt32LE(0x2c, at: 32)
+        data.writeUInt32LE(24, at: 36)
+        data.writeUInt32LE(0x4000, at: 40)
+        data.writeUInt32LE(0x2000, at: 44)
+        data.writeUInt32LE(cryptid, at: 48)
+        data.writeUInt32LE(0, at: 52)
+
+        // LC_CODE_SIGNATURE.
+        data.writeUInt32LE(0x1d, at: 56)
+        data.writeUInt32LE(16, at: 60)
+        data.writeUInt32LE(0x100, at: 64)
+        data.writeUInt32LE(0x40, at: 68)
+        return data
+    }
+
     static func machO64WithoutCodeSignatureButWithLoadCommandSpace() -> Data {
         var data = Data(repeating: 0, count: 0x130)
         data.writeUInt32LE(0xfeedfacf, at: 0)

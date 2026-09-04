@@ -365,6 +365,11 @@ enum MachOSigner {
 private func thinSigningCacheInput(_ data: Data) throws -> Data {
     let layout = try readThinSigningLayout(data)
     var output = data
+    // Force FairPlay cryptid to 0 before the CodeDirectory page hashes are
+    // computed: a decrypted image that still advertises cryptid=1 makes dyld
+    // attempt FairPlay decryption with the wrong account and crash at launch.
+    // Matches ldid / zsign / Sideloadly behaviour for every signing path.
+    try clearFairPlayCryptid(in: &output, header: layout.header)
     let signatureCommandOffset: Int
     let hasExistingSignature: Bool
     let rawCodeLimit: UInt64
@@ -468,6 +473,13 @@ private enum Constants {
     static let fatMagic64: UInt32 = 0xcafebabf
     static let lcSegment64: UInt32 = 0x19
     static let lcCodeSignature: UInt32 = 0x1d
+    static let lcEncryptionInfo: UInt32 = 0x21
+    static let lcEncryptionInfo64: UInt32 = 0x2c
+    // encryption_info_command[_64]: cmd@0 cmdsize@4 cryptoff@8 cryptsize@12
+    // cryptid@16 (identical layout in both 32- and 64-bit variants).
+    static let encryptionInfoCryptidOffset = 16
+    // Smallest command size that still contains cryptid (32-bit variant is 20).
+    static let encryptionInfoMinimumCommandSize = 20
     static let lcSymtab: UInt32 = 0x2
     static let lcLoadDylib: UInt32 = 0xc
     static let lcLoadWeakDylib: UInt32 = 0x80000018
@@ -980,6 +992,33 @@ private func forEachLoadCommand(
     }
 }
 
+/// Zeroes the FairPlay `cryptid` of every LC_ENCRYPTION_INFO(_64) command.
+///
+/// Sideloaded inputs are expected to be decrypted, but some decrypted images
+/// still carry `cryptid = 1`. Left untouched, `dyld` tries FairPlay decryption
+/// with the new (mismatched) account and kills the process at launch. The field
+/// lives inside the signed code region, so it must be cleared before CodeDirectory
+/// page hashing. Returns how many encryption commands advertised a non-zero id.
+@discardableResult
+private func clearFairPlayCryptid(in data: inout Data, header: ThinHeader) throws -> Int {
+    var cleared = 0
+    try forEachLoadCommand(in: data, header: header) { offset, command, commandSize in
+        guard command == Constants.lcEncryptionInfo || command == Constants.lcEncryptionInfo64,
+              commandSize >= Constants.encryptionInfoMinimumCommandSize else {
+            return
+        }
+        let cryptidOffset = offset + Constants.encryptionInfoCryptidOffset
+        guard let cryptid = data.readUInt32LE(at: cryptidOffset) else {
+            throw RorkSignError.invalidMachO("LC_ENCRYPTION_INFO payload is malformed.")
+        }
+        if cryptid != 0 {
+            try data.writeUInt32LE(0, at: cryptidOffset)
+            cleared += 1
+        }
+    }
+    return cleared
+}
+
 /// Extracts `LC_SEGMENT_64` metadata used by code signing.
 ///
 /// The signer needs three independent pieces of segment state: the first file
@@ -1077,6 +1116,11 @@ private func signThinMachO(_ data: Data, options: MachOSigningOptions) throws ->
 
     let layout = try readThinSigningLayout(data)
     var output = data
+    // Force FairPlay cryptid to 0 before the CodeDirectory page hashes are
+    // computed: a decrypted image that still advertises cryptid=1 makes dyld
+    // attempt FairPlay decryption with the wrong account and crash at launch.
+    // Matches ldid / zsign / Sideloadly behaviour for every signing path.
+    try clearFairPlayCryptid(in: &output, header: layout.header)
     let signatureCommandOffset: Int
     let hasExistingSignature: Bool
     let rawCodeLimit: UInt64
@@ -1209,6 +1253,11 @@ private func prepareThinMachOCMSCodeDirectories(
 
     let layout = try readThinSigningLayout(data)
     var output = data
+    // Force FairPlay cryptid to 0 before the CodeDirectory page hashes are
+    // computed: a decrypted image that still advertises cryptid=1 makes dyld
+    // attempt FairPlay decryption with the wrong account and crash at launch.
+    // Matches ldid / zsign / Sideloadly behaviour for every signing path.
+    try clearFairPlayCryptid(in: &output, header: layout.header)
     let signatureCommandOffset: Int
     let hasExistingSignature: Bool
     let rawCodeLimit: UInt64

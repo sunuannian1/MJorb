@@ -165,6 +165,37 @@ final class MachOSigningTests: XCTestCase {
         XCTAssertEqual(requirements.readUInt32BE(at: 8), 0)
     }
 
+    func testAdHocSigningClearsFairPlayCryptid() throws {
+        let input = Fixtures.machO64WithFairPlayEncryption(cryptid: 1)
+        XCTAssertEqual(input.readUInt32LE(at: 48), 1)
+
+        let signed = try RorkSigner.signMachOAdHoc(
+            input,
+            bundleIdentifier: "app.rork.fairplay"
+        )
+
+        // LC_ENCRYPTION_INFO_64 stays at offset 32; cryptid@48 must now be 0.
+        XCTAssertEqual(signed.readUInt32LE(at: 32), 0x2c)
+        XCTAssertEqual(signed.readUInt32LE(at: 48), 0)
+        // cryptoff/cryptsize are preserved, only the id is cleared.
+        XCTAssertEqual(signed.readUInt32LE(at: 40), 0x4000)
+        XCTAssertEqual(signed.readUInt32LE(at: 44), 0x2000)
+        // A self-consistent signature is still produced over the cleared image.
+        let info = try RorkSigner.inspectMachO(signed)
+        XCTAssertTrue(info.hasCodeSignature)
+        XCTAssertEqual(signed.readUInt32BE(at: Int(info.codeSignatureOffset)), 0xfade0cc0)
+    }
+
+    func testAdHocSigningPreservesAlreadyDecryptedCryptid() throws {
+        let input = Fixtures.machO64WithFairPlayEncryption(cryptid: 0)
+        let signed = try RorkSigner.signMachOAdHoc(
+            input,
+            bundleIdentifier: "app.rork.decrypted"
+        )
+        XCTAssertEqual(signed.readUInt32LE(at: 32), 0x2c)
+        XCTAssertEqual(signed.readUInt32LE(at: 48), 0)
+    }
+
     func testReadsEmbeddedCodeSignatureSlots() throws {
         let signed = try RorkSigner.signMachOAdHoc(
             Fixtures.machO64WithCodeSignature(),
