@@ -368,7 +368,9 @@ private func thinSigningCacheInput(_ data: Data) throws -> Data {
     // Force FairPlay cryptid to 0 before the CodeDirectory page hashes are
     // computed: a decrypted image that still advertises cryptid=1 makes dyld
     // attempt FairPlay decryption with the wrong account and crash at launch.
-    // Matches ldid / zsign / Sideloadly behaviour for every signing path.
+    // A sideloaded image is decrypted by definition, so a non-zero id is a
+    // stale FairPlay flag; ldid applies the same normalization under -D.
+    // Clear it on every signing path so prepare/final see identical bytes.
     try clearFairPlayCryptid(in: &output, header: layout.header)
     let signatureCommandOffset: Int
     let hasExistingSignature: Bool
@@ -1119,7 +1121,9 @@ private func signThinMachO(_ data: Data, options: MachOSigningOptions) throws ->
     // Force FairPlay cryptid to 0 before the CodeDirectory page hashes are
     // computed: a decrypted image that still advertises cryptid=1 makes dyld
     // attempt FairPlay decryption with the wrong account and crash at launch.
-    // Matches ldid / zsign / Sideloadly behaviour for every signing path.
+    // A sideloaded image is decrypted by definition, so a non-zero id is a
+    // stale FairPlay flag; ldid applies the same normalization under -D.
+    // Clear it on every signing path so prepare/final see identical bytes.
     try clearFairPlayCryptid(in: &output, header: layout.header)
     let signatureCommandOffset: Int
     let hasExistingSignature: Bool
@@ -1256,7 +1260,9 @@ private func prepareThinMachOCMSCodeDirectories(
     // Force FairPlay cryptid to 0 before the CodeDirectory page hashes are
     // computed: a decrypted image that still advertises cryptid=1 makes dyld
     // attempt FairPlay decryption with the wrong account and crash at launch.
-    // Matches ldid / zsign / Sideloadly behaviour for every signing path.
+    // A sideloaded image is decrypted by definition, so a non-zero id is a
+    // stale FairPlay flag; ldid applies the same normalization under -D.
+    // Clear it on every signing path so prepare/final see identical bytes.
     try clearFairPlayCryptid(in: &output, header: layout.header)
     let signatureCommandOffset: Int
     let hasExistingSignature: Bool
