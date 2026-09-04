@@ -15,7 +15,9 @@ struct SigningSession: Identifiable, Equatable, Sendable {
     let app: AppRecord
     let account: AppleAccountRecord
     let requestedBundleIdentifier: String?
-    let selectedCertificateSerialNumber: String?
+    // var：签名开始时可能为 nil（签名时才申请证书），证书确定后由回调回写，
+    // 让进度/失败回看界面显示真实证书而非“未准备”。
+    var selectedCertificateSerialNumber: String?
     let completionMode: SigningCompletionMode
     var allowsDroppingExtensions: Bool
     var status: Status

@@ -1439,6 +1439,9 @@ final class AppsViewModel: ObservableObject {
                 forceResign: isRenewal,
                 progress: { [weak self] stage in
                     await self?.updateSigningStage(stage)
+                },
+                onCertificateResolved: { [weak self] serialNumber in
+                    await self?.updateResolvedCertificateSerialNumber(serialNumber)
                 }
             )
             let action: SigningHistoryRecord.Action = isRenewal ? .renew : .sign
@@ -1516,6 +1519,11 @@ final class AppsViewModel: ObservableObject {
     private func updateSigningStage(_ stage: SigningStage) {
         guard signingSession != nil else { return }
         signingSession?.status = .running(stage)
+    }
+
+    // SigningCoordinator 在证书序列号确定后回传（actor 上下文 → hop 回 MainActor 更新快照）
+    private func updateResolvedCertificateSerialNumber(_ serialNumber: String) {
+        signingSession?.selectedCertificateSerialNumber = serialNumber
     }
 
     private func recordSigningHistory(

@@ -34,7 +34,10 @@ actor SigningCoordinator {
         allowDroppingExtensions: Bool = true,
         installAfterSigning: Bool = true,
         forceResign: Bool = false,
-        progress: @Sendable (SigningStage) async -> Void
+        progress: @Sendable (SigningStage) async -> Void,
+        // 证书序列号一旦确定（复用缓存或新申请）即回传，供 UI 显示真实证书，
+        // 避免只持有“签名开始时快照”而在失败回看时误显示“证书未准备”。
+        onCertificateResolved: @Sendable @escaping (String) async -> Void = { _ in }
     ) async throws -> AppRecord {
         guard var app = try await appStore.fetchAll().first(where: { $0.id == appID }) else {
             throw Self.failure(
@@ -81,6 +84,10 @@ actor SigningCoordinator {
                 account: account,
                 requestedSerialNumber: selectedCertificateSerialNumber
             )
+        // 尽早回传实际使用的证书序列号（覆盖复用缓存证书、直接走已签包的路径）。
+        if let resolvedCertificateSerialNumber = effectiveCertificateSerialNumber {
+            await onCertificateResolved(resolvedCertificateSerialNumber)
+        }
         let targetBundleIdentifier = try BundleIDPolicy.targetBundleIdentifier(
             for: app,
             requestedBundleIdentifier: requestedBundleIdentifier
@@ -179,6 +186,8 @@ actor SigningCoordinator {
             account.verificationFailureReason = nil
             account.lastVerifiedAt = Date()
             try await accountRepository.save(account)
+            // 新申请证书路径：portal 返回后序列号才最终确定，再回传一次（幂等）。
+            await onCertificateResolved(portalResult.certificateSerialNumber)
 
             let signedPath = try await fileStore.storeSignedIPA(
                 sourceURL: portalResult.signedIPAURL,

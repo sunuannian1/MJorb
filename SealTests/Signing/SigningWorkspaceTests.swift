@@ -66,4 +66,34 @@ struct SigningWorkspaceTests {
         #expect(parsed.name == "Demo Custom")
     }
 
+    @Test
+    func removesThirdPartySigningResidueButKeepsOrdinaryFiles() throws {
+        let source = try IPAArchiveFixture.make(extraEntries: [
+            (path: "Payload/Demo.app/lzlukvca_inject.js", data: Data("inject".utf8)),
+            (path: "Payload/Demo.app/SignedByEsign", data: Data("mark".utf8)),
+            (path: "Payload/Demo.app/normal.json", data: Data("{}".utf8))
+        ])
+        defer { try? FileManager.default.removeItem(at: source.deletingLastPathComponent()) }
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "SealResidueTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let prepared = try SigningWorkspace().prepare(
+            ipaURL: source,
+            workspaceRoot: root.appending(path: "Work"),
+            originalBundleID: "com.example.demo",
+            teamID: "TEAMID"
+        )
+
+        // ESign 注入脚本与签名标记必须在重签前清除
+        #expect(FileManager.default.fileExists(
+            atPath: prepared.appURL.appending(path: "lzlukvca_inject.js").path) == false)
+        #expect(FileManager.default.fileExists(
+            atPath: prepared.appURL.appending(path: "SignedByEsign").path) == false)
+        // 普通资源不得被误伤
+        #expect(FileManager.default.fileExists(
+            atPath: prepared.appURL.appending(path: "normal.json").path))
+    }
 }

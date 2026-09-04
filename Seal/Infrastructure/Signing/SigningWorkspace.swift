@@ -76,6 +76,9 @@ struct SigningWorkspace: Sendable {
             // 参照 SideStore/AltStore 官方逻辑，这些内容免费账号无法签名
             try removeUnsupportedBundles(in: appURL)
 
+            // 清理 ESign 等其它签名工具留下的注入脚本/标记残留（容错，不阻断签名）。
+            removeThirdPartyInjectionArtifacts(in: appURL)
+
             // 大 IPA 优化：剥离 arm64e 架构，只保留 arm64（iOS 设备均为 arm64）。
             // 按 offset/size 字节级切出 arm64 slice，副本内部签名偏移依然有效，
             // 后续统一由 RorkSigner 重签。
@@ -480,6 +483,43 @@ struct SigningWorkspace: Sendable {
     /// 大 IPA 优化：剥离 arm64e 架构，只保留 arm64
     /// 大 IPA 优化：剥离非 arm64 架构，只保留 arm64
     /// 支持 fat32(0xCAFEBABE) 和 fat64(0xCAFEBABF)，rork-sign 只支持 64-bit slice
+    /// 清理其它签名/注入工具留下的残留（prepare 阶段、重签之前）。
+    ///
+    /// 部分 IPA 曾被 ESign 等工具签过，会在 .app 内留下注入脚本与工具标记（实测样本：
+    /// `lzlukvca_inject.js`、`SignedByEsign`）。它们不被主二进制 LC_LOAD_DYLIB 引用，
+    /// 但会夹带旧工具的运行时注入逻辑、干扰重签一致性，重签前移除。
+    ///
+    /// 安全边界：只删除白名单中、且不是可执行/库/bundle 的条目；.dylib/.framework/
+    /// .appex/.bundle 等即使同名也绝不删——它们可能被 LC_LOAD_DYLIB 引用，盲删会让
+    /// dyld 启动即闪退（去注入 dylib 必须同步移除 load command，属 Mach-O 改写，不在此）。
+    private func removeThirdPartyInjectionArtifacts(in appURL: URL) {
+        let residueNames: Set<String> = [
+            "lzlukvca_inject.js", // ESign 注入脚本
+            "signedbyesign"       // ESign 签名标记（文件或目录，大小写不敏感匹配）
+        ]
+        let protectedExtensions: Set<String> = [
+            "dylib", "framework", "appex", "bundle", "app", "so", "a"
+        ]
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: appURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        ) else { return }
+
+        var matches: [URL] = []
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent.lowercased()
+            guard residueNames.contains(name) else { continue }
+            guard protectedExtensions.contains(url.pathExtension.lowercased()) == false else { continue }
+            matches.append(url)
+        }
+        // 先收集再删除，避免边遍历边改目录导致枚举失效；残留清理失败不阻断签名主流程。
+        for url in matches {
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
     private func stripArm64eArchitecture(in appURL: URL) throws {
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(
