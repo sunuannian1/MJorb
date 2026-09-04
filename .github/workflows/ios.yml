@@ -3,6 +3,19 @@ name: iOS
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "两个门全绿后发布 GitHub Release（IPA 永久保留，不受 artifact 30 天限制）"
+        type: boolean
+        default: false
+      release_tag:
+        description: "Release 标签（留空则自动 v<版本>-build<run号>）"
+        type: string
+        default: ""
+      prerelease:
+        description: "标记为预发布版本"
+        type: boolean
+        default: false
 
 concurrency:
   group: ios-${{ github.ref }}
@@ -189,3 +202,43 @@ jobs:
       - name: Run rork-sign unit tests
         working-directory: Vendor/rork-sign
         run: swift test
+
+  # 全绿后可选发布 GitHub Release：手动 dispatch 时勾选 publish_release。
+  # Release 资产永久保留，弥补 upload-artifact 30 天自动过期；只下载+上传，用 ubuntu 即可。
+  publish-release:
+    needs: [build-package, rork-sign-tests]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Download unsigned IPA artifact
+        uses: actions/download-artifact@v7.0.1
+        with:
+          name: Seal-${{ github.run_number }}
+          path: release
+
+      - name: Publish GitHub Release via gh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ls -la release
+          VER="$(python3 -c "import plistlib;print(plistlib.load(open('release/Seal-Info.plist','rb'))['CFBundleShortVersionString'])")"
+          TAG="$INPUT_TAG"
+          if [ -z "$TAG" ]; then TAG="v${VER}-build${RUN_NUMBER}"; fi
+          ARGS=(--target "$SHA" --title "Seal $TAG" --notes "自动构建 Release（run ${RUN_NUMBER}，commit ${SHA:0:7}，版本 ${VER}）。产物为未签名 IPA，经 Seal 侧载签名后安装。")
+          if [ "$PRERELEASE" = "true" ]; then ARGS+=(--prerelease); fi
+          gh release create "$TAG" "${ARGS[@]}" \
+            release/Seal.ipa \
+            release/Seal.ipa.sha256 \
+            release/Seal-Info.plist \
+            release/SealTunnel-Info.plist
+          echo "published $TAG"
