@@ -558,6 +558,29 @@ actor SigningCoordinator {
             updated.mappedBundleIdentifier = effectiveBundleID
         }
 
+        // 安装前结构验证：确保签名后 IPA 包含 Payload/*.app、Info.plist、
+        // embedded.mobileprovision、主可执行文件，避免把损坏包传到设备端
+        // （设备端 installd 对结构损坏的包可能误报 MissingPackagePath 或模糊错误）。
+        let validation = SignedArtifactValidator.validate(
+            ipaData: signedData,
+            expectedBundleID: effectiveBundleID
+        )
+        guard validation.isValid else {
+            let reason = validation.failureReason ?? "签名后 IPA 结构验证未通过"
+            let code = validation.failureCode ?? "SEAL-INSTALL-720"
+            updated.state = originalState == .installed ? .installed : .signed
+            updated.signedArtifactStatus = .installFailed
+            updated.lastInstallFailureCode = code
+            updated.lastInstallFailureReason = reason
+            try await persistAppState(updated)
+            throw ImportFailure(
+                title: "安装前验证失败",
+                reason: reason,
+                recovery: "重新签名后再安装",
+                code: code
+            )
+        }
+
         if app.isSeal {
             // Persist the real signed-profile expiry before iOS replaces this running app.
             updated.state = .installed
