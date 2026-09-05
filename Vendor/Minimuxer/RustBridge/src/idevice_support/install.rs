@@ -26,18 +26,17 @@ fn staged_ipa_path(bundle_id: &str) -> String {
     format!("{STAGING_SUBDIR}/{bundle_id}.ipa")
 }
 
-/// 构造 InstallationProxy 的 ClientOptions。
+/// 构造 InstallationProxy 的 ClientOptions（RSD / CoreDevice 通道）。
 ///
-/// 关键（MissingPackagePath 的决定性根因）：侧载的是**开发者包**，RSD/CoreDevice 通道的
-/// installd 必须收到 `PackageType = Developer` 才会按开发者安装语义去 AFC 暂存区定位
-/// PackagePath；缺省（按 User 包处理）会在定位阶段回 MissingPackagePath。该结论由两个
-/// 独立、真机可用的实现交叉验证：idevice 作者本人的 jkcoxson/jas（sideload）与
-/// pymobiledevice3（install_from_local(developer=True) 强制 PackageType=Developer）。
-/// 同时带 CFBundleIdentifier（官方 idevice helpers 对 .ipa 的要求）以关联目标 App。
-fn developer_client_options(bundle_id: &str) -> Value {
+/// 只放 `PackageType = Developer`，**不放 CFBundleIdentifier**——与两个真机可用实现严格对齐：
+/// jkcoxson/jas（sideload）与 pymobiledevice3（install_from_local 的 developer=True）在
+/// Developer 安装时 ClientOptions 都只含 PackageType。Bundle 标识交给 installd 从包内
+/// Info.plist 自读；额外塞 CFBundleIdentifier 时，一旦该值（外部计算值或回读失败的回退值）
+/// 与成品包内真实 ID 不一致，installd 会在定位/校验阶段回 MissingPackagePath。注意经典
+/// lockdown 通道（LockDownInstall）仍需 CFBundleIdentifier，两条通道协议不同、不可统一。
+fn developer_client_options() -> Value {
     let mut opts = Dictionary::new();
     opts.insert("PackageType".into(), "Developer".into());
-    opts.insert("CFBundleIdentifier".into(), bundle_id.to_string().into());
     Value::Dictionary(opts)
 }
 
@@ -117,18 +116,16 @@ async fn verify_staged_package(expected: &[u8], staged_path: &str) -> Result<(),
 
 pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
     let staged_path = staged_ipa_path(&bundle_id);
-    let opts = developer_client_options(&bundle_id);
+    let opts = developer_client_options();
 
-    // 设备已存在同一 Bundle ID（失败占位残留、多开副本、续签覆盖）时走 Upgrade，否则全新
-    // Install；二者都带 PackageType=Developer。查询出错降级 Install，不阻断首装。
-    let command = select_install_command(lookup_app_rppairing(bundle_id.clone()).await);
-
+    // RSD/CoreDevice 通道恒用 Install（对齐 jas 恒 Install、pymobiledevice3 默认 Install）：
+    // Install 本身即可覆盖同一 Bundle ID（续签 / 重装）。Upgrade 按 idevice crate 文档只适用
+    // 于“确知已完整安装”的包；安装前用 lookup 判定会把安装失败的灰色占位 / offload 残留误判
+    // 为已存在，对其发 Upgrade 反而在定位阶段回 MissingPackagePath。是否已装的校验放到安装后
+    // 的 verifyInstalled（lookup_app_rppairing 仍保留给它使用），不用来选择安装命令。
     let result = {
         let mut inst_client = connect_to_rsd_services::<InstallationProxyClient>().await?;
-        match command {
-            InstallCommand::Upgrade => inst_client.upgrade(&staged_path, Some(opts)).await,
-            InstallCommand::Install => inst_client.install(&staged_path, Some(opts)).await,
-        }
+        inst_client.install(&staged_path, Some(opts)).await
     };
 
     // 安装结束（无论成败）后尽力清理设备端暂存包，释放空间（大包可达数百 MB）；清理失败
@@ -143,21 +140,6 @@ async fn cleanup_staged_package(staged_path: &str) {
     if let Ok(mut afc) = connect_to_rsd_services::<AfcClient>().await {
         let _ = afc.remove(staged_path).await;
     }
-}
-
-/// installd 安装命令选择（纯逻辑，便于单测）：lookup 命中已存在记录 → Upgrade；
-/// 查询无记录或查询出错 → Install（出错降级，不阻断首装）。
-fn select_install_command(lookup: Result<Option<String>, IdeviceError>) -> InstallCommand {
-    match lookup {
-        Ok(Some(_)) => InstallCommand::Upgrade,
-        Ok(None) | Err(_) => InstallCommand::Install,
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum InstallCommand {
-    Install,
-    Upgrade,
 }
 
 pub async fn remove_app_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
@@ -189,37 +171,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn existing_bundle_id_selects_upgrade() {
-        let lookup = Ok(Some("com.example.app".to_string()));
-        assert_eq!(select_install_command(lookup), InstallCommand::Upgrade);
-    }
-
-    #[test]
-    fn absent_bundle_id_selects_install() {
-        assert_eq!(select_install_command(Ok(None)), InstallCommand::Install);
-    }
-
-    #[test]
-    fn lookup_error_falls_back_to_install() {
-        // 查询抖动不得阻断全新安装：降级 Install 而不是直接失败。
-        let lookup = Err(IdeviceError::NotFound);
-        assert_eq!(select_install_command(lookup), InstallCommand::Install);
-    }
-
-    #[test]
-    fn developer_options_include_package_type_and_bundle_id() {
-        let v = developer_client_options("com.example.app");
+    fn developer_options_only_carry_package_type() {
+        let v = developer_client_options();
         // RustBridge 源码审计（含测试模块）禁止显式 panic 快捷方式，故用 match 断言而非之。
+        // 对齐 jas / pymobiledevice3：Developer 安装只给 PackageType，不得额外携带
+        // CFBundleIdentifier（避免与包内真实 ID 不一致时被 installd 拒绝）。
         match v.as_dictionary() {
             Some(dict) => {
                 assert_eq!(
                     dict.get("PackageType").and_then(|x| x.as_string()),
                     Some("Developer")
                 );
-                assert_eq!(
-                    dict.get("CFBundleIdentifier").and_then(|x| x.as_string()),
-                    Some("com.example.app")
-                );
+                assert!(dict.get("CFBundleIdentifier").is_none());
+                assert_eq!(dict.len(), 1);
             }
             None => assert!(false, "options must be a dictionary"),
         }
