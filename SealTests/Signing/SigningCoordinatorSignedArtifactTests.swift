@@ -171,10 +171,8 @@ private extension SigningCoordinatorSignedArtifactTests {
                 with: path,
                 type: .file,
                 uncompressedSize: UInt32(data.count),
-                provider: { (pos: UInt32, size: UInt32) in
-                    let start = Int(pos)
-                    let end = start + Int(size)
-                    return data.subdata(in: start..<end)
+                provider: { (pos: Int, size: Int) in
+                    data.subdata(in: pos..<(pos + size))
                 }
             )
         }
@@ -200,7 +198,7 @@ private extension SigningCoordinatorSignedArtifactTests {
             with: "Payload/Demo.app/\(executableName)",
             type: .file,
             uncompressedSize: UInt32(0),
-            provider: { (_: UInt32, _: UInt32) in Data() }
+            provider: { (_: Int, _: Int) in Data() }
         )
     }
 }
