@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import ZIPFoundation
 @testable import Seal
 
 struct SigningCoordinatorSignedArtifactTests {
@@ -9,7 +10,11 @@ struct SigningCoordinatorSignedArtifactTests {
         defer { try? FileManager.default.removeItem(at: environment.root) }
         let appID = UUID()
         let source = environment.root.appending(path: "AlreadySigned.ipa")
-        try Data("signed-ipa-payload".utf8).write(to: source)
+        try Self.makeMinimalValidIPA(
+            at: source,
+            bundleID: "com.example.demo.seal",
+            executableName: "Demo"
+        )
         let signedPath = try await environment.fileStore.storeSignedIPA(sourceURL: source, appID: appID)
         let sha = try await environment.fileStore.sha256(relativePath: signedPath)
         let expiration = Date().addingTimeInterval(3 * 86_400)
@@ -147,5 +152,57 @@ private actor SignedArtifactInstallChannel: InstallChannel {
     }
     func verifyInstalled(bundleID: String) async throws {
         verifyCount += 1
+    }
+}
+
+private extension SigningCoordinatorSignedArtifactTests {
+    /// 创建一个结构完整的最小有效 IPA（通过 SignedArtifactValidator 的所有检查）。
+    static func makeMinimalValidIPA(
+        at url: URL,
+        bundleID: String,
+        executableName: String
+    ) throws {
+        guard let archive = Archive(url: url, accessMode: .create) else {
+            throw NSError(domain: "Test", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法创建 ZIP 归档"])
+        }
+
+        // Info.plist
+        let infoPlist: [String: Any] = [
+            "CFBundleIdentifier": bundleID,
+            "CFBundleExecutable": executableName,
+            "CFBundleName": "Demo"
+        ]
+        let infoPlistData = try PropertyListSerialization.data(
+            fromPropertyList: infoPlist,
+            format: .xml,
+            options: 0
+        )
+        try archive.addEntry(
+            with: "Payload/Demo.app/Info.plist",
+            type: .file,
+            uncompressedSize: Int64(infoPlistData.count),
+            provider: { position, size in
+                infoPlistData.subdata(in: position..<(position + size))
+            }
+        )
+
+        // embedded.mobileprovision（模拟，内容不校验）
+        let provisionData = Data("mock-mobileprovision".utf8)
+        try archive.addEntry(
+            with: "Payload/Demo.app/embedded.mobileprovision",
+            type: .file,
+            uncompressedSize: Int64(provisionData.count),
+            provider: { position, size in
+                provisionData.subdata(in: position..<(position + size))
+            }
+        )
+
+        // 主可执行文件（空文件即可，验证器只检查存在性）
+        try archive.addEntry(
+            with: "Payload/Demo.app/\(executableName)",
+            type: .file,
+            uncompressedSize: 0,
+            provider: { _, _ in Data() }
+        )
     }
 }
