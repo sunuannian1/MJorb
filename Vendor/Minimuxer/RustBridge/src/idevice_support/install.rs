@@ -1,6 +1,8 @@
 // Jackson Coxson
 
+use std::collections::HashMap;
 use std::io::{Cursor, Read};
+use std::sync::{Mutex, OnceLock};
 
 use idevice::{
     afc::{errors::AfcError, opcode::AfcFopenMode, AfcClient},
@@ -15,6 +17,28 @@ use crate::idevice_support::rsd::connect_to_rsd_services;
 /// AFC 暂存根目录（相对 AFC jail 根）。对齐 SideStore/minimuxer 真机 on-device 实现
 /// （`MinimuxerConstants.pkgPath = "PublicStaging"`）。
 const STAGING_DIR: &str = "PublicStaging";
+
+/// yeet / install 两次独立 FFI 之间传递 `.app` 目录名的进程内缓存。
+///
+/// 背景：官方 SideStore/minimuxer 的 `syncsendAppBundleAfc` 与 `syncInstallAppBundle`
+/// 在同一个 Swift 函数内先后调用，appName 已知，install 从不做 AFC `list_dir` 回读。
+/// Seal 因 FFI 边界把 yeet（铺目录）与 install（触发安装）拆成两次调用，install 只收
+/// `bundle_id`，此前被迫 `list_dir` 回读 .app 名——而 RSD / CoreDevice 隧道下 AFC
+/// `list_dir` 对目录条目的返回在部分设备上不可靠（条目缺失或带尾部斜杠），导致
+/// "暂存目录下未找到 .app 主程序"。此处用进程内缓存传递 appName，list_dir 仅作 fallback。
+static APP_NAME_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+fn cache_app_name(bundle_id: &str, app_name: &str) {
+    let map = APP_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(mut guard) = map.lock() {
+        guard.insert(bundle_id.to_string(), app_name.to_string());
+    }
+}
+
+fn cached_app_name(bundle_id: &str) -> Option<String> {
+    let map = APP_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    map.lock().ok().and_then(|guard| guard.get(bundle_id).cloned())
+}
 
 /// 某个 Bundle ID 对应的设备端暂存目录：`PublicStaging/<bid>`。
 /// 官方在其下铺一个与 IPA 内同名的 `<Name>.app` 目录树，再让 installd 安装该目录。
@@ -197,6 +221,10 @@ pub async fn yeet_app_afc_rppairing(
         }
     }
 
+    // 把 .app 目录名存入进程内缓存，供 install 阶段使用（避免依赖 RSD 下不可靠的 list_dir 回读）。
+    // 仅在所有文件铺设成功后才写入；yeet 失败时不污染缓存。
+    cache_app_name(&bundle_id, &application_name);
+
     Ok(())
 }
 
@@ -209,16 +237,27 @@ pub async fn yeet_app_afc_rppairing(
 pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
     let bundle_dir = bundle_staging_dir(&bundle_id);
 
-    let mut afc = connect_to_rsd_services::<AfcClient>().await?;
-    let entries = afc.list_dir(bundle_dir.clone()).await?;
-    let application_name = entries
-        .into_iter()
-        .find(|name| name.ends_with(".app") && name != "." && name != "..")
-        .ok_or_else(|| {
-            IdeviceError::UnexpectedResponse(format!(
-                "暂存目录 {bundle_dir} 下未找到 .app 主程序"
-            ))
-        })?;
+    // 优先用 yeet 阶段缓存的 .app 目录名（官方 SideStore 也不做回读，同一函数内已知 appName）。
+    // RSD / CoreDevice 隧道下 AFC list_dir 在部分设备上不可靠，cache 是主路径。
+    let application_name = match cached_app_name(&bundle_id) {
+        Some(name) => name,
+        None => {
+            // fallback：列暂存目录回读。trim 尾部斜杠后再匹配 .app；
+            // 错误信息列出实际条目，便于诊断。
+            let mut afc = connect_to_rsd_services::<AfcClient>().await?;
+            let entries: Vec<String> = afc.list_dir(bundle_dir.clone()).await?;
+            entries
+                .iter()
+                .map(|name| name.trim_end_matches('/').to_string())
+                .find(|name| name.ends_with(".app") && name != "." && name != "..")
+                .ok_or_else(|| {
+                    IdeviceError::UnexpectedResponse(format!(
+                        "暂存目录 {bundle_dir} 下未找到 .app 主程序（实际条目: {:?}）",
+                        entries
+                    ))
+                })?
+        }
+    };
     let install_path = format!("{bundle_dir}/{application_name}");
 
     let mut inst_client = connect_to_rsd_services::<InstallationProxyClient>().await?;
