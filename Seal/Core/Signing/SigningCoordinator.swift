@@ -568,7 +568,7 @@ actor SigningCoordinator {
         guard validation.isValid else {
             let reason = validation.failureReason ?? "签名后 IPA 结构验证未通过"
             let code = validation.failureCode ?? "SEAL-INSTALL-720"
-            updated.state = originalState == .installed ? .installed : .signed
+            updated.state = app.state == .installed ? .installed : .signed
             updated.signedArtifactStatus = .installFailed
             updated.lastInstallFailureCode = code
             updated.lastInstallFailureReason = reason
