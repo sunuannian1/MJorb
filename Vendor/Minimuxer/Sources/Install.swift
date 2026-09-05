@@ -126,7 +126,18 @@ public class LockDownInstall: InstallProvider {
 
         if let deviceError = deviceError {
             print("[minimuxer] ERROR: \(action) failed: \(deviceError)")
-            throw MinimuxerError.InstallApp(deviceError)
+            // 兜底：设备上有 lookup 看不到的残留安装记录（上次失败占位）时，
+            // Install/Upgrade 都会被 installd 以 MissingPackagePath 拒绝。
+            // 卸载清掉残留记录（不动 AFC 暂存包）后全新安装。
+            guard deviceError.contains("MissingPackagePath") else {
+                throw MinimuxerError.InstallApp(deviceError)
+            }
+            print("[minimuxer] MissingPackagePath fallback: removing stale record and retrying fresh Install")
+            _ = inst.uninstall(bundleId: bundleId)
+            if let retryError = inst.install(path: path, bundleId: bundleId) {
+                print("[minimuxer] ERROR: fresh Install after cleanup failed: \(retryError)")
+                throw MinimuxerError.InstallApp(retryError)
+            }
         }
         print("[minimuxer] \(action) done!")
     }

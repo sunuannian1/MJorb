@@ -139,7 +139,11 @@ pub async fn yeet_app_afc_rppairing(
 ///
 /// 对齐 jas `install_ipa`（第 670-700 行）：安装路径是 `PublicStaging/<Name>.ipa`
 /// **单文件**（不是 .app 目录）；`.ipa` 名由 yeet 阶段缓存，list_dir 仅作 fallback。
-/// ClientOptions 只带 PackageType=Developer。恒用 Install，Install 本身可覆盖同 Bundle ID。
+/// ClientOptions 只带 PackageType=Developer。
+///
+/// 已存在同 Bundle ID 的记录（上次失败残留占位、续签覆盖）必须走 Upgrade：
+/// 对已存在记录发全新 Install 会被 installd 直接以 MissingPackagePath 拒绝。
+/// lookup 失败按未安装处理（不阻断首装），残留记录由下方 MissingPackagePath 兜底清理。
 pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
     // 优先用 yeet 阶段缓存的 .ipa 文件名（jas 也不做回读，同一函数内已知 ipa_name）。
     // RSD / CoreDevice 隧道下 AFC list_dir 在部分设备上不可靠，cache 是主路径。
@@ -166,11 +170,36 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
     // 对齐 jas 第 670-673 行：InstallationProxyClient::connect_rsd
     let mut inst_client = connect_to_rsd_services::<InstallationProxyClient>().await?;
 
-    // 对齐 jas 第 683-700 行：install(afc_path, Some({PackageType:Developer}))
-    // 用 install（无进度回调）而非 install_with_callback——回调仅用于 UI 进度，不影响安装语义。
-    inst_client
-        .install(&install_path, Some(developer_client_options()))
+    let already_installed = lookup_app_rppairing(bundle_id.clone())
         .await
+        .ok()
+        .flatten()
+        .is_some();
+
+    let first_result = if already_installed {
+        inst_client
+            .upgrade(&install_path, Some(developer_client_options()))
+            .await
+    } else {
+        inst_client
+            .install(&install_path, Some(developer_client_options()))
+            .await
+    };
+
+    match first_result {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            // 兜底：lookup 看不到的残留安装记录会让 Install 报 MissingPackagePath。
+            // 卸载（清掉残留记录；不动 AFC 媒体区 PublicStaging 里的暂存包）后全新安装。
+            if !format!("{error:?}").contains("MissingPackagePath") {
+                return Err(error);
+            }
+            let _ = inst_client.uninstall(bundle_id.clone(), None).await;
+            inst_client
+                .install(&install_path, Some(developer_client_options()))
+                .await
+        }
+    }
 }
 
 pub async fn remove_app_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
