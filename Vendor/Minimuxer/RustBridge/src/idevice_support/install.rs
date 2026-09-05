@@ -1,7 +1,7 @@
 // Jackson Coxson
 
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::sync::{Mutex, OnceLock};
 
 use idevice::{
@@ -14,50 +14,43 @@ use tokio::io::AsyncWriteExt;
 
 use crate::idevice_support::rsd::connect_to_rsd_services;
 
-/// AFC 暂存根目录（相对 AFC jail 根）。对齐 SideStore/minimuxer 真机 on-device 实现
-/// （`MinimuxerConstants.pkgPath = "PublicStaging"`）。
+/// AFC 暂存根目录（相对 AFC jail 根）。逐行对齐 jas（同 idevice crate 作者、
+/// 真机可用）的 RSD sideload：`PublicStaging/<Name>.ipa` 单文件，不建子目录。
 const STAGING_DIR: &str = "PublicStaging";
 
-/// yeet / install 两次独立 FFI 之间传递 `.app` 目录名的进程内缓存。
+/// yeet / install 两次独立 FFI 之间传递 `.ipa` 文件名的进程内缓存。
 ///
-/// 背景：官方 SideStore/minimuxer 的 `syncsendAppBundleAfc` 与 `syncInstallAppBundle`
-/// 在同一个 Swift 函数内先后调用，appName 已知，install 从不做 AFC `list_dir` 回读。
-/// Seal 因 FFI 边界把 yeet（铺目录）与 install（触发安装）拆成两次调用，install 只收
-/// `bundle_id`，此前被迫 `list_dir` 回读 .app 名——而 RSD / CoreDevice 隧道下 AFC
-/// `list_dir` 对目录条目的返回在部分设备上不可靠（条目缺失或带尾部斜杠），导致
-/// "暂存目录下未找到 .app 主程序"。此处用进程内缓存传递 appName，list_dir 仅作 fallback。
-static APP_NAME_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+/// 背景：jas 的 `install_ipa` 在同一个函数内完成签名→打包→AFC 上传→installd 安装，
+/// ipa_name 已知，install 从不做 AFC `list_dir` 回读。Seal 因 FFI 边界把 yeet（上传）
+/// 与 install（触发安装）拆成两次调用，install 只收 `bundle_id`，此前被迫 list_dir 回读
+/// ——而 RSD / CoreDevice 隧道下 AFC `list_dir` 在部分设备上不可靠。此处用进程内缓存
+/// 传递 ipa_name，list_dir 仅作 fallback。
+static IPA_NAME_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
-fn cache_app_name(bundle_id: &str, app_name: &str) {
-    let map = APP_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+fn cache_ipa_name(bundle_id: &str, ipa_name: &str) {
+    let map = IPA_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Ok(mut guard) = map.lock() {
-        guard.insert(bundle_id.to_string(), app_name.to_string());
+        guard.insert(bundle_id.to_string(), ipa_name.to_string());
     }
 }
 
-fn cached_app_name(bundle_id: &str) -> Option<String> {
-    let map = APP_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+fn cached_ipa_name(bundle_id: &str) -> Option<String> {
+    let map = IPA_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     map.lock().ok().and_then(|guard| guard.get(bundle_id).cloned())
-}
-
-/// 某个 Bundle ID 对应的设备端暂存目录：`PublicStaging/<bid>`。
-/// 官方在其下铺一个与 IPA 内同名的 `<Name>.app` 目录树，再让 installd 安装该目录。
-fn bundle_staging_dir(bundle_id: &str) -> String {
-    format!("{STAGING_DIR}/{bundle_id}")
 }
 
 /// 构造 InstallationProxy 的 ClientOptions（RSD / CoreDevice 通道）。
 ///
-/// 逐行对齐 SideStore/minimuxer `syncInstallAppBundle`：只放 `PackageType = Developer`。
-/// Bundle 标识交给 installd 从铺好的 .app 包内 Info.plist 自读，不传 CFBundleIdentifier。
+/// 逐行对齐 jas `install_ipa`（第 675-679 行）：只放 `PackageType = Developer`。
+/// Bundle 标识交给 installd 从 .ipa 包内 Info.plist 自读，不传 CFBundleIdentifier。
 fn developer_client_options() -> Value {
     let mut opts = Dictionary::new();
     opts.insert("PackageType".into(), "Developer".into());
     Value::Dictionary(opts)
 }
 
-/// 建目录，忽略「已存在」（官方 Swift 端直接丢弃 afc_make_directory 的返回值），
-/// 其余错误照常上抛，保证逐级幂等创建。
+/// 建目录，忽略「已存在」（afcd 对已存在目录回 ObjectExists，幂等创建），
+/// 其余错误照常上抛。
 async fn mkdir_idempotent(afc: &mut AfcClient, path: &str) -> Result<(), IdeviceError> {
     match afc.mk_dir(path.to_string()).await {
         Ok(()) => Ok(()),
@@ -66,41 +59,13 @@ async fn mkdir_idempotent(afc: &mut AfcClient, path: &str) -> Result<(), Idevice
     }
 }
 
-/// 沿 `/` 逐级创建目录（每一级都幂等），不依赖压缩包是否显式包含目录条目。
-async fn ensure_directory_chain(afc: &mut AfcClient, remote_dir: &str) -> Result<(), IdeviceError> {
-    let mut current = String::new();
-    for part in remote_dir.split('/') {
-        if part.is_empty() {
-            continue;
-        }
-        if !current.is_empty() {
-            current.push('/');
-        }
-        current.push_str(part);
-        mkdir_idempotent(afc, &current).await?;
-    }
-    Ok(())
-}
-
 fn zip_error(error: zip::result::ZipError) -> IdeviceError {
     IdeviceError::UnexpectedResponse(format!("无法读取 IPA 压缩包: {error}"))
 }
 
-fn io_error(error: std::io::Error) -> IdeviceError {
-    IdeviceError::UnexpectedResponse(format!("读取 IPA 条目失败: {error}"))
-}
-
-/// 压缩包内待铺设条目的种类。
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum EntryKind {
-    Directory,
-    File,
-    /// 符号链接不铺到设备（签名阶段已拒绝输入含 symlink，这里是双保险）。
-    Symlink,
-}
-
-/// 从 IPA（内存字节）定位唯一主程序目录 `Payload/<Name>.app/`，返回其前缀与 `<Name>.app`。
-fn detect_application(ipa_bytes: &[u8]) -> Result<(String, String), IdeviceError> {
+/// 从 IPA（内存字节）定位唯一主程序目录 `Payload/<Name>.app/`，返回 `<Name>.app`。
+/// 用于派生设备端暂存文件名 `<Name>.ipa`（对齐 jas：app_name.trim_end(".app") + ".ipa"）。
+fn detect_application_name(ipa_bytes: &[u8]) -> Result<String, IdeviceError> {
     let mut archive = zip::ZipArchive::new(Cursor::new(ipa_bytes)).map_err(zip_error)?;
     for index in 0..archive.len() {
         let entry = archive.by_index(index).map_err(zip_error)?;
@@ -111,9 +76,7 @@ fn detect_application(ipa_bytes: &[u8]) -> Result<(String, String), IdeviceError
         };
         let top = tail.split('/').next().unwrap_or("");
         if top.ends_with(".app") {
-            let application_name = top.to_string();
-            let prefix = format!("Payload/{application_name}/");
-            return Ok((prefix, application_name));
+            return Ok(top.to_string());
         }
     }
     Err(IdeviceError::UnexpectedResponse(
@@ -121,146 +84,90 @@ fn detect_application(ipa_bytes: &[u8]) -> Result<(String, String), IdeviceError
     ))
 }
 
-/// 把 IPA 内的主程序解包并逐文件铺到设备 AFC 暂存区（RSD / CoreDevice 通道）。
+/// 把签名后的 IPA 逐字节上传到设备 AFC 暂存区（RSD / CoreDevice 通道）。
 ///
-/// 动作序列逐行对齐 SideStore/minimuxer on-device 的 `syncsendAppBundleAfc`：
-/// 1. 幂等建 `PublicStaging`，清掉同 Bundle ID 的旧暂存后建 `PublicStaging/<bid>`；
-/// 2. 遍历 IPA 内 `Payload/<Name>.app/**`：逐级建子目录；每个文件用 `Wr`(=4,
-///    O_RDWR|O_CREAT|O_TRUNC) 打开、写入整文件、关闭；空文件只开/关创建、不写；
-/// 3. 流式处理：同一时刻只把「单个文件」读入内存，避免 400MB+ 大包整体驻留。
+/// 动作序列逐行对齐 jas `install_ipa`（第 631-668 行）：
+/// 1. `AfcClient::connect_rsd`（复用缓存的 RSD 隧道）；
+/// 2. 幂等建 `PublicStaging`；
+/// 3. `open("PublicStaging/<Name>.ipa", WrOnly)`（**WrOnly=3，对齐 jas 第 641 行**，
+///    不是 Wr=4；WrOnly=O_WRONLY|O_CREAT|O_TRUNC）；
+/// 4. `write_all(整包)`（底层 InnerFileDescriptor::write 已按 MAX_TRANSFER=1MiB 自动
+///    分块，无需手动切块；jas 的手动分块只是进度粒度）；
+/// 5. `close()`（函数结束时 afc 自动 drop，对齐 jas 的 `drop(afc)` 释放连接）。
 ///
-/// 设备端最终得到与官方完全一致的 `PublicStaging/<bid>/<Name>.app/...` 目录树。
+/// 设备端最终得到与 jas 完全一致的 `PublicStaging/<Name>.ipa` 单文件。
 pub async fn yeet_app_afc_rppairing(
     bundle_id: String,
     ipa_bytes: &[u8],
 ) -> Result<(), IdeviceError> {
-    let (app_prefix, application_name) = detect_application(ipa_bytes)?;
+    // 对齐 jas 第 614-619 行：app_name → ipa_name → afc_path
+    let application_name = detect_application_name(ipa_bytes)?;
+    let ipa_name = format!(
+        "{}.ipa",
+        application_name.trim_end_matches(".app")
+    );
+    let afc_path = format!("{STAGING_DIR}/{ipa_name}");
 
-    // 第一遍：建立铺设计划（索引 + 设备端相对路径 + 种类），不读文件内容。
-    let mut planned: Vec<(usize, String, EntryKind)> = Vec::new();
-    {
-        let mut archive = zip::ZipArchive::new(Cursor::new(ipa_bytes)).map_err(zip_error)?;
-        for index in 0..archive.len() {
-            let entry = archive.by_index(index).map_err(zip_error)?;
-            let name = entry.name().to_string();
-            let is_directory = entry.is_dir();
-            let is_symlink = entry
-                .unix_mode()
-                .map(|mode| mode & 0o170000 == 0o120000)
-                .unwrap_or(false);
-            drop(entry);
-
-            let relative = if name == app_prefix.trim_end_matches('/')
-                || name == app_prefix
-            {
-                application_name.clone()
-            } else {
-                match name.strip_prefix(&app_prefix) {
-                    Some(tail) if !tail.is_empty() => {
-                        format!("{application_name}/{tail}")
-                    }
-                    _ => continue,
-                }
-            };
-            // 压缩包里目录条目名常以 `/` 结尾，归一去掉，便于统一推导。
-            let relative = relative.trim_end_matches('/').to_string();
-            let kind = if is_symlink {
-                EntryKind::Symlink
-            } else if is_directory {
-                EntryKind::Directory
-            } else {
-                EntryKind::File
-            };
-            planned.push((index, relative, kind));
-        }
-    }
-
-    let bundle_dir = bundle_staging_dir(&bundle_id);
     let mut afc = connect_to_rsd_services::<AfcClient>().await?;
 
+    // 对齐 jas 第 636-638 行：mk_dir("PublicStaging")
     mkdir_idempotent(&mut afc, STAGING_DIR).await?;
-    // 覆盖安装/续签前清掉同 Bundle ID 旧暂存目录，避免旧版本残留文件污染；
-    // 暂存尚不存在时 afcd 返回 ObjectNotFound，属正常。
-    match afc.remove_all(bundle_dir.clone()).await {
-        Ok(()) => {}
-        Err(IdeviceError::Afc(AfcError::ObjectNotFound)) => {}
-        Err(other) => return Err(other),
-    }
-    mkdir_idempotent(&mut afc, &bundle_dir).await?;
 
-    // 第二遍：按计划逐目录/逐文件铺设。
-    for (index, relative, kind) in planned {
-        let remote_path = format!("{bundle_dir}/{relative}");
-        match kind {
-            EntryKind::Symlink => continue,
-            EntryKind::Directory => {
-                ensure_directory_chain(&mut afc, &remote_path).await?;
-            }
-            EntryKind::File => {
-                if let Some(parent) = remote_path.rsplit_once('/').map(|(dir, _)| dir) {
-                    ensure_directory_chain(&mut afc, parent).await?;
-                }
-                // 先把这一个文件读入内存（读完即释放对 archive 的借用）。
-                let mut contents = Vec::new();
-                {
-                    let mut archive =
-                        zip::ZipArchive::new(Cursor::new(ipa_bytes)).map_err(zip_error)?;
-                    let mut entry = archive.by_index(index).map_err(zip_error)?;
-                    entry.read_to_end(&mut contents).map_err(io_error)?;
-                }
+    // 对齐 jas 第 640-643 行：open(afc_path, WrOnly)
+    let mut handle = afc
+        .open(afc_path.clone(), AfcFopenMode::WrOnly)
+        .await?;
 
-                // 对齐官方：Wr(=4) 打开（自带创建+截断），非空才写，随后关闭。
-                let mut handle = afc
-                    .open(remote_path.clone(), AfcFopenMode::Wr)
-                    .await?;
-                if !contents.is_empty() {
-                    handle.write_all(&contents).await?;
-                }
-                handle.close().await?;
-            }
-        }
+    // 对齐 jas 第 645-663 行：write_all(整包)
+    // 底层已按 1MiB 自动分块；非空才写（空文件理论上不会出现在 IPA 中，但双保险）
+    if !ipa_bytes.is_empty() {
+        handle.write_all(ipa_bytes).await?;
     }
 
-    // 把 .app 目录名存入进程内缓存，供 install 阶段使用（避免依赖 RSD 下不可靠的 list_dir 回读）。
-    // 仅在所有文件铺设成功后才写入；yeet 失败时不污染缓存。
-    cache_app_name(&bundle_id, &application_name);
+    // 对齐 jas 第 665-668 行：close() + drop(afc)
+    // close 显式刷写；afc 在函数结束时自动 drop（释放服务连接，底层 RSD 隧道仍缓存）
+    handle.close().await?;
+
+    // 把 .ipa 文件名存入进程内缓存，供 install 阶段使用（避免依赖 RSD 下不可靠的 list_dir）。
+    // 仅在上传成功后才写入；yeet 失败时不污染缓存。
+    cache_ipa_name(&bundle_id, &ipa_name);
 
     Ok(())
 }
 
-/// 触发 installd 安装已铺设好的 .app 目录（RSD / CoreDevice 通道）。
+/// 触发 installd 安装已上传的 .ipa 文件（RSD / CoreDevice 通道）。
 ///
-/// 对齐 SideStore/minimuxer `syncInstallAppBundle`：安装路径是
-/// `PublicStaging/<bid>/<Name>.app` **目录**（不是 .ipa 文件）；`.app` 名由 yeet 阶段
-/// 铺就，这里列暂存目录读回（yeet/install 是两次独立 FFI，install 只收 bundle_id）。
+/// 对齐 jas `install_ipa`（第 670-700 行）：安装路径是 `PublicStaging/<Name>.ipa`
+/// **单文件**（不是 .app 目录）；`.ipa` 名由 yeet 阶段缓存，list_dir 仅作 fallback。
 /// ClientOptions 只带 PackageType=Developer。恒用 Install，Install 本身可覆盖同 Bundle ID。
 pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
-    let bundle_dir = bundle_staging_dir(&bundle_id);
-
-    // 优先用 yeet 阶段缓存的 .app 目录名（官方 SideStore 也不做回读，同一函数内已知 appName）。
+    // 优先用 yeet 阶段缓存的 .ipa 文件名（jas 也不做回读，同一函数内已知 ipa_name）。
     // RSD / CoreDevice 隧道下 AFC list_dir 在部分设备上不可靠，cache 是主路径。
-    let application_name = match cached_app_name(&bundle_id) {
+    let ipa_name = match cached_ipa_name(&bundle_id) {
         Some(name) => name,
         None => {
-            // fallback：列暂存目录回读。trim 尾部斜杠后再匹配 .app；
-            // 错误信息列出实际条目，便于诊断。
+            // fallback：列 PublicStaging 目录回读 .ipa 文件。
             let mut afc = connect_to_rsd_services::<AfcClient>().await?;
-            let entries: Vec<String> = afc.list_dir(bundle_dir.clone()).await?;
+            let entries: Vec<String> = afc.list_dir(STAGING_DIR.to_string()).await?;
             entries
                 .iter()
                 .map(|name| name.trim_end_matches('/').to_string())
-                .find(|name| name.ends_with(".app") && name != "." && name != "..")
+                .find(|name| name.ends_with(".ipa") && name != "." && name != "..")
                 .ok_or_else(|| {
                     IdeviceError::UnexpectedResponse(format!(
-                        "暂存目录 {bundle_dir} 下未找到 .app 主程序（实际条目: {:?}）",
+                        "暂存目录 {STAGING_DIR} 下未找到 .ipa 安装包（实际条目: {:?}）",
                         entries
                     ))
                 })?
         }
     };
-    let install_path = format!("{bundle_dir}/{application_name}");
+    let install_path = format!("{STAGING_DIR}/{ipa_name}");
 
+    // 对齐 jas 第 670-673 行：InstallationProxyClient::connect_rsd
     let mut inst_client = connect_to_rsd_services::<InstallationProxyClient>().await?;
+
+    // 对齐 jas 第 683-700 行：install(afc_path, Some({PackageType:Developer}))
+    // 用 install（无进度回调）而非 install_with_callback——回调仅用于 UI 进度，不影响安装语义。
     inst_client
         .install(&install_path, Some(developer_client_options()))
         .await
@@ -287,9 +194,8 @@ mod tests {
     #[test]
     fn developer_options_only_carry_package_type() {
         let v = developer_client_options();
-        // RustBridge 源码审计（含测试模块）禁止显式 panic 快捷方式，故用 match 断言而非之。
-        // 对齐 SideStore on-device：Developer 安装只给 PackageType，不得额外携带
-        // CFBundleIdentifier（避免与包内真实 ID 不一致时被 installd 拒绝）。
+        // RustBridge 源码审计（含测试模块）禁止显式 panic 快捷方式，故用 match 断言。
+        // 对齐 jas：Developer 安装只给 PackageType，不得额外携带 CFBundleIdentifier。
         match v.as_dictionary() {
             Some(dict) => {
                 assert_eq!(
@@ -304,15 +210,47 @@ mod tests {
     }
 
     #[test]
-    fn staging_directory_is_keyed_by_bundle_id() {
-        // 对齐 SideStore：每个 Bundle ID 独立暂存目录 PublicStaging/<bid>，其下铺 <Name>.app。
-        assert_eq!(
-            bundle_staging_dir("com.a.b"),
-            "PublicStaging/com.a.b"
-        );
-        assert_eq!(
-            bundle_staging_dir("com.a.b"),
-            bundle_staging_dir("com.a.b")
-        );
+    fn staging_dir_is_public_staging_root() {
+        // 对齐 jas：暂存包直接放 PublicStaging/<Name>.ipa 根目录单层，不建 <bid> 子目录。
+        assert_eq!(STAGING_DIR, "PublicStaging");
+    }
+
+    #[test]
+    fn detect_application_name_extracts_app_dir() {
+        // 构造一个最小 IPA：Payload/TestApp.app/Info.plist
+        let mut buf = Vec::new();
+        {
+            use std::io::Write;
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            let options = zip::write::SimpleFileOptions::default();
+            match zip.start_file("Payload/TestApp.app/Info.plist", options) {
+                Ok(()) => {}
+                Err(e) => {
+                    // 审计禁止 unwrap，用 match 断言
+                    assert!(false, "start_file failed: {e:?}");
+                    return;
+                }
+            }
+            match zip.write_all(b"<?xml version=\"1.0\"?><plist><dict/></plist>") {
+                Ok(()) => {}
+                Err(e) => {
+                    assert!(false, "write_all failed: {e:?}");
+                    return;
+                }
+            }
+            match zip.finish() {
+                Ok(_) => {}
+                Err(e) => {
+                    assert!(false, "finish failed: {e:?}");
+                    return;
+                }
+            }
+        }
+        match detect_application_name(&buf) {
+            Ok(name) => assert_eq!(name, "TestApp.app"),
+            Err(e) => {
+                assert!(false, "detect_application_name failed: {e:?}");
+            }
+        }
     }
 }
