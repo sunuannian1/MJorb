@@ -63,8 +63,10 @@ struct SigningWorkspace: Sendable {
             )
             var mappings = [originalBundleID: mappedMain]
             try updateBundleIdentifier(at: appURL, to: mappedMain)
-            // 参照 SideStore 官方逻辑：替换 URL Schemes，避免同 Bundle ID 不同后缀的 App 冲突
-            // 不修改被签名 App 的 URL Scheme，避免破坏依赖自定义 scheme 的 App（如 LiveContainer）
+            // 对齐 SideStore 官方：添加新 Bundle ID 对应的 URL Scheme（保留原始 scheme 不变）
+            try updateURLSchemes(in: appURL, originalBundleID: originalBundleID, newBundleID: mappedMain)
+            // 对齐 SideStore：添加已安装应用 UTI
+            try addInstalledAppUTI(in: appURL, bundleID: mappedMain)
             if let preferredDisplayName = normalizedDisplayName(preferredDisplayName) {
                 try updateDisplayName(at: appURL, to: preferredDisplayName)
             }
@@ -75,6 +77,8 @@ struct SigningWorkspace: Sendable {
             // 自动移除免费账号不支持的内容：Watch App、App Clip
             // 参照 SideStore/AltStore 官方逻辑，这些内容免费账号无法签名
             try removeUnsupportedBundles(in: appURL)
+            // 对齐 SideStore：清理 SC_Info/Manifest.plist 中指向已删除扩展的引用
+            try removeMissingAppExtensionReferences(in: appURL)
 
             // 清理 ESign 等其它签名工具留下的注入脚本/标记残留（容错，不阻断签名）。
             removeThirdPartyInjectionArtifacts(in: appURL)
@@ -258,7 +262,14 @@ struct SigningWorkspace: Sendable {
                 code: "SEAL-SIGN-404c"
             )
         }
+        let originalIdentifier = info["CFBundleIdentifier"] as? String
         info["CFBundleIdentifier"] = identifier
+        // 对齐 SideStore/AltStore：保留原始 Bundle ID 供运行时识别
+        if let originalIdentifier, originalIdentifier.isEmpty == false {
+            info["ALTBundleID"] = originalIdentifier
+        }
+        // 对齐 AltStore：占位符，实际配对字符串由运行时注入
+        info["ALTDevicePairingString"] = "<insert pairing file here>"
         info.removeValue(forKey: "DTXcode")
         info.removeValue(forKey: "DTXcodeBuild")
         let updated = try PropertyListSerialization.data(
@@ -397,6 +408,90 @@ struct SigningWorkspace: Sendable {
             options: 0
         )
         try updated.write(to: infoURL, options: .atomic)
+    }
+
+    // MARK: - SC_Info / Manifest.plist cleanup (对齐 SideStore)
+
+    /// 移除 SC_Info/Manifest.plist 中指向已被删除扩展的引用。
+    /// DRM 正版 IPA 的 SC_Info/Manifest.plist 会列出所有扩展，若扩展被删除而 Manifest 未更新，
+    /// installd 校验时会报 MissingBundle 或安装失败。
+    private func removeMissingAppExtensionReferences(in appURL: URL) throws {
+        let scInfoURL = appURL.appendingPathComponent("SC_Info")
+        guard FileManager.default.fileExists(atPath: scInfoURL.path) else { return }
+
+        let manifestURL = scInfoURL.appendingPathComponent("Manifest.plist")
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else { return }
+
+        let data = try Data(contentsOf: manifestURL)
+        var format = PropertyListSerialization.PropertyListFormat.binary
+        let value = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [.mutableContainersAndLeaves],
+            format: &format
+        )
+        guard var manifest = value as? [String: Any] else { return }
+
+        let pluginsURL = appURL.appendingPathComponent("PlugIns")
+        var changed = false
+
+        // SinfOptions: [SinfID: [BundlePath: ...]]
+        if var sinfOptions = manifest["SinfOptions"] as? [String: Any] {
+            for (key, entry) in sinfOptions {
+                guard let dict = entry as? [String: Any],
+                      let bundlePath = dict["BundlePath"] as? String else { continue }
+                let appexName = (bundlePath as NSString).lastPathComponent
+                let appexURL = pluginsURL.appendingPathComponent(appexName)
+                if FileManager.default.fileExists(atPath: appexURL.path) == false {
+                    sinfOptions.removeValue(forKey: key)
+                    changed = true
+                }
+            }
+            manifest["SinfOptions"] = sinfOptions
+        }
+
+        // SinfIDs 数组形式
+        if var sinfIDs = manifest["SinfIDs"] as? [[String: Any]] {
+            sinfIDs.removeAll { entry in
+                guard let bundlePath = entry["BundlePath"] as? String else { return false }
+                let appexName = (bundlePath as NSString).lastPathComponent
+                let appexURL = pluginsURL.appendingPathComponent(appexName)
+                let missing = FileManager.default.fileExists(atPath: appexURL.path) == false
+                if missing { changed = true }
+                return missing
+            }
+            manifest["SinfIDs"] = sinfIDs
+        }
+
+        if changed {
+            let updated = try PropertyListSerialization.data(
+                fromPropertyList: manifest,
+                format: format,
+                options: 0
+            )
+            try updated.write(to: manifestURL, options: .atomic)
+        }
+    }
+
+    // MARK: - Exported UTIs (对齐 SideStore)
+
+    /// 给重签后的 App 添加自定义 UTI，用于 Seal 检测已安装应用。
+    private func addInstalledAppUTI(in appURL: URL, bundleID: String) throws {
+        try mutateInfoPlist(at: appURL.appending(path: "Info.plist")) { info in
+            let utiIdentifier = "com.mjorb.seal.installed-app"
+            var exportedUTIs = info["UTExportedTypeDeclarations"] as? [[String: Any]] ?? []
+            if exportedUTIs.contains(where: { ($0["UTTypeIdentifier"] as? String) == utiIdentifier }) {
+                return
+            }
+            exportedUTIs.append([
+                "UTTypeIdentifier": utiIdentifier,
+                "UTTypeDescription": "Seal Installed App",
+                "UTTypeConformsTo": ["public.data"],
+                "UTTypeTagSpecification": [
+                    "com.mjorb.seal.bundle-id": [bundleID]
+                ]
+            ])
+            info["UTExportedTypeDeclarations"] = exportedUTIs
+        }
     }
 
     /// 替换 URL Schemes，避免同 Bundle ID 不同后缀的 App 冲突
