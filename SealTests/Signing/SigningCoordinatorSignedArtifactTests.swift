@@ -163,7 +163,20 @@ private extension SigningCoordinatorSignedArtifactTests {
         executableName: String
     ) throws {
         guard let archive = Archive(url: url, accessMode: .create) else {
-            throw NSError(domain: "Test", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法创建 ZIP 归档"])
+            throw NSError(domain: "Test", code: 1, userInfo: [NSLocalizedDescriptionKey: "cannot create ZIP"])
+        }
+
+        func addData(_ data: Data, _ path: String) throws {
+            try archive.addEntry(
+                with: path,
+                type: .file,
+                uncompressedSize: UInt32(data.count),
+                provider: { (pos: UInt32, size: UInt32) in
+                    let start = Int(pos)
+                    let end = start + Int(size)
+                    return data.subdata(in: start..<end)
+                }
+            )
         }
 
         // Info.plist
@@ -177,32 +190,17 @@ private extension SigningCoordinatorSignedArtifactTests {
             format: .xml,
             options: 0
         )
-        try archive.addEntry(
-            with: "Payload/Demo.app/Info.plist",
-            type: .file,
-            uncompressedSize: Int64(infoPlistData.count),
-            provider: { position, size in
-                infoPlistData.subdata(in: position..<(position + size))
-            }
-        )
+        try addData(infoPlistData, "Payload/Demo.app/Info.plist")
 
         // embedded.mobileprovision（模拟，内容不校验）
-        let provisionData = Data("mock-mobileprovision".utf8)
-        try archive.addEntry(
-            with: "Payload/Demo.app/embedded.mobileprovision",
-            type: .file,
-            uncompressedSize: Int64(provisionData.count),
-            provider: { position, size in
-                provisionData.subdata(in: position..<(position + size))
-            }
-        )
+        try addData(Data("mock-mobileprovision".utf8), "Payload/Demo.app/embedded.mobileprovision")
 
         // 主可执行文件（空文件即可，验证器只检查存在性）
         try archive.addEntry(
             with: "Payload/Demo.app/\(executableName)",
             type: .file,
-            uncompressedSize: 0,
-            provider: { _, _ in Data() }
+            uncompressedSize: UInt32(0),
+            provider: { (_: UInt32, _: UInt32) in Data() }
         )
     }
 }
