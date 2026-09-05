@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import ZIPFoundation
 @testable import Seal
 
 struct SigningWorkspaceTests {
@@ -23,6 +24,14 @@ struct SigningWorkspaceTests {
 
         try workspace.package(prepared, outputURL: output)
         let parsed = try IPAParserService().parse(url: output)
+
+        // 回归：重签 IPA 必须显式 deflate。ZIPFoundation 的 zipItem 默认压缩方法是
+        // .none（store 不压缩），store 包在 iOS17+ CoreDevice 通道会被 installd 在定位/
+        // 解压阶段误报 MissingPackagePath；真机可用的 jas 与爱思/AltStore 均用 deflate。
+        let packaged = try Archive(url: output, accessMode: .read)
+        let packagedFiles = packaged.filter { $0.type == .file }
+        #expect(packagedFiles.isEmpty == false)
+        #expect(packagedFiles.allSatisfy { $0.compressionMethod == .deflate })
 
         #expect(parsed.bundleIdentifier == prepared.mappedMainBundleID)
         #expect(parsed.extensions.first?.originalBundleIdentifier ==

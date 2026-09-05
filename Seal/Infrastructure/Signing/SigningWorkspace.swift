@@ -122,13 +122,15 @@ struct SigningWorkspace: Sendable {
     ) throws {
         let fileManager = FileManager.default
         try? fileManager.removeItem(at: outputURL)
-        // 必须用默认 deflate 压缩：iOS installd 对 store-mode（不压缩）ZIP 兼容性差，
-        // 大文件/非标准结构 IPA 会解压失败并误报 MissingPackagePath。
-        // 标准 IPA（爱思/AltStore/SideStore）全部用 deflate 压缩。
+        // 必须显式 deflate 压缩：ZIPFoundation 的 zipItem 默认 compressionMethod 是
+        // .none（store 不压缩），iOS installd / CoreDevice 对 store-mode ZIP 兼容性差，
+        // 大文件/非标准结构 IPA 会在定位/解压阶段失败并误报 MissingPackagePath。
+        // 真机可用的 jas 以及爱思/AltStore/SideStore 标准 IPA 全部用 deflate 压缩。
         try fileManager.zipItem(
             at: workspace.payloadURL,
             to: outputURL,
             shouldKeepParent: true,
+            compressionMethod: .deflate
         )
     }
 
