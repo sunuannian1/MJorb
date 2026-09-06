@@ -1,13 +1,15 @@
 // CoreDevice 隧道安装路径（iOS 17+ rpp 配对的正统流程）。
 //
-// 结论（真机日志证实）：RSD shim 服务（com.apple.afc.shim.remote）的 AFC 视图
-// 在 iOS 18.7 上是临时的——写入的暂存包 installd 完全不可见（所有路径+选项组合
-// 均 MissingPackagePath，且目录内容会自行消失）。
+// 结论（真机日志证实）：
+// 1. RSD shim 服务（com.apple.afc.shim.remote）的 AFC 视图在 iOS 18.7 上是临时的
+//    ——写入的暂存包 installd 完全不可见（所有路径+选项组合均 MissingPackagePath）
+// 2. CoreDeviceProxy 服务在 WiFi/RSD 通道上被设备硬重置（独占连接+重试亦然）
 //
-// 本模块改走 pymobiledevice3/Xcode 相同的方式：
-//   rpp 配对 → CoreDevice 软件隧道（TLS-PSK）→ 隧道内层 RSD
-//   → 真实服务 com.apple.afc / com.apple.mobile.installation_proxy
-//   → 经典暂存 + 原版形态候选链安装
+// 最终方案：复用已验证可用的 RemotePairing TLS-PSK 隧道
+// （rsd::create_fresh_tunnel_context：rpp 配对验证 → 设备开监听 → TLS-PSK+CDTunnel），
+// 在隧道内层 RSD 连接真实服务（com.apple.afc / com.apple.mobile.installation_proxy），
+// 经典暂存写入真实媒体目录（对 installd 持久），原版形态候选链安装。
+// 真实服务名连接失败时自动回退 shim 名。
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -22,11 +24,11 @@ use idevice::{
 };
 
 use crate::idevice_support::install::{run_install_chain, stage_via_afc, IPA_STAGING_NAME};
-use crate::idevice_support::rsd::{create_dedicated_rsd_connection, get_rpp_raw};
+use crate::idevice_support::rsd::get_rpp_raw;
 
-// ---------- 隧道内层真实服务的 RsdService newtype ----------
+// ---------- 隧道内层服务的 RsdService newtype（真实名 + shim 名回退） ----------
 
-/// 隧道内层 RSD 的真实 AFC 服务（非 shim）
+/// 隧道内层 RSD 的真实 AFC 服务
 pub struct RealAfc(pub AfcClient);
 
 impl RsdService for RealAfc {
@@ -39,7 +41,7 @@ impl RsdService for RealAfc {
     }
 }
 
-/// 回退：shim AFC 服务名（若内层 RSD 只暴露 shim 名）
+/// 回退：shim AFC 服务名
 pub struct ShimAfc(pub AfcClient);
 
 impl RsdService for ShimAfc {
@@ -52,7 +54,7 @@ impl RsdService for ShimAfc {
     }
 }
 
-/// 隧道内层 RSD 的真实安装代理服务（非 shim）
+/// 隧道内层 RSD 的真实安装代理服务
 pub struct RealInstProxy(pub InstallationProxyClient);
 
 impl RsdService for RealInstProxy {
@@ -84,7 +86,7 @@ impl RsdService for ShimInstProxy {
     }
 }
 
-/// 基于软件隧道 AdapterHandle 的 RSD 提供者：
+/// 基于隧道 AdapterHandle 的 RSD 提供者：
 /// 服务连接 = 经隧道句柄连到内层 RSD 暴露的服务端口
 pub struct TunnelRsdProvider {
     pub handle: Arc<tokio::sync::Mutex<AdapterHandle>>,
@@ -117,72 +119,22 @@ fn ctx_err(error: IdeviceError, stage: &str) -> IdeviceError {
     IdeviceError::UnexpectedResponse(format!("{stage}: {error:?}"))
 }
 
-/// 建立隧道上下文：软件隧道句柄 + 内层 RSD 握手（服务名可解析）
+/// 建立隧道上下文：隧道句柄 + 内层 RSD 握手（真实/shim 服务名均可解析）
 async fn core_tunnel_context() -> Result<(Arc<tokio::sync::Mutex<AdapterHandle>>, RsdHandshake), IdeviceError>
 {
-    // 1. rpp 配对文件原文
     let rpp_raw = get_rpp_raw()
         .ok_or_else(|| IdeviceError::UnexpectedResponse("rpp 配对文件未加载".into()))?;
+    let _ = rpp_raw;
 
-    // 2. 独占 RSD 连接 + CoreDeviceProxy（TLS-PSK + CDTunnel；ConnectionReset 重试一次）
-    let proxy = {
-        let mut attempt = 0;
-        loop {
-            let (mut rsd_adapter, mut rsd_handshake) = create_dedicated_rsd_connection()
-                .await
-                .map_err(|e| ctx_err(e, "tunnel/建立RSD连接"))?;
-            match CoreDeviceProxyOverRsd::connect_rsd(&mut rsd_adapter, &mut rsd_handshake).await {
-                Ok(p) => break p,
-                Err(e) => {
-                    let msg = format!("{e:?}");
-                    if msg.contains("ConnectionReset") && attempt == 0 {
-                        attempt += 1;
-                        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-                        continue;
-                    }
-                    return Err(ctx_err(e, "tunnel/连接CoreDeviceProxy"));
-                }
-            }
-        }
-    };
-
-    // 3. 软件隧道（先取内层 RSD 端口——create_software_tunnel 会消费 proxy）
-    let inner_rsd_port = proxy.0.tunnel_info().server_rsd_port;
-    let mut adapter = proxy
-        .0
-        .create_software_tunnel()
-        .map_err(|e| ctx_err(e, "tunnel/创建软件隧道"))?;
-    let handle = std::sync::Arc::new(tokio::sync::Mutex::new(adapter.to_async_handle()));
-
-    // 4. 隧道内层 RSD 握手（真实服务名可解析）
-    let mut guard = handle.lock().await;
-    let rsd_stream = guard
-        .connect(inner_rsd_port)
+    let (adapter, handshake) = crate::idevice_support::rsd::create_fresh_tunnel_context()
         .await
-        .map_err(|e| IdeviceError::Socket(e))?;
-    let handshake = RsdHandshake::new(rsd_stream).await?;
-    drop(guard);
+        .map_err(|e| ctx_err(e, "tunnel/建立RemotePairing隧道"))?;
+    let handle = std::sync::Arc::new(tokio::sync::Mutex::new(adapter));
 
     Ok((handle, handshake))
 }
 
-/// CoreDeviceProxy 经独占 RSD 连接的 newtype（CDTunnel 握手）
-pub struct CoreDeviceProxyOverRsd(pub idevice::services::core_device_proxy::CoreDeviceProxy);
-
-impl RsdService for CoreDeviceProxyOverRsd {
-    fn rsd_service_name() -> Cow<'static, str> {
-        Cow::Borrowed("com.apple.internal.devicecompute.CoreDeviceProxy")
-    }
-
-    async fn from_stream(stream: Box<dyn ReadWrite>) -> Result<Self, IdeviceError> {
-        let idevice = Idevice::new(stream, "Seal");
-        Ok(CoreDeviceProxyOverRsd(
-            idevice::services::core_device_proxy::CoreDeviceProxy::new(idevice).await?,
-        ))
-    }
-}
-
-/// 隧道：上传暂存（真实 AFC，写入持久）
+/// 隧道：上传暂存（真实 AFC 优先，shim 名回退；写入真实媒体目录，持久）
 pub async fn stage_via_core_tunnel(bundle_id: String, ipa_bytes: &[u8]) -> Result<(), IdeviceError> {
     let (handle, mut handshake) = core_tunnel_context().await?;
     let mut provider = TunnelRsdProvider {
@@ -203,7 +155,7 @@ pub async fn stage_via_core_tunnel(bundle_id: String, ipa_bytes: &[u8]) -> Resul
     stage_via_afc(&mut afc, &bundle_id, ipa_bytes).await
 }
 
-/// 隧道：触发安装（真实 instproxy，原版形态候选链）
+/// 隧道：触发安装（真实 instproxy 优先，shim 名回退；原版形态候选链）
 pub async fn install_via_core_tunnel(bundle_id: String) -> Result<(), IdeviceError> {
     let (handle, mut handshake) = core_tunnel_context().await?;
     let mut provider = TunnelRsdProvider {

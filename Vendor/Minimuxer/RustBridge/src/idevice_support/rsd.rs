@@ -91,12 +91,28 @@ pub fn get_rpp_raw() -> Option<String> {
     state.raw.clone()
 }
 
+/// 创建一条独占的 RSD 连接（不入缓存）。
+/// CoreDeviceProxy 是长生命周期隧道服务，与 shim 服务共用缓存连接时
+/// 会在握手阶段被 ConnectionReset，需要独占连接。
+pub async fn create_dedicated_rsd_connection() -> Result<(RsdAdapter, RsdHandshake), IdeviceError> {
+    let connection = create_rppairing_rsd_connection().await?;
+    Ok((connection.adapter, connection.handshake))
+}
+
 /// 主动废弃缓存的 RSD 连接（隧道可能已断、或连续服务调用失败）。
 /// 下一次 connect_to_rsd_services 会重建隧道连接；
 /// 没有它，Minimuxer.reset() 后的重试仍复用死连接，重试形同虚设。
 pub fn invalidate_rsd_connection() {
     *lock_recover(connection_state(), "rsd_connection") = None;
     info!("RSD connection cache invalidated");
+}
+
+/// 建立一条全新的 RemotePairing TLS-PSK 隧道（不入缓存），返回隧道句柄与内层 RSD 握手。
+/// 内层 RSD 暴露真实服务（com.apple.afc / com.apple.mobile.installation_proxy），
+/// 其 AFC 视图为真实媒体目录（与 shim 的临时视图不同），写入对 installd 持久可见。
+pub async fn create_fresh_tunnel_context() -> Result<(RsdAdapter, RsdHandshake), IdeviceError> {
+    let connection = create_rppairing_rsd_connection().await?;
+    Ok((connection.adapter, connection.handshake))
 }
 
 /// 创建一条独占的 RSD 连接（不入缓存）。
