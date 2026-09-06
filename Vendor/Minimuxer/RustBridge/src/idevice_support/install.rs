@@ -269,7 +269,6 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
         .flatten()
         .is_some();
 
-    let candidates = install_candidates(&bundle_id, &file_name);
 
     // 预检快照（不阻断安装，只记录事实）：合并调用后上传刚完成、
     // 若此刻 afcd 侧仍看不到文件，说明写入未持久化；若看得到而 installd

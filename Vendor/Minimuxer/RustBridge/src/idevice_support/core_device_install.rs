@@ -21,8 +21,8 @@ use idevice::{
     Idevice, IdeviceError, IdeviceService, RsdService, ReadWrite,
 };
 
-use crate::idevice_support::install::{stage_via_afc, run_install_chain, IPA_STAGING_NAME};
-use crate::idevice_support::rsd::get_rpp_raw;
+use crate::idevice_support::install::{run_install_chain, stage_via_afc, IPA_STAGING_NAME};
+use crate::idevice_support::rsd::{connect_to_rsd_services, get_rpp_raw};
 
 /// 经 RSD 连接的 CoreDeviceProxy。
 /// idevice crate 未为 CoreDeviceProxy 实现 RsdService，用本地 newtype 补上：
@@ -44,7 +44,7 @@ impl RsdService for CoreDeviceProxyOverRsd {
 /// 实现 IdeviceProvider 后，所有经典服务（lockdown/AFC/instproxy）
 /// 都能通过 `Service::connect(&provider)` 走标准流程（含 TLS 升级）。
 pub struct TunnelProvider {
-    pub handle: AdapterHandle,
+    pub handle: std::sync::Arc<tokio::sync::Mutex<AdapterHandle>>,
     pub pairing_file: PairingFile,
     pub label: String,
 }
@@ -62,10 +62,11 @@ impl IdeviceProvider for TunnelProvider {
         &self,
         port: u16,
     ) -> Pin<Box<dyn Future<Output = Result<Idevice, IdeviceError>> + Send>> {
-        let handle = self.handle.clone();
+        let handle = std::sync::Arc::clone(&self.handle);
         let label = self.label.clone();
         Box::pin(async move {
-            let stream = handle
+            let mut guard = handle.lock().await;
+            let stream = guard
                 .connect(port)
                 .await
                 .map_err(|e| IdeviceError::Socket(e))?;
@@ -92,7 +93,8 @@ pub async fn stage_and_install_via_core_tunnel(
     ipa_bytes: &[u8],
 ) -> Result<(), IdeviceError> {
     // 1. rpp 配对文件原文（set_rppairing_file 时保存）
-    let rpp_raw = get_rpp_raw().ok_or(IdeviceError::PairingFile)?;
+    let rpp_raw = get_rpp_raw()
+        .ok_or_else(|| IdeviceError::UnexpectedResponse("rpp 配对文件未加载".into()))?;
 
     // 2. 经 RSD 连接 CoreDeviceProxy
     let proxy = connect_to_rsd_services::<CoreDeviceProxyOverRsd>()
