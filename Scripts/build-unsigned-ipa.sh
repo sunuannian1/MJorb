@@ -26,7 +26,8 @@ xcodebuild build \
   -derivedDataPath "$derived_data" \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
-  CODE_SIGN_IDENTITY=''
+  CODE_SIGN_IDENTITY='' \
+  CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER:-${SEAL_BUILD_NUMBER:-1}}"
 
 test -d "$product"
 mkdir -p "$package_root/Payload"
