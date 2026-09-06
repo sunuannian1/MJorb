@@ -15,10 +15,35 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
     /// 一次性标志：为 true 时本次 fetch 跳过本地生成、直接走远程（消费后自动复位）
     private let bypassLocal = AnisetteBypassFlag()
 
-    /// 本地 ADI 模拟（Unicorn TCI）可能卡死且无法协作取消，超时后必须遗弃而不是等待
-    private static let localGenerationTimeoutSeconds: TimeInterval = 45
+    /// 本地 ADI 模拟（Unicorn TCI）冷启动可能超过 45 秒，超时后遗弃但**不取消**任务：
+    /// 杀在 provisioning 中途会弄脏 adi.pb，导致之后每次生成都失败。
+    /// 遗弃的任务继续在后台完成，后续调用经 inFlight 合并等待其结果。
+    private static let localGenerationTimeoutSeconds: TimeInterval = 90
     /// 远程降级的总时长预算：避免服务器逐个重试把添加账号拖到数分钟
     private static let remoteFallbackBudgetSeconds: TimeInterval = 120
+
+    /// 进行中的本地生成任务（引用类型保证 struct 拷贝间共享同一状态）。
+    /// ADI/Unicorn 生成有状态（adi.pb、provisioning 会话），**不可并发运行**。
+    private final class InFlightGeneration: @unchecked Sendable {
+        private let lock = NSLock()
+        private var task: Task<ALTAnisetteData, Error>?
+
+        /// 返回进行中的生成；没有则启动新的（原子性避免并发双开 ADI 实例）。
+        func currentOrStart(_ make: () -> Task<ALTAnisetteData, Error>) -> Task<ALTAnisetteData, Error> {
+            lock.lock(); defer { lock.unlock() }
+            if let task { return task }
+            let newTask = make()
+            task = newTask
+            return newTask
+        }
+
+        func clear() {
+            lock.lock(); defer { lock.unlock() }
+            task = nil
+        }
+    }
+
+    private let inFlight = InFlightGeneration()
 
     init(
         servers: [AnisetteServer] = AnisetteServerCatalog.official,
@@ -61,6 +86,20 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
             throw AnisetteV3Error.invalidIdentifier
         }
         return data.withUnsafeBytes { UUID(uuid: $0.load(as: uuid_t.self)) }
+    }
+
+    /// 合并进行中的本地生成：超时被遗弃的任务仍在后台运行，重试必须合并等待
+    /// 同一任务，而不是并行再起一个 ADI 实例互相污染（表现为 Apple 拒绝 anisette）。
+    private func fetchLocalCoalesced(identity: AnisetteV3Identity) async throws -> ALTAnisetteData {
+        let inFlight = self.inFlight
+        let generation = inFlight.currentOrStart {
+            Task { () -> ALTAnisetteData in
+                // 完成后（成功或失败）清空合并位；等待者被取消时不影响任务本身
+                defer { Task { inFlight.clear() } }
+                return try await self.fetchLocal(identity: identity)
+            }
+        }
+        return try await generation.value
     }
 
     /// 官方 AnisetteData -> AltSign ALTAnisetteData
@@ -160,8 +199,11 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         let shouldUseLocal = localHasSucceeded || bypassLocal.consume() == false
         if shouldUseLocal {
             do {
-                let data = try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
-                    try await self.fetchLocal(identity: identity)
+                let data = try await HardTimeout.run(
+                    seconds: Self.localGenerationTimeoutSeconds,
+                    cancelsWorkOnTimeout: false
+                ) {
+                    try await self.fetchLocalCoalesced(identity: identity)
                 }
                 if localHasSucceeded == false {
                     UserDefaults.standard.set(true, forKey: Self.localSucceededKey)
@@ -215,8 +257,11 @@ struct AnisetteV3Client: AnisetteEnvironmentManaging {
         // 表现为"第一次添加 ID 后就失效"。
         let identity = try await loadIdentity()
         do {
-            let data = try await HardTimeout.run(seconds: Self.localGenerationTimeoutSeconds) {
-                try await self.fetchLocal(identity: identity)
+            let data = try await HardTimeout.run(
+                seconds: Self.localGenerationTimeoutSeconds,
+                cancelsWorkOnTimeout: false
+            ) {
+                try await self.fetchLocalCoalesced(identity: identity)
             }
             UserDefaults.standard.set(true, forKey: Self.localSucceededKey)
             return data

@@ -20,6 +20,7 @@ enum HardTimeout {
 
     static func run<T: Sendable>(
         seconds: TimeInterval,
+        cancelsWorkOnTimeout: Bool = true,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         let state = RaceState<T>()
@@ -27,7 +28,7 @@ enum HardTimeout {
             // 必须先同步存入 continuation，再启动竞速任务，保证 resume 永远发生在 store 之后
             state.store(continuation)
             state.startTimer(seconds: seconds)
-            state.startOperation(operation)
+            state.startOperation(operation, cancelsOnTimeout: cancelsWorkOnTimeout)
         }
     }
 
@@ -38,6 +39,7 @@ enum HardTimeout {
         private var continuation: CheckedContinuation<T, Error>?
         private var timer: Task<Void, Never>?
         private var work: Task<Void, Never>?
+        private var cancelsWorkOnTimeout = true
 
         func store(_ continuation: CheckedContinuation<T, Error>) {
             lock.lock()
@@ -59,8 +61,12 @@ enum HardTimeout {
             lock.unlock()
         }
 
-        func startOperation(_ operation: @escaping @Sendable () async throws -> T) {
+        func startOperation(
+            _ operation: @escaping @Sendable () async throws -> T,
+            cancelsOnTimeout: Bool
+        ) {
             lock.lock()
+            cancelsWorkOnTimeout = cancelsOnTimeout
             let task = Task.detached(priority: .userInitiated) { [weak self] in
                 let result: Result<T, Error>
                 do {
@@ -80,7 +86,7 @@ enum HardTimeout {
             continuation = nil
             let timerToCancel = timer
             timer = nil
-            let workToCancel = work
+            let workToCancel = cancelsWorkOnTimeout ? work : nil
             work = nil
             lock.unlock()
 

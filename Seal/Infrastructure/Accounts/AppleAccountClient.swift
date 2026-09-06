@@ -66,12 +66,25 @@ final class AppleAccountClient {
         // 用远程 machineID 认证会导致 authToken 与远程绑定，之后切回本地时
         // machineID 漂移，Apple 判定会话异常返回 1100，表现为"添加 ID 后就失效"。
         // 本地生成失败直接报错，让用户重试，不要用远程添加 ID。
-        try await withTimeout(seconds: 120) {
-            try await self.authenticateOnce(
-                email: email,
-                password: password,
-                verificationCode: verificationCode
-            )
+        try await withTimeout(seconds: 240) {
+            do {
+                return try await self.authenticateOnce(
+                    email: email,
+                    password: password,
+                    verificationCode: verificationCode
+                )
+            } catch let error where Self.shouldRetryWithRemoteAnisette(error) {
+                // Apple 拒绝了本地 anisette（invalidAnisetteData / 认证端点返回非 plist
+                // 响应 / 坏服务器响应）：清除本地 provisioning（adi.pb）重新生成后再试一次。
+                // 代价：machineID 变化会使已登录账号的会话失效（1100），
+                // 但本地指纹被 Apple 拉黑时这是恢复添加账号的唯一路径。
+                await self.anisetteProvider.resetProvisioning()
+                return try await self.authenticateOnce(
+                    email: email,
+                    password: password,
+                    verificationCode: verificationCode
+                )
+            }
         }
     }
 
