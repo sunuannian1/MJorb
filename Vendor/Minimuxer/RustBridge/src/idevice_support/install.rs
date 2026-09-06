@@ -128,7 +128,7 @@ pub async fn yeet_app_afc_rppairing(
         handle
             .write_all(ipa_bytes)
             .await
-            .map_err(|e| ctx(e, "yeet/写入暂存包"))?;
+            .map_err(|e| ctx(IdeviceError::Socket(e), "yeet/写入暂存包"))?;
     }
 
     // close 显式刷写；afc 仍可继续用于回读校验
