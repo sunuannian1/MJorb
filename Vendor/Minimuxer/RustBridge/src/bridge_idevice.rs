@@ -6,7 +6,8 @@ use crate::idevice_support::rsd::set_rppairing_file;
 use crate::idevice_support::{
     device::{fetch_udid_rppairing, test_device_connection},
     install::{
-        install_ipa_rppairing, lookup_app_rppairing, remove_app_rppairing, yeet_app_afc_rppairing,
+        install_ipa_rppairing, lookup_app_rppairing, remove_app_rppairing,
+        stage_and_install_rppairing, yeet_app_afc_rppairing,
     },
     jit::{debug_app_rppairing, debug_process_rppairing},
     provision::{
@@ -133,6 +134,30 @@ pub extern "C" fn rust_bridge_idevice_install_ipa(
 
     runtime.block_on(async move {
         match install_ipa_rppairing(bundle_id).await {
+            Ok(()) => std::ptr::null_mut(),
+            Err(err) => crate::ffi_err!(err),
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn rust_bridge_idevice_stage_and_install(
+    bundle_id: *const c_char,
+    ipa_ptr: *const u8,
+    ipa_len: u32,
+) -> *mut IdeviceFfiError {
+    let Some(bundle_id) = c_string_arg(bundle_id) else {
+        return invalid_argument_error();
+    };
+    let Some(ipa_bytes) = bytes_arg(ipa_ptr, ipa_len) else {
+        return invalid_argument_error();
+    };
+    let Some(runtime) = shared_runtime() else {
+        return runtime_error();
+    };
+
+    runtime.block_on(async move {
+        match stage_and_install_rppairing(bundle_id, ipa_bytes).await {
             Ok(()) => std::ptr::null_mut(),
             Err(err) => crate::ffi_err!(err),
         }

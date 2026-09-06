@@ -159,12 +159,31 @@ public class LockDownInstall: InstallProvider {
 }
 
 public class RPInstall: InstallProvider {
+    /// yeet 与 install 之间暂存 IPA 字节：合并调用要求两步共享同一隧道会话窗口
+    private static let pendingLock = NSLock()
+    private static var pendingIPAs: [String: Data] = [:]
+
     public func yeetAppAfc(bundleId: String, ipaBytes: Data) throws {
+        // 保存字节，installIpa 时走合并调用（Rust 侧重新上传并立即安装）
+        RPInstall.pendingLock.lock()
+        RPInstall.pendingIPAs[bundleId] = ipaBytes
+        RPInstall.pendingLock.unlock()
         try RustIdevice.yeetAppAfc(bundleId: bundleId, ipaBytes: ipaBytes)
     }
+
     public func installIpa(bundleId: String) throws {
-        try RustIdevice.installIpa(bundleId: bundleId)
+        RPInstall.pendingLock.lock()
+        let pendingBytes = RPInstall.pendingIPAs.removeValue(forKey: bundleId)
+        RPInstall.pendingLock.unlock()
+
+        if let pendingBytes {
+            // 上传与安装在一段调用内完成，消除两段 FFI 之间暂存文件消失的窗口
+            try RustIdevice.stageAndInstall(bundleId: bundleId, ipaBytes: pendingBytes)
+        } else {
+            try RustIdevice.installIpa(bundleId: bundleId)
+        }
     }
+
     public func removeApp(bundleId: String) throws {
         try RustIdevice.removeApp(bundleId: bundleId)
     }

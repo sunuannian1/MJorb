@@ -101,6 +101,21 @@ pub async fn yeet_app_afc_rppairing(
     bundle_id: String,
     ipa_bytes: &[u8],
 ) -> Result<(), IdeviceError> {
+    stage_app_afc_rppairing(&bundle_id, ipa_bytes).await
+}
+
+/// 上传 + 安装合并调用：jas 的 install_ipa 在同一函数内完成上传与安装，
+/// Seal 因 FFI 边界拆成两段后，真机实测暂存文件会在两段调用之间消失
+/// （yeet 同连接回读成功、下一段调用 afcd 侧已看不到）。合并后消除该窗口。
+pub async fn stage_and_install_rppairing(
+    bundle_id: String,
+    ipa_bytes: &[u8],
+) -> Result<(), IdeviceError> {
+    stage_app_afc_rppairing(&bundle_id, ipa_bytes).await?;
+    install_ipa_rppairing(bundle_id).await
+}
+
+async fn stage_app_afc_rppairing(bundle_id: &str, ipa_bytes: &[u8]) -> Result<(), IdeviceError> {
     // 结构校验：IPA 内必须存在 Payload/*.app（上传前拦截损坏包）
     let _application_name = detect_application_name(ipa_bytes)?;
     let staged_dir = format!("{STAGING_DIR}/{bundle_id}");
@@ -156,7 +171,7 @@ pub async fn yeet_app_afc_rppairing(
 
     // 把暂存文件名与期望大小存入进程内缓存，供 install 阶段使用。
     // 仅在上传成功且校验通过后写入；yeet 失败时不污染缓存。
-    cache_ipa_name(&bundle_id, IPA_STAGING_NAME, ipa_bytes.len());
+    cache_ipa_name(bundle_id, IPA_STAGING_NAME, ipa_bytes.len());
 
     Ok(())
 }
@@ -213,6 +228,32 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
 
     let candidates = package_path_candidates(&bundle_id, &file_name);
 
+    // 预检快照（不阻断安装，只记录事实）：合并调用后上传刚完成、
+    // 若此刻 afcd 侧仍看不到文件，说明写入未持久化；若看得到而 installd
+    // 全部候选仍报 MissingPackagePath，则说明 installd 视图 ≠ afcd 视图。
+    let mut afcd_snapshot = "预检未执行".to_string();
+    {
+        let staged_dir = format!("{STAGING_DIR}/{bundle_id}");
+        if let Ok(mut afc) = connect_to_rsd_services::<AfcClient>().await {
+            let entries = afc.list_dir(staged_dir.clone()).await.unwrap_or_default();
+            match afc.get_file_info(format!("{staged_dir}/{file_name}")).await {
+                Ok(info) => {
+                    afcd_snapshot = format!(
+                        "{staged_dir}/{file_name} 存在（{} 字节），目录条目: {entries:?}",
+                        info.size
+                    );
+                }
+                Err(e) => {
+                    afcd_snapshot = format!(
+                        "{staged_dir}/{file_name} 不可见: {e:?}，目录条目: {entries:?}"
+                    );
+                }
+            }
+        } else {
+            afcd_snapshot = "预检 AFC 连接失败".to_string();
+        }
+    }
+
     // 第一轮：按候选链逐一尝试（lookup 失败按未安装处理，不阻断首装）
     let mut last_missing_path_error: Option<IdeviceError> = None;
     for path in &candidates {
@@ -253,7 +294,7 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
     }
 
     Err(IdeviceError::UnexpectedResponse(format!(
-        "install/installd 在所有候选路径均未找到暂存包（候选: {candidates:?}）；最后错误: {:?}",
+        "install/installd 在所有候选路径均未找到暂存包（候选: {candidates:?}）；最后错误: {:?}；{afcd_snapshot}",
         last_missing_path_error
     )))
 }

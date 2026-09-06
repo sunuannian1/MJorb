@@ -40,6 +40,13 @@ internal func _rust_bridge_idevice_install_ipa(
 	_ bundleId: UnsafePointer<Int8>?
 ) -> UnsafeMutablePointer<RustIdeviceFfiError>?
 
+@_silgen_name("rust_bridge_idevice_stage_and_install")
+internal func _rust_bridge_idevice_stage_and_install(
+	_ bundleId: UnsafePointer<Int8>?,
+	_ ipaPtr: UnsafePointer<UInt8>?,
+	_ ipaLen: UInt32
+) -> UnsafeMutablePointer<RustIdeviceFfiError>?
+
 @_silgen_name("rust_bridge_idevice_remove_app")
 internal func _rust_bridge_idevice_remove_app(
 	_ bundleId: UnsafePointer<Int8>?
@@ -189,6 +196,20 @@ public class RustIdevice {
 
 	public static func installIpa(bundleId: String) throws {
 		try rustIdeviceThrowIfNeeded(_rust_bridge_idevice_install_ipa(bundleId))
+	}
+
+	/// 上传 + 安装合并调用：两段 FFI 之间暂存文件可能消失，必须同一窗口完成
+	public static func stageAndInstall(bundleId: String, ipaBytes: Data) throws {
+		let ipaLength = try rustIdeviceCheckedLength(ipaBytes.count)
+		let error = ipaBytes.withUnsafeBytes { buffer in
+			_rust_bridge_idevice_stage_and_install(
+				bundleId,
+				buffer.bindMemory(to: UInt8.self).baseAddress,
+				ipaLength
+			)
+		}
+
+		try rustIdeviceThrowIfNeeded(error)
 	}
 
 	public static func removeApp(bundleId: String) throws {
