@@ -118,16 +118,47 @@ pub async fn stage_and_install_via_core_tunnel(
     .await
 }
 
-/// 建立 CoreDevice 软件隧道并返回经典服务提供者（lockdown 配对 + TLS 全内置）
+/// 建立 CoreDevice 软件隧道并返回经典服务提供者（lockdown 配对 + TLS 全内置）。
+/// CoreDeviceProxy 使用独占 RSD 连接：它是长生命周期隧道服务，
+/// 与 shim 服务共用缓存连接会在握手阶段被设备 ConnectionReset。
 pub async fn core_tunnel_provider() -> Result<TunnelProvider, IdeviceError> {
     // 1. rpp 配对文件原文（set_rppairing_file 时保存）
     let rpp_raw = get_rpp_raw()
         .ok_or_else(|| IdeviceError::UnexpectedResponse("rpp 配对文件未加载".into()))?;
 
-    // 2. 经 RSD 连接 CoreDeviceProxy
-    let proxy = connect_to_rsd_services::<CoreDeviceProxyOverRsd>()
-        .await
-        .map_err(|e| ctx_err(e, "tunnel/连接CoreDeviceProxy"))?;
+    // 2. 独占 RSD 连接 + 连接 CoreDeviceProxy（ConnectionReset 时重试一次）
+    let mut last_err: Option<IdeviceError> = None;
+    let proxy = {
+        let mut attempt = 0;
+        loop {
+            let (mut rsd_adapter, mut rsd_handshake) =
+                crate::idevice_support::rsd::create_dedicated_rsd_connection()
+                    .await
+                    .map_err(|e| ctx_err(e, "tunnel/建立RSD连接"))?;
+            match CoreDeviceProxyOverRsd::connect_rsd(
+                &mut rsd_adapter,
+                &mut rsd_handshake,
+            )
+            .await
+            {
+                Ok(p) => break p,
+                Err(e) => {
+                    let msg = format!("{e:?}");
+                    if msg.contains("ConnectionReset") && attempt == 0 {
+                        attempt += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                        continue;
+                    }
+                    last_err = Some(e);
+                    break;
+                }
+            }
+        }
+        match last_err {
+            Some(e) => return Err(ctx_err(e, "tunnel/连接CoreDeviceProxy")),
+            None => unreachable!("连接成功时必有 proxy"),
+        }
+    };
 
     // 3. 建软件隧道
     let mut adapter = proxy

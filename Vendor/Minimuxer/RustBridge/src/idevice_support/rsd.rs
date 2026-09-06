@@ -99,6 +99,14 @@ pub fn invalidate_rsd_connection() {
     info!("RSD connection cache invalidated");
 }
 
+/// 创建一条独占的 RSD 连接（不入缓存）。
+/// CoreDeviceProxy 是长生命周期隧道服务，与 shim 服务共用缓存连接时
+/// 会在握手阶段被 ConnectionReset，需要独占连接。
+pub async fn create_dedicated_rsd_connection() -> Result<(RsdAdapter, RsdHandshake), IdeviceError> {
+    let connection = create_rppairing_rsd_connection().await?;
+    Ok((connection.adapter, connection.handshake))
+}
+
 pub async fn connect_to_rsd_services<Service: RsdService>() -> Result<Service, IdeviceError> {
     let generation = current_generation();
     {
