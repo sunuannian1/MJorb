@@ -194,26 +194,39 @@ fn original_client_options(bundle_id: &str) -> Value {
 }
 
 /// 安装命令候选（PackagePath, ClientOptions）：按已验证形态优先。
-/// 首选 = 原版 SideStore minimuxer 的精确形态（./ 前缀 + bundleId 子目录 + app.ipa
-/// + 仅 CFBundleIdentifier），SideStore 在 iOS 17/18 上以相同 rpp 配对方式大量验证过。
+/// 首选 = 官方 SideStore minimuxer（develop 分支 IdeviceGateway.swift）的精确形态：
+/// 无 ./ 前缀 + ClientOptions 传空（FFI 侧传 nil）。iOS 17/18 上大量验证过。
 fn install_candidates(bundle_id: &str, file_name: &str) -> Vec<(String, Value)> {
+    let empty = Value::Dictionary(Dictionary::new());
     let original = original_client_options(bundle_id);
     let developer = developer_client_options();
     vec![
+        // 官方精确形态：无 ./ 前缀 + 空 ClientOptions
+        (
+            format!("{STAGING_DIR}/{bundle_id}/{file_name}"),
+            empty.clone(),
+        ),
         (
             format!("./{STAGING_DIR}/{bundle_id}/{file_name}"),
-            original.clone(),
+            empty.clone(),
         ),
+        // 原版路径 + CFBundleIdentifier
         (
             format!("{STAGING_DIR}/{bundle_id}/{file_name}"),
             original.clone(),
         ),
-        (format!("./{STAGING_DIR}/{file_name}"), original.clone()),
-        (format!("{STAGING_DIR}/{file_name}"), original),
+        (
+            format!("./{STAGING_DIR}/{bundle_id}/{file_name}"),
+            original.clone(),
+        ),
+        // 单文件形态
+        (format!("{STAGING_DIR}/{file_name}"), empty.clone()),
+        (format!("./{STAGING_DIR}/{file_name}"), empty),
+        // jas 式 Developer 选项
         (format!("{STAGING_DIR}/{bundle_id}/{file_name}"), developer),
         (
             format!("/{STAGING_DIR}/{bundle_id}/{file_name}"),
-            original_client_options(bundle_id),
+            original.clone(),
         ),
         (
             format!("/var/mobile/Media/{STAGING_DIR}/{bundle_id}/{file_name}"),
