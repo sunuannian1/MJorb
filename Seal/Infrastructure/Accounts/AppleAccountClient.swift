@@ -95,8 +95,8 @@ final class AppleAccountClient {
 
     /// Apple 对认证/团队请求返回 503（国内直连 gsa.apple.com 的线路时通时断）时
     /// 自动间隔重试：隔几秒重发往往就能通过，避免用户必须挂梯子。
-    private nonisolated static func retryOnApple503<T: Sendable>(
-        _ operation: @escaping @Sendable () async throws -> T
+    private static func retryOnApple503<T>(
+        _ operation: @escaping () async throws -> T
     ) async throws -> T {
         // 3 次尝试：立即 / +3s / +8s
         let backoffs: [UInt64] = [0, 3_000_000_000, 8_000_000_000]
