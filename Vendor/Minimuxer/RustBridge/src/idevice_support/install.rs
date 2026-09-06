@@ -196,7 +196,7 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
                         entries
                     ))
                 })?;
-            (name, 0)
+            name
         }
     };
     // 布局与经典 lockdown 通道一致：PublicStaging/<bundleId>/<file>.ipa
