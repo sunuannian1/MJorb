@@ -146,14 +146,24 @@ async fn core_tunnel_context() -> Result<(Arc<tokio::sync::Mutex<AdapterHandle>>
         }
     };
 
-    // 3. 软件隧道
+    // 3. 软件隧道（先取内层 RSD 端口——create_software_tunnel 会消费 proxy）
+    let inner_rsd_port = proxy.0.tunnel_info().server_rsd_port;
     let mut adapter = proxy
         .0
         .create_software_tunnel()
         .map_err(|e| ctx_err(e, "tunnel/创建软件隧道"))?;
-    let handle = adapter.to_async_handle();
+    let handle = std::sync::Arc::new(tokio::sync::Mutex::new(adapter.to_async_handle()));
 
-    Ok((handle, rsd_handshake))
+    // 4. 隧道内层 RSD 握手（真实服务名可解析）
+    let mut guard = handle.lock().await;
+    let rsd_stream = guard
+        .connect(inner_rsd_port)
+        .await
+        .map_err(|e| IdeviceError::Socket(e))?;
+    let handshake = RsdHandshake::new(rsd_stream).await?;
+    drop(guard);
+
+    Ok((handle, handshake))
 }
 
 /// CoreDeviceProxy 经独占 RSD 连接的 newtype（CDTunnel 握手）
