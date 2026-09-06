@@ -37,6 +37,10 @@ actor SealLogStore {
         )
         values = Array(values.suffix(maximumEntries))
         try write(values)
+        // 错误日志镜像到 Documents（文件 App 可直接查看/分享），无需界面入口
+        if level == .error {
+            mirrorToDocuments()
+        }
     }
 
     func entries() throws -> [SealLogEntry] {
