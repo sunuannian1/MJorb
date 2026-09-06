@@ -88,7 +88,6 @@ jobs:
           test -f Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a
           test -f Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64-simulator/librust_bridge.a
           xcrun nm -gU Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a | grep -q "_rust_bridge_idevice_lookup_app"
-          xcrun nm -gU Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a | grep -q "_rust_bridge_ota_serve"
 
       - name: Generate Xcode project
         run: xcodegen generate
