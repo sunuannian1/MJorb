@@ -90,18 +90,13 @@ fn detect_application_name(ipa_bytes: &[u8]) -> Result<String, IdeviceError> {
     ))
 }
 
+/// 给错误附加上下文（阶段名 + 现场快照），保留原始 Debug 信息。
+/// 远程排障时设备弹窗里能直接看到失败发生在哪一步、暂存目录里有什么。
+fn ctx(error: IdeviceError, stage: &str) -> IdeviceError {
+    IdeviceError::UnexpectedResponse(format!("{stage}: {error:?}"))
+}
+
 /// 把签名后的 IPA 逐字节上传到设备 AFC 暂存区（RSD / CoreDevice 通道）。
-///
-/// 动作序列逐行对齐 jas `install_ipa`（第 631-668 行）：
-/// 1. `AfcClient::connect_rsd`（复用缓存的 RSD 隧道）；
-/// 2. 幂等建 `PublicStaging`；
-/// 3. `open("PublicStaging/<Name>.ipa", WrOnly)`（**WrOnly=3，对齐 jas 第 641 行**，
-///    不是 Wr=4；WrOnly=O_WRONLY|O_CREAT|O_TRUNC）；
-/// 4. `write_all(整包)`（底层 InnerFileDescriptor::write 已按 MAX_TRANSFER=1MiB 自动
-///    分块，无需手动切块；jas 的手动分块只是进度粒度）；
-/// 5. `close()`（函数结束时 afc 自动 drop，对齐 jas 的 `drop(afc)` 释放连接）。
-///
-/// 设备端最终得到与 jas 完全一致的 `PublicStaging/<Name>.ipa` 单文件。
 pub async fn yeet_app_afc_rppairing(
     bundle_id: String,
     ipa_bytes: &[u8],
@@ -110,35 +105,50 @@ pub async fn yeet_app_afc_rppairing(
     let _application_name = detect_application_name(ipa_bytes)?;
     let afc_path = format!("{STAGING_DIR}/{IPA_STAGING_NAME}");
 
-    let mut afc = connect_to_rsd_services::<AfcClient>().await?;
+    let mut afc = connect_to_rsd_services::<AfcClient>()
+        .await
+        .map_err(|e| ctx(e, "yeet/连接AFC"))?;
 
-    // 对齐 jas 第 636-638 行：mk_dir("PublicStaging")
-    mkdir_idempotent(&mut afc, STAGING_DIR).await?;
+    // 幂等建 PublicStaging（afcd 对已存在目录回 ObjectExists）
+    mkdir_idempotent(&mut afc, STAGING_DIR)
+        .await
+        .map_err(|e| ctx(e, "yeet/建PublicStaging目录"))?;
 
     // 覆盖前先删旧包，避免打开方式差异导致旧包尾部残留成损坏 zip
     let _ = afc.remove(afc_path.clone()).await;
 
-    // 对齐 jas 第 640-643 行：open(afc_path, WrOnly)
+    // WrOnly=3（O_WRONLY|O_CREAT|O_TRUNC），文件不存在时创建
     let mut handle = afc
         .open(afc_path.clone(), AfcFopenMode::WrOnly)
-        .await?;
+        .await
+        .map_err(|e| ctx(e, "yeet/打开暂存包"))?;
 
-    // 对齐 jas 第 645-663 行：write_all(整包)
     // 底层已按 1MiB 自动分块；非空才写（空文件理论上不会出现在 IPA 中，但双保险）
     if !ipa_bytes.is_empty() {
-        handle.write_all(ipa_bytes).await?;
+        handle
+            .write_all(ipa_bytes)
+            .await
+            .map_err(|e| ctx(e, "yeet/写入暂存包"))?;
     }
 
-    // 对齐 jas 第 665-668 行：close() + drop(afc)
-    // close 显式刷写；afc 在函数结束时自动 drop（释放服务连接，底层 RSD 隧道仍缓存）
-    handle.close().await?;
+    // close 显式刷写；afc 仍可继续用于回读校验
+    handle
+        .close()
+        .await
+        .map_err(|e| ctx(e, "yeet/关闭暂存包"))?;
 
     // 上传后回读校验：文件必须存在且大小与源字节一致。
-    // 不一致时在这里报出精确错误，而不是等 installd 报含糊的 MissingPackagePath。
-    let info = afc.get_file_info(afc_path.clone()).await?;
+    // 失败时附带暂存目录快照，区分“写入未持久化”与“写到了别的视图”。
+    let listing = afc.list_dir(STAGING_DIR.to_string()).await.unwrap_or_default();
+    let info = afc.get_file_info(afc_path.clone()).await.map_err(|e| {
+        ctx(
+            e,
+            &format!("yeet/回读校验暂存包（{STAGING_DIR} 内容: {listing:?}）"),
+        )
+    })?;
     if info.size != ipa_bytes.len() {
         return Err(IdeviceError::UnexpectedResponse(format!(
-            "暂存包 {afc_path} 大小校验失败：设备上 {} 字节，期望 {} 字节",
+            "yeet/暂存包大小校验失败：{afc_path} 设备上 {} 字节，期望 {} 字节（{STAGING_DIR} 内容: {listing:?}）",
             info.size,
             ipa_bytes.len()
         )));
@@ -186,19 +196,30 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
 
     // 安装前校验暂存包确实存在：把“installd 找不到包”从设备端含糊的
     // MissingPackagePath 提前成本地精确错误（expected_size=0 表示大小未知，跳过比对）。
+    // 失败时附带暂存目录快照，判断是“文件消失”还是“ installd 看到别的视图”。
     {
-        let mut afc = connect_to_rsd_services::<AfcClient>().await?;
-        let info = afc.get_file_info(install_path.clone()).await?;
+        let mut afc = connect_to_rsd_services::<AfcClient>()
+            .await
+            .map_err(|e| ctx(e, "install/连接AFC"))?;
+        let listing = afc.list_dir(STAGING_DIR.to_string()).await.unwrap_or_default();
+        let info = afc.get_file_info(install_path.clone()).await.map_err(|e| {
+            ctx(
+                e,
+                &format!("install/安装前校验暂存包（{STAGING_DIR} 内容: {listing:?}）"),
+            )
+        })?;
         if expected_size > 0 && info.size != expected_size {
             return Err(IdeviceError::UnexpectedResponse(format!(
-                "暂存包 {install_path} 大小与上传时不一致：设备上 {} 字节，期望 {expected_size} 字节",
+                "install/暂存包大小与上传时不一致：{install_path} 设备上 {} 字节，期望 {expected_size} 字节（{STAGING_DIR} 内容: {listing:?}）",
                 info.size
             )));
         }
     }
 
     // 对齐 jas 第 670-673 行：InstallationProxyClient::connect_rsd
-    let mut inst_client = connect_to_rsd_services::<InstallationProxyClient>().await?;
+    let mut inst_client = connect_to_rsd_services::<InstallationProxyClient>()
+        .await
+        .map_err(|e| ctx(e, "install/连接instproxy"))?;
 
     let already_installed = lookup_app_rppairing(bundle_id.clone())
         .await
@@ -222,7 +243,14 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
             // 兜底：lookup 看不到的残留安装记录会让 Install 报 MissingPackagePath。
             // 卸载（清掉残留记录；不动 AFC 媒体区 PublicStaging 里的暂存包）后全新安装。
             if !format!("{error:?}").contains("MissingPackagePath") {
-                return Err(error);
+                return Err(ctx(
+                    error,
+                    if already_installed {
+                        "install/Upgrade已存在应用"
+                    } else {
+                        "install/Install全新应用"
+                    },
+                ));
             }
             let _ = inst_client.uninstall(bundle_id.clone(), None).await;
             inst_client
@@ -231,7 +259,7 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
                 .map_err(|retry_error| {
                     // 错误文案带上兜底标记：真机上看到它即说明新版逻辑已生效
                     IdeviceError::UnexpectedResponse(format!(
-                        "卸载残留后重装仍失败（fallback-tried）: {retry_error:?}"
+                        "install/卸载残留后重装仍失败（fallback-tried）: {retry_error:?}"
                     ))
                 })
         }
