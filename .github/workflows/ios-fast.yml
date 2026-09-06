@@ -118,6 +118,8 @@ jobs:
           grep -q "packet-tunnel-provider" SealTunnel/SealTunnel.entitlements
           grep -q "packet-tunnel-provider" Seal/Resources/Seal.entitlements
 
+      - name: Refresh local SPM binary artifacts (避免缓存旧版 RustBridge 静态库)
+        run: rm -rf build/DerivedData/SourcePackages
       - name: Build fast unsigned IPA
         run: SEAL_IPA_CONFIGURATION=Debug SEAL_SKIP_XCODEGEN=1 bash Scripts/build-unsigned-ipa.sh
 
