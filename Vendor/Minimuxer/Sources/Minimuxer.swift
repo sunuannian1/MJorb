@@ -202,6 +202,26 @@ public struct Minimuxer {
         try Install.installIpa(bundleId: bundleId)
     }
 
+    /// CoreDevice 隧道：上传+安装一次调用（首选路径）
+    public static func stageAndInstallViaCoreTunnel(bundleId: String, ipaBytes: Data) throws {
+        try RustIdevice.stageAndInstallViaCoreTunnel(bundleId: bundleId, ipaBytes: ipaBytes)
+    }
+
+    /// CoreDevice 隧道：仅上传暂存
+    public static func stageViaCoreTunnel(bundleId: String, ipaBytes: Data) throws {
+        try RustIdevice.stageViaCoreTunnel(bundleId: bundleId, ipaBytes: ipaBytes)
+    }
+
+    /// CoreDevice 隧道：仅触发安装
+    public static func installViaCoreTunnel(bundleId: String) throws {
+        try RustIdevice.installViaCoreTunnel(bundleId: bundleId)
+    }
+
+    /// shim 通道：上传+安装候选链（回退路径）
+    public static func stageAndInstall(bundleId: String, ipaBytes: Data) throws {
+        try RustIdevice.stageAndInstall(bundleId: bundleId, ipaBytes: ipaBytes)
+    }
+
     public static func removeApp(bundleId: String) throws {
         try Install.removeApp(bundleId: bundleId)
     }

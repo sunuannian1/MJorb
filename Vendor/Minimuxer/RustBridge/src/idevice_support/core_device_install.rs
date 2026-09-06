@@ -92,6 +92,34 @@ pub async fn stage_and_install_via_core_tunnel(
     bundle_id: String,
     ipa_bytes: &[u8],
 ) -> Result<(), IdeviceError> {
+    let provider = core_tunnel_provider().await?;
+    let mut afc = AfcClient::connect(&provider)
+        .await
+        .map_err(|e| ctx_err(e, "tunnel/连接AFC"))?;
+    stage_via_afc(&mut afc, &bundle_id, ipa_bytes).await?;
+    drop(afc);
+
+    let mut inst_client = InstallationProxyClient::connect(&provider)
+        .await
+        .map_err(|e| ctx_err(e, "tunnel/连接instproxy"))?;
+
+    let already_installed = inst_client
+        .get_apps(None, Some(vec![bundle_id.clone()]))
+        .await
+        .map(|apps| apps.contains_key(&bundle_id))
+        .unwrap_or(false);
+
+    run_install_chain(
+        &mut inst_client,
+        already_installed,
+        &bundle_id,
+        IPA_STAGING_NAME,
+    )
+    .await
+}
+
+/// 建立 CoreDevice 软件隧道并返回经典服务提供者（lockdown 配对 + TLS 全内置）
+pub async fn core_tunnel_provider() -> Result<TunnelProvider, IdeviceError> {
     // 1. rpp 配对文件原文（set_rppairing_file 时保存）
     let rpp_raw = get_rpp_raw()
         .ok_or_else(|| IdeviceError::UnexpectedResponse("rpp 配对文件未加载".into()))?;
@@ -112,20 +140,25 @@ pub async fn stage_and_install_via_core_tunnel(
     let pairing_file = PairingFile::from_bytes(rpp_raw.as_bytes())
         .map_err(|e| ctx_err(e, "tunnel/解析rpp配对文件为lockdown格式"))?;
 
-    let provider = TunnelProvider {
+    Ok(TunnelProvider {
         handle: std::sync::Arc::new(tokio::sync::Mutex::new(handle)),
         pairing_file,
         label: "Seal".to_string(),
-    };
+    })
+}
 
-    // 5. 经典 AFC 暂存（lockdown 服务的 AFC，写提交语义与 shim 不同）
+/// CoreDevice 隧道：仅上传暂存（供 push/install 两段式架构的上传段使用）
+pub async fn stage_via_core_tunnel(bundle_id: String, ipa_bytes: &[u8]) -> Result<(), IdeviceError> {
+    let provider = core_tunnel_provider().await?;
     let mut afc = AfcClient::connect(&provider)
         .await
         .map_err(|e| ctx_err(e, "tunnel/连接AFC"))?;
-    stage_via_afc(&mut afc, &bundle_id, ipa_bytes).await?;
-    drop(afc);
+    stage_via_afc(&mut afc, &bundle_id, ipa_bytes).await
+}
 
-    // 6. 经典 instproxy 安装（原版形态候选链）
+/// CoreDevice 隧道：仅触发安装（供 push/install 两段式架构的安装段使用）
+pub async fn install_via_core_tunnel(bundle_id: String) -> Result<(), IdeviceError> {
+    let provider = core_tunnel_provider().await?;
     let mut inst_client = InstallationProxyClient::connect(&provider)
         .await
         .map_err(|e| ctx_err(e, "tunnel/连接instproxy"))?;

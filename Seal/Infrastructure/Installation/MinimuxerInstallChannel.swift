@@ -276,6 +276,15 @@ actor MinimuxerInstallChannel: InstallChannel {
         var lastError: Error?
         for attempt in 1...maxAttempts {
             do {
+                // 首选 CoreDevice 隧道上传：shim AFC 的暂存在 iOS 18.7 上
+                // installd 不可见（MissingPackagePath），且跨连接不持久
+                do {
+                    try Minimuxer.stageViaCoreTunnel(bundleId: bundleID, ipaBytes: ipaData)
+                    return
+                } catch {
+                    lastError = error
+                }
+                // 回退：shim 通道 yeet（含同连接回读校验）
                 let pushOutcome = await offThread(seconds: pushTimeout) {
                     try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
                 }
@@ -314,6 +323,14 @@ actor MinimuxerInstallChannel: InstallChannel {
                 // 每次安装前重置Install提供者，避免使用已断开的RSD缓存连接
                 // 推送大文件后RSD连接可能超时断开，isReady()只检查TCP不检查RSD服务
                 Install.resetProvider()
+                // 首选 CoreDevice 隧道安装：shim instproxy 在 iOS 18.7 上
+                // 无法定位暂存包（MissingPackagePath）
+                do {
+                    try Minimuxer.installViaCoreTunnel(bundleId: bundleID)
+                    return
+                } catch {
+                    lastError = error
+                }
                 if isSelfReplacement {
                     let installation = Task.detached(priority: .userInitiated) {
                         try Minimuxer.installIpa(bundleId: bundleID)

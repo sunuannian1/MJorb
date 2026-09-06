@@ -3,7 +3,9 @@ use std::os::raw::c_char;
 
 use crate::idevice_support::mounter::mount_personalized_ddi_rppairing;
 use crate::idevice_support::rsd::set_rppairing_file;
-use crate::idevice_support::core_device_install::stage_and_install_via_core_tunnel;
+use crate::idevice_support::core_device_install::{
+    install_via_core_tunnel, stage_and_install_via_core_tunnel, stage_via_core_tunnel,
+};
 use crate::idevice_support::{
     device::{fetch_udid_rppairing, test_device_connection},
     install::{
@@ -183,6 +185,49 @@ pub extern "C" fn rust_bridge_idevice_stage_and_install_via_core_tunnel(
 
     runtime.block_on(async move {
         match stage_and_install_via_core_tunnel(bundle_id, ipa_bytes).await {
+            Ok(()) => std::ptr::null_mut(),
+            Err(err) => crate::ffi_err!(err),
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn rust_bridge_idevice_stage_via_core_tunnel(
+    bundle_id: *const c_char,
+    ipa_ptr: *const u8,
+    ipa_len: u32,
+) -> *mut IdeviceFfiError {
+    let Some(bundle_id) = c_string_arg(bundle_id) else {
+        return invalid_argument_error();
+    };
+    let Some(ipa_bytes) = bytes_arg(ipa_ptr, ipa_len) else {
+        return invalid_argument_error();
+    };
+    let Some(runtime) = shared_runtime() else {
+        return runtime_error();
+    };
+
+    runtime.block_on(async move {
+        match stage_via_core_tunnel(bundle_id, ipa_bytes).await {
+            Ok(()) => std::ptr::null_mut(),
+            Err(err) => crate::ffi_err!(err),
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn rust_bridge_idevice_install_via_core_tunnel(
+    bundle_id: *const c_char,
+) -> *mut IdeviceFfiError {
+    let Some(bundle_id) = c_string_arg(bundle_id) else {
+        return invalid_argument_error();
+    };
+    let Some(runtime) = shared_runtime() else {
+        return runtime_error();
+    };
+
+    runtime.block_on(async move {
+        match install_via_core_tunnel(bundle_id).await {
             Ok(()) => std::ptr::null_mut(),
             Err(err) => crate::ffi_err!(err),
         }

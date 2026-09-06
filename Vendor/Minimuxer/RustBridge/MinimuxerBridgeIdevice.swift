@@ -54,6 +54,18 @@ internal func _rust_bridge_idevice_stage_and_install_via_core_tunnel(
 	_ ipaLen: UInt32
 ) -> UnsafeMutablePointer<RustIdeviceFfiError>?
 
+@_silgen_name("rust_bridge_idevice_stage_via_core_tunnel")
+internal func _rust_bridge_idevice_stage_via_core_tunnel(
+	_ bundleId: UnsafePointer<Int8>?,
+	_ ipaPtr: UnsafePointer<UInt8>?,
+	_ ipaLen: UInt32
+) -> UnsafeMutablePointer<RustIdeviceFfiError>?
+
+@_silgen_name("rust_bridge_idevice_install_via_core_tunnel")
+internal func _rust_bridge_idevice_install_via_core_tunnel(
+	_ bundleId: UnsafePointer<Int8>?
+) -> UnsafeMutablePointer<RustIdeviceFfiError>?
+
 @_silgen_name("rust_bridge_idevice_remove_app")
 internal func _rust_bridge_idevice_remove_app(
 	_ bundleId: UnsafePointer<Int8>?
@@ -231,6 +243,25 @@ public class RustIdevice {
 		}
 
 		try rustIdeviceThrowIfNeeded(error)
+	}
+
+	/// CoreDevice 隧道：仅上传暂存
+	public static func stageViaCoreTunnel(bundleId: String, ipaBytes: Data) throws {
+		let ipaLength = try rustIdeviceCheckedLength(ipaBytes.count)
+		let error = ipaBytes.withUnsafeBytes { buffer in
+			_rust_bridge_idevice_stage_via_core_tunnel(
+				bundleId,
+				buffer.bindMemory(to: UInt8.self).baseAddress,
+				ipaLength
+			)
+		}
+
+		try rustIdeviceThrowIfNeeded(error)
+	}
+
+	/// CoreDevice 隧道：仅触发安装
+	public static func installViaCoreTunnel(bundleId: String) throws {
+		try rustIdeviceThrowIfNeeded(_rust_bridge_idevice_install_via_core_tunnel(bundleId))
 	}
 
 	public static func removeApp(bundleId: String) throws {
