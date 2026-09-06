@@ -14,15 +14,15 @@ use tokio::io::AsyncWriteExt;
 
 use crate::idevice_support::rsd::connect_to_rsd_services;
 
-/// AFC 暂存根目录（相对 AFC jail 根）。逐行对齐 jas（同 idevice crate 作者、
-/// 真机可用）的 RSD sideload：`PublicStaging/` 下单文件，不建子目录。
+/// AFC 暂存根目录（相对 AFC jail 根）。
 const STAGING_DIR: &str = "PublicStaging";
 
 /// 暂存文件统一用固定 ASCII 名。
-/// jas 按包内 `<Name>.app` 派生文件名，中文 App 会得到非 ASCII 路径，经
-/// AFC / installd 任一环节编码不一致就会让 installd 找不到包（MissingPackagePath）。
-/// installd 只按 PackagePath 读包、不依赖文件名，故固定名等价且更稳。
+/// installd 只按 PackagePath 读包、不依赖文件名，固定名等价且排除非 ASCII 编码问题。
 const IPA_STAGING_NAME: &str = "app.ipa";
+
+/// 暂存布局：`PublicStaging/<bundleId>/app.ipa`——与经典 lockdown 通道完全一致。
+/// 本设备 PublicStaging 里留有 bundleId 目录（历史成功安装的痕迹），对齐它最稳。
 
 /// yeet / install 两次独立 FFI 之间传递暂存信息（文件名+字节数）的进程内缓存。
 ///
@@ -103,16 +103,20 @@ pub async fn yeet_app_afc_rppairing(
 ) -> Result<(), IdeviceError> {
     // 结构校验：IPA 内必须存在 Payload/*.app（上传前拦截损坏包）
     let _application_name = detect_application_name(ipa_bytes)?;
-    let afc_path = format!("{STAGING_DIR}/{IPA_STAGING_NAME}");
+    let staged_dir = format!("{STAGING_DIR}/{bundle_id}");
+    let afc_path = format!("{staged_dir}/{IPA_STAGING_NAME}");
 
     let mut afc = connect_to_rsd_services::<AfcClient>()
         .await
         .map_err(|e| ctx(e, "yeet/连接AFC"))?;
 
-    // 幂等建 PublicStaging（afcd 对已存在目录回 ObjectExists）
+    // 幂等建目录（afcd 对已存在目录回 ObjectExists）
     mkdir_idempotent(&mut afc, STAGING_DIR)
         .await
         .map_err(|e| ctx(e, "yeet/建PublicStaging目录"))?;
+    mkdir_idempotent(&mut afc, &staged_dir)
+        .await
+        .map_err(|e| ctx(e, "yeet/建暂存子目录"))?;
 
     // 覆盖前先删旧包，避免打开方式差异导致旧包尾部残留成损坏 zip
     let _ = afc.remove(afc_path.clone()).await;
@@ -137,24 +141,20 @@ pub async fn yeet_app_afc_rppairing(
         .await
         .map_err(|e| ctx(e, "yeet/关闭暂存包"))?;
 
-    // 上传后回读校验：文件必须存在且大小与源字节一致。
-    // 失败时附带暂存目录快照，区分“写入未持久化”与“写到了别的视图”。
-    let listing = afc.list_dir(STAGING_DIR.to_string()).await.unwrap_or_default();
-    let info = afc.get_file_info(afc_path.clone()).await.map_err(|e| {
-        ctx(
-            e,
-            &format!("yeet/回读校验暂存包（{STAGING_DIR} 内容: {listing:?}）"),
-        )
-    })?;
+    // 上传后同连接回读校验：文件必须存在且大小与源字节一致。
+    let info = afc
+        .get_file_info(afc_path.clone())
+        .await
+        .map_err(|e| ctx(e, "yeet/回读校验暂存包"))?;
     if info.size != ipa_bytes.len() {
         return Err(IdeviceError::UnexpectedResponse(format!(
-            "yeet/暂存包大小校验失败：{afc_path} 设备上 {} 字节，期望 {} 字节（{STAGING_DIR} 内容: {listing:?}）",
+            "yeet/暂存包大小校验失败：{afc_path} 设备上 {} 字节，期望 {} 字节",
             info.size,
             ipa_bytes.len()
         )));
     }
 
-    // 把暂存文件名与期望大小存入进程内缓存，供 install 阶段校验使用。
+    // 把暂存文件名与期望大小存入进程内缓存，供 install 阶段使用。
     // 仅在上传成功且校验通过后写入；yeet 失败时不污染缓存。
     cache_ipa_name(&bundle_id, IPA_STAGING_NAME, ipa_bytes.len());
 
@@ -171,52 +171,40 @@ pub async fn yeet_app_afc_rppairing(
 /// 对已存在记录发全新 Install 会被 installd 直接以 MissingPackagePath 拒绝。
 /// lookup 失败按未安装处理（不阻断首装），残留记录由下方 MissingPackagePath 兜底清理。
 pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
-    // 优先用 yeet 阶段缓存的暂存文件名与期望大小（jas 也不做回读，同一函数内已知）。
-    // RSD / CoreDevice 隧道下 AFC list_dir 在部分设备上不可靠，cache 是主路径。
-    let (ipa_name, expected_size) = match cached_ipa(&bundle_id) {
-        Some(cached) => cached,
+    // 优先用 yeet 阶段缓存的暂存文件名（同一进程内已知，无需回读）。
+    let file_name = match cached_ipa(&bundle_id) {
+        Some((name, _expected_size)) => name,
         None => {
-            // fallback：列 PublicStaging 目录回读 .ipa 文件（此时无法校验大小）。
-            let mut afc = connect_to_rsd_services::<AfcClient>().await?;
-            let entries: Vec<String> = afc.list_dir(STAGING_DIR.to_string()).await?;
+            // fallback（跨进程重启场景）：列暂存子目录回读 .ipa 文件。
+            let staged_dir = format!("{STAGING_DIR}/{bundle_id}");
+            let mut afc = connect_to_rsd_services::<AfcClient>()
+                .await
+                .map_err(|e| ctx(e, "install/连接AFC"))?;
+            let entries: Vec<String> = afc.list_dir(staged_dir.clone()).await.map_err(|e| {
+                ctx(
+                    e,
+                    &format!("install/回读暂存目录（{staged_dir}）"),
+                )
+            })?;
             let name = entries
                 .iter()
                 .map(|name| name.trim_end_matches('/').to_string())
                 .find(|name| name.ends_with(".ipa") && name != "." && name != "..")
                 .ok_or_else(|| {
                     IdeviceError::UnexpectedResponse(format!(
-                        "暂存目录 {STAGING_DIR} 下未找到 .ipa 安装包（实际条目: {:?}）",
+                        "install/暂存目录 {staged_dir} 下未找到 .ipa 安装包（实际条目: {:?}）",
                         entries
                     ))
                 })?;
             (name, 0)
         }
     };
-    let install_path = format!("{STAGING_DIR}/{ipa_name}");
-
-    // 安装前校验暂存包确实存在：把“installd 找不到包”从设备端含糊的
-    // MissingPackagePath 提前成本地精确错误（expected_size=0 表示大小未知，跳过比对）。
-    // 失败时附带暂存目录快照，判断是“文件消失”还是“ installd 看到别的视图”。
-    {
-        let mut afc = connect_to_rsd_services::<AfcClient>()
-            .await
-            .map_err(|e| ctx(e, "install/连接AFC"))?;
-        let listing = afc.list_dir(STAGING_DIR.to_string()).await.unwrap_or_default();
-        let info = afc.get_file_info(install_path.clone()).await.map_err(|e| {
-            ctx(
-                e,
-                &format!("install/安装前校验暂存包（{STAGING_DIR} 内容: {listing:?}）"),
-            )
-        })?;
-        if expected_size > 0 && info.size != expected_size {
-            return Err(IdeviceError::UnexpectedResponse(format!(
-                "install/暂存包大小与上传时不一致：{install_path} 设备上 {} 字节，期望 {expected_size} 字节（{STAGING_DIR} 内容: {listing:?}）",
-                info.size
-            )));
-        }
-    }
+    // 布局与经典 lockdown 通道一致：PublicStaging/<bundleId>/<file>.ipa
+    let install_path = format!("{STAGING_DIR}/{bundle_id}/{file_name}");
 
     // 对齐 jas 第 670-673 行：InstallationProxyClient::connect_rsd
+    // （不做安装前 AFC 预校验：隧道抖动时预校验自身的 socket 错误会把安装
+    //   挡死在 installd 之前，上传校验已由 yeet 的同连接回读完成。）
     let mut inst_client = connect_to_rsd_services::<InstallationProxyClient>()
         .await
         .map_err(|e| ctx(e, "install/连接instproxy"))?;

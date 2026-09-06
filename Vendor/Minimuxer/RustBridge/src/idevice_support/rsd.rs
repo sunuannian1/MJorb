@@ -81,6 +81,14 @@ pub fn set_rppairing_file(pairing_file_string: String) -> Result<(), IdeviceErro
     Ok(())
 }
 
+/// 主动废弃缓存的 RSD 连接（隧道可能已断、或连续服务调用失败）。
+/// 下一次 connect_to_rsd_services 会重建隧道连接；
+/// 没有它，Minimuxer.reset() 后的重试仍复用死连接，重试形同虚设。
+pub fn invalidate_rsd_connection() {
+    *lock_recover(connection_state(), "rsd_connection") = None;
+    info!("RSD connection cache invalidated");
+}
+
 pub async fn connect_to_rsd_services<Service: RsdService>() -> Result<Service, IdeviceError> {
     let generation = current_generation();
     {

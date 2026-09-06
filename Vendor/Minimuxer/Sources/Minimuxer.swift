@@ -90,6 +90,10 @@ public struct Minimuxer {
         Provision.resetProvider()
         JIT.resetProvider()
         Mounter.resetProvider()
+        // RSD 缓存连接可能已随隧道断开；不复位会让重试一直复用死连接
+        if Muxer.isrppairing {
+            RustIdevice.invalidateConnection()
+        }
     }
 
     public static func retargetUsbmuxdAddr() {

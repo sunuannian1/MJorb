@@ -45,6 +45,9 @@ internal func _rust_bridge_idevice_remove_app(
 	_ bundleId: UnsafePointer<Int8>?
 ) -> UnsafeMutablePointer<RustIdeviceFfiError>?
 
+@_silgen_name("rust_bridge_idevice_invalidate_rsd_connection")
+internal func _rust_bridge_idevice_invalidate_rsd_connection()
+
 @_silgen_name("rust_bridge_idevice_lookup_app")
 internal func _rust_bridge_idevice_lookup_app(
 	_ bundleId: UnsafePointer<Int8>?,
@@ -121,6 +124,11 @@ private func rustIdeviceCheckedLength(_ count: Int) throws -> UInt32 {
 public class RustIdevice {
 	public static func testDeviceConnection() -> Bool {
 		_rust_bridge_idevice_test_device_connection()
+	}
+
+	/// 废弃缓存的 RSD 连接（隧道可能已断）。下一次服务调用会重建连接。
+	public static func invalidateConnection() {
+		_rust_bridge_idevice_invalidate_rsd_connection()
 	}
 
 	public static func fetchUDID() -> String? {

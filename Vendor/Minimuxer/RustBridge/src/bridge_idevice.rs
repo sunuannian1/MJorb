@@ -283,6 +283,11 @@ pub extern "C" fn rust_bridge_idevice_set_rppairing_file(
 }
 
 #[no_mangle]
+pub extern "C" fn rust_bridge_idevice_invalidate_rsd_connection() {
+    crate::idevice_support::rsd::invalidate_rsd_connection();
+}
+
+#[no_mangle]
 pub extern "C" fn rust_bridge_idevice_mount_personalized_ddi(
     image_ptr: *const u8,
     image_len: u32,
