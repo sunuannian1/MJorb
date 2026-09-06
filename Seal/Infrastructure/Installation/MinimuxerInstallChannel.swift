@@ -282,15 +282,23 @@ actor MinimuxerInstallChannel: InstallChannel {
                     try Minimuxer.stageViaCoreTunnel(bundleId: bundleID, ipaBytes: ipaData)
                     return
                 } catch {
-                    lastError = error
+                    let tunnelStageError = error
+                    // 回退：shim 通道 yeet（含同连接回读校验）；两者都失败则合并抛出
+                    do {
+                        let pushOutcome = await offThread(seconds: pushTimeout) {
+                            try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
+                        }
+                        if case .some(.failure(let pushError)) = pushOutcome { throw pushError }
+                        guard pushOutcome != nil else { throw Self.installTimeoutFailure }
+                        return
+                    } catch {
+                        throw NSError(
+                            domain: "minimuxer",
+                            code: -901,
+                            userInfo: [NSLocalizedDescriptionKey: "隧道上传失败：\(tunnelStageError.localizedDescription)；shim 上传回退也失败：\(error.localizedDescription)"]
+                        )
+                    }
                 }
-                // 回退：shim 通道 yeet（含同连接回读校验）
-                let pushOutcome = await offThread(seconds: pushTimeout) {
-                    try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
-                }
-                if case .some(.failure(let pushError)) = pushOutcome { throw pushError }
-                guard pushOutcome != nil else { throw Self.installTimeoutFailure }
-                return
             } catch {
                 lastError = error
                 guard attempt < maxAttempts else { break }
@@ -325,27 +333,37 @@ actor MinimuxerInstallChannel: InstallChannel {
                 Install.resetProvider()
                 // 首选 CoreDevice 隧道安装：shim instproxy 在 iOS 18.7 上
                 // 无法定位暂存包（MissingPackagePath）
+                var tunnelInstallError: Error?
                 do {
                     try Minimuxer.installViaCoreTunnel(bundleId: bundleID)
                     return
                 } catch {
-                    lastError = error
+                    tunnelInstallError = error
                 }
-                if isSelfReplacement {
-                    let installation = Task.detached(priority: .userInitiated) {
-                        try Minimuxer.installIpa(bundleId: bundleID)
+                // 隧道失败 → 旧路径；两者都失败时合并抛出（保留隧道错误供定位）
+                do {
+                    if isSelfReplacement {
+                        let installation = Task.detached(priority: .userInitiated) {
+                            try Minimuxer.installIpa(bundleId: bundleID)
+                        }
+                        try await Task.sleep(for: .milliseconds(250))
+                        await SelfReplacementController.returnToHomeScreen()
+                        try await installation.value
+                    } else {
+                        let installOutcome = await offThread(seconds: installTimeout) {
+                            try Minimuxer.installIpa(bundleId: bundleID)
+                        }
+                        if case .some(.failure(let installError)) = installOutcome { throw installError }
+                        guard installOutcome != nil else { throw Self.installTimeoutFailure }
                     }
-                    try await Task.sleep(for: .milliseconds(250))
-                    await SelfReplacementController.returnToHomeScreen()
-                    try await installation.value
-                } else {
-                    let installOutcome = await offThread(seconds: installTimeout) {
-                        try Minimuxer.installIpa(bundleId: bundleID)
-                    }
-                    if case .some(.failure(let installError)) = installOutcome { throw installError }
-                    guard installOutcome != nil else { throw Self.installTimeoutFailure }
+                    return
+                } catch {
+                    throw NSError(
+                        domain: "minimuxer",
+                        code: -902,
+                        userInfo: [NSLocalizedDescriptionKey: "CoreDevice 隧道安装失败：\(tunnelInstallError!.localizedDescription)；shim 通道回退也失败：\(error.localizedDescription)"]
+                    )
                 }
-                return
             } catch {
                 lastError = error
                 guard attempt < 3 else { break }
