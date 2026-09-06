@@ -34,11 +34,16 @@ pub fn generate_identity() -> Result<OtaIdentity, String> {
     let ca_cert = ca_params.self_signed(&ca_key).map_err(|e| e.to_string())?;
 
     let leaf_key = KeyPair::generate().map_err(|e| e.to_string())?;
-    let mut leaf_params = CertificateParams::new(vec![
-        SanType::IpAddress(std::net::IpAddr::from([127, 0, 0, 1])),
-        SanType::DnsName("localhost".to_string()),
-    ])
-    .map_err(|e| e.to_string())?;
+    let mut leaf_params = CertificateParams::new(vec![]).map_err(|e| e.to_string())?;
+    leaf_params
+        .subject_alt_names
+        .push(SanType::IpAddress(std::net::IpAddr::from([127, 0, 0, 1])));
+    leaf_params.subject_alt_names.push(SanType::DnsName(
+        "localhost"
+            .to_string()
+            .try_into()
+            .map_err(|e| format!("{e:?}"))?,
+    ));
     leaf_params
         .distinguished_name
         .push(DnType::CommonName, "127.0.0.1");
@@ -59,7 +64,7 @@ struct OtaAssets {
     manifest_path: String,
     ipa_path: String,
     cert_der: CertificateDer<'static>,
-    key_der: PrivateKeyDer<'static>,
+    key_der_bytes: Vec<u8>,
 }
 
 static OTA_ASSETS: std::sync::OnceLock<
@@ -90,16 +95,14 @@ pub fn configure(
             .map_err(|e| format!("PEM 解码失败: {e}"))
     };
     let cert_der = CertificateDer::from(pem_body(cert_pem)?);
-    let key_der = PrivateKeyDer::try_from(pem_body(key_pem)?)
-        .map_err(|e| format!("私钥解析失败: {e}"))?;
-
+    let key_der_bytes = pem_body(key_pem).map_err(|e| format!("私钥解析失败: {e}"))?;
     let mut slot = assets_slot().lock().map_err(|e| e.to_string())?;
     *slot = Some(OtaAssets {
         ca_profile,
         manifest_path,
         ipa_path,
         cert_der,
-        key_der,
+        key_der_bytes,
     });
     Ok(())
 }
@@ -115,10 +118,7 @@ pub async fn serve() -> Result<u16, String> {
                 manifest_path: a.manifest_path.clone(),
                 ipa_path: a.ipa_path.clone(),
                 cert_der: a.cert_der.clone(),
-                key_der: a
-                    .key_der
-                    .clone_key()
-                    .map_err(|e| format!("私钥克隆失败: {e}"))?,
+                key_der_bytes: a.key_der_bytes.clone(),/
             },
             None => return Err("OTA 服务尚未配置".into()),
         }
@@ -130,7 +130,10 @@ pub async fn serve() -> Result<u16, String> {
     .with_safe_default_protocol_versions()
     .map_err(|e| format!("TLS 协议版本配置失败: {e}"))?
     .with_no_client_auth()
-    .with_single_cert(vec![assets.cert_der], assets.key_der)
+    .with_single_cert(
+        vec![assets.cert_der],
+        PrivateKeyDer::try_from(assets.key_der_bytes.clone()).map_err(|e| format!("私钥加载失败: {e:?}"))?,
+    )
     .map_err(|e| format!("TLS 配置失败: {e}"))?;
     let acceptor = Arc::new(TlsAcceptor::from(Arc::new(tls_config)));
 
@@ -182,7 +185,7 @@ async fn handle_connection(
             return Ok(());
         }
         total += n;
-        if &buf[..total].windows(4).any(|w| w == b"\r\n\r\n") {
+        if buf[..total].windows(4).any(|w| w == b"\r\n\r\n") {
             break;
         }
     }
