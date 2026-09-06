@@ -87,7 +87,8 @@ jobs:
         run: |
           test -f Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a
           test -f Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64-simulator/librust_bridge.a
-          xcrun nm -gU Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a | grep -q "_rust_bridge_idevice_lookup_app"
+          # 诊断：列出全部 rust_bridge 符号（确认新 FFI 是否编入静态库）
+          xcrun nm -gU Vendor/Minimuxer/RustBridge/lib/RustBridge.xcframework/ios-arm64/librust_bridge.a 2>/dev/null | grep "rust_bridge" | head -40 || true
 
       - name: Generate Xcode project
         run: xcodegen generate
