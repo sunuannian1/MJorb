@@ -1,3 +1,4 @@
+pub(crate) mod core_device_install;
 pub(crate) mod device;
 pub(crate) mod install;
 pub(crate) mod jit;

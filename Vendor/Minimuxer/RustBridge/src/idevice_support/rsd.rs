@@ -23,6 +23,8 @@ pub struct CachedRsdConnection {
 struct PairingState {
     file: Option<idevice::remote_pairing::RpPairingFile>,
     generation: u64,
+    /// rpp 配对文件原文（plist），供 CoreDevice 隧道的 lockdown 配对解析使用
+    raw: Option<String>,
 }
 
 static RPPAIRING_STATE: OnceLock<Mutex<PairingState>> = OnceLock::new();
@@ -33,6 +35,7 @@ fn pairing_state() -> &'static Mutex<PairingState> {
         Mutex::new(PairingState {
             file: None,
             generation: 0,
+            raw: None,
         })
     })
 }
@@ -71,6 +74,7 @@ pub fn set_rppairing_file(pairing_file_string: String) -> Result<(), IdeviceErro
         let mut state = lock_recover(pairing_state(), "pairing_state");
         state.generation = state.generation.wrapping_add(1);
         state.file = Some(pairing_file);
+        state.raw = Some(pairing_file_string);
         state.generation
     };
 
@@ -79,6 +83,12 @@ pub fn set_rppairing_file(pairing_file_string: String) -> Result<(), IdeviceErro
     *lock_recover(connection_state(), "rsd_connection") = None;
     info!("Remote pairing file updated; generation={generation}");
     Ok(())
+}
+
+/// rpp 配对文件原文（plist），供 CoreDevice 隧道路径解析 lockdown 配对使用
+pub fn get_rpp_raw() -> Option<String> {
+    let state = lock_recover(pairing_state(), "pairing_state");
+    state.raw.clone()
 }
 
 /// 主动废弃缓存的 RSD 连接（隧道可能已断、或连续服务调用失败）。

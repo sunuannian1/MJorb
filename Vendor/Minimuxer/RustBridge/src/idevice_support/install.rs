@@ -19,7 +19,7 @@ const STAGING_DIR: &str = "PublicStaging";
 
 /// 暂存文件统一用固定 ASCII 名。
 /// installd 只按 PackagePath 读包、不依赖文件名，固定名等价且排除非 ASCII 编码问题。
-const IPA_STAGING_NAME: &str = "app.ipa";
+pub(crate) const IPA_STAGING_NAME: &str = "app.ipa";
 
 /// 暂存布局：`PublicStaging/<bundleId>/app.ipa`——与经典 lockdown 通道完全一致。
 /// 本设备 PublicStaging 里留有 bundleId 目录（历史成功安装的痕迹），对齐它最稳。
@@ -101,7 +101,10 @@ pub async fn yeet_app_afc_rppairing(
     bundle_id: String,
     ipa_bytes: &[u8],
 ) -> Result<(), IdeviceError> {
-    stage_app_afc_rppairing(&bundle_id, ipa_bytes).await
+    let mut afc = connect_to_rsd_services::<AfcClient>()
+        .await
+        .map_err(|e| ctx(e, "yeet/连接AFC"))?;
+    stage_via_afc(&mut afc, &bundle_id, ipa_bytes).await
 }
 
 /// 上传 + 安装合并调用：jas 的 install_ipa 在同一函数内完成上传与安装，
@@ -111,25 +114,31 @@ pub async fn stage_and_install_rppairing(
     bundle_id: String,
     ipa_bytes: &[u8],
 ) -> Result<(), IdeviceError> {
-    stage_app_afc_rppairing(&bundle_id, ipa_bytes).await?;
+    let mut afc = connect_to_rsd_services::<AfcClient>()
+        .await
+        .map_err(|e| ctx(e, "yeet/连接AFC"))?;
+    stage_via_afc(&mut afc, &bundle_id, ipa_bytes).await?;
+    drop(afc);
     install_ipa_rppairing(bundle_id).await
 }
 
-async fn stage_app_afc_rppairing(bundle_id: &str, ipa_bytes: &[u8]) -> Result<(), IdeviceError> {
+/// 在给定 AFC 连接上完成暂存（幂等建目录、整包写入、同连接回读校验）。
+/// 供 shim 通道与 CoreDevice 隧道通道复用。
+pub(crate) async fn stage_via_afc(
+    afc: &mut AfcClient,
+    bundle_id: &str,
+    ipa_bytes: &[u8],
+) -> Result<(), IdeviceError> {
     // 结构校验：IPA 内必须存在 Payload/*.app（上传前拦截损坏包）
     let _application_name = detect_application_name(ipa_bytes)?;
     let staged_dir = format!("{STAGING_DIR}/{bundle_id}");
     let afc_path = format!("{staged_dir}/{IPA_STAGING_NAME}");
 
-    let mut afc = connect_to_rsd_services::<AfcClient>()
-        .await
-        .map_err(|e| ctx(e, "yeet/连接AFC"))?;
-
     // 幂等建目录（afcd 对已存在目录回 ObjectExists）
-    mkdir_idempotent(&mut afc, STAGING_DIR)
+    mkdir_idempotent(afc, STAGING_DIR)
         .await
         .map_err(|e| ctx(e, "yeet/建PublicStaging目录"))?;
-    mkdir_idempotent(&mut afc, &staged_dir)
+    mkdir_idempotent(afc, &staged_dir)
         .await
         .map_err(|e| ctx(e, "yeet/建暂存子目录"))?;
 
@@ -288,11 +297,35 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
         }
     }
 
+    run_install_chain(&mut inst_client, already_installed, &bundle_id, &file_name)
+        .await
+        .map_err(|e| match e {
+            // 把 afcd 侧快照附加到最终错误上（快照仅 shim 通道产生）
+            IdeviceError::UnexpectedResponse(msg) => {
+                IdeviceError::UnexpectedResponse(format!("{msg}；{afcd_snapshot}"))
+            }
+            other => other,
+        })
+}
+
+/// 在给定 instproxy 客户端上执行安装候选链：
+/// 第一轮按（路径, 选项）组合逐一尝试；全部 MissingPackagePath 则卸载残留记录
+/// 后再以全新 Install 重试一轮。任何组合返回非 MissingPackagePath 错误，说明
+/// installd 已定位到包，立即停止换路径抛出真实错误。
+pub(crate) async fn run_install_chain(
+    inst_client: &mut InstallationProxyClient,
+    already_installed: bool,
+    bundle_id: &str,
+    file_name: &str,
+) -> Result<(), IdeviceError> {
+    let candidates = install_candidates(bundle_id, file_name);
+    let bundle_id = bundle_id.to_string();
+
     // 第一轮：按候选链逐一尝试（lookup 失败按未安装处理，不阻断首装）
     let mut last_missing_path_error: Option<IdeviceError> = None;
     for (path, options) in &candidates {
         let result =
-            issue_install_command(&mut inst_client, already_installed, path, options).await;
+            issue_install_command(inst_client, already_installed, path, options).await;
         match result {
             Ok(()) => return Ok(()),
             Err(e) if is_missing_package_path(&e) => {
@@ -311,7 +344,7 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
     }
 
     // 第二轮：卸载 lookup 看不到的残留记录后再试一轮全新 Install
-    let _ = inst_client.uninstall(bundle_id.clone(), None).await;
+    let _ = inst_client.uninstall(bundle_id, None).await;
     for (path, options) in &candidates {
         let result = inst_client.install(path, Some(options.clone())).await;
         match result {
@@ -327,7 +360,7 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
     }
 
     Err(IdeviceError::UnexpectedResponse(format!(
-        "install/installd 在所有候选组合均未找到暂存包（候选: {:?}）；最后错误: {:?}；{afcd_snapshot}",
+        "install/installd 在所有候选组合均未找到暂存包（候选: {:?}）；最后错误: {:?}",
         candidates.iter().map(|(p, _)| p).collect::<Vec<_>>(),
         last_missing_path_error
     )))

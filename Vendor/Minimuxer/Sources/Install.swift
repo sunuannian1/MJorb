@@ -176,11 +176,29 @@ public class RPInstall: InstallProvider {
         let pendingBytes = RPInstall.pendingIPAs.removeValue(forKey: bundleId)
         RPInstall.pendingLock.unlock()
 
-        if let pendingBytes {
-            // 上传与安装在一段调用内完成，消除两段 FFI 之间暂存文件消失的窗口
-            try RustIdevice.stageAndInstall(bundleId: bundleId, ipaBytes: pendingBytes)
-        } else {
+        guard let pendingBytes else {
             try RustIdevice.installIpa(bundleId: bundleId)
+            return
+        }
+
+        do {
+            // 首选：CoreDevice 隧道 → lockdown → 经典 AFC/instproxy。
+            // shim 通道的 instproxy 在 iOS 18.7 上无法定位暂存包（MissingPackagePath）
+            try RustIdevice.stageAndInstallViaCoreTunnel(bundleId: bundleId, ipaBytes: pendingBytes)
+        } catch {
+            let tunnelError = error
+            do {
+                // 回退：shim 通道候选链（保留诊断价值）
+                try RustIdevice.stageAndInstall(bundleId: bundleId, ipaBytes: pendingBytes)
+            } catch {
+                throw NSError(
+                    domain: "minimuxer",
+                    code: -900,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "CoreDevice 隧道安装失败：\(tunnelError.localizedDescription)；shim 通道回退也失败：\(error.localizedDescription)"
+                    ]
+                )
+            }
         }
     }
 
