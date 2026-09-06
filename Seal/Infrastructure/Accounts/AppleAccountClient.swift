@@ -66,25 +66,16 @@ final class AppleAccountClient {
         // 用远程 machineID 认证会导致 authToken 与远程绑定，之后切回本地时
         // machineID 漂移，Apple 判定会话异常返回 1100，表现为"添加 ID 后就失效"。
         // 本地生成失败直接报错，让用户重试，不要用远程添加 ID。
+        //
+        // 【不要在这里清 adi.pb 重试】machineID 变化会让所有已登录账号签名时
+        // 掉线（1100 需重新添加）——此路径曾被试过并造成严重回归。
+        // Apple 拒绝本地 anisette 时直接报错，由用户决定是否手动重置签名环境。
         try await withTimeout(seconds: 240) {
-            do {
-                return try await self.authenticateOnce(
-                    email: email,
-                    password: password,
-                    verificationCode: verificationCode
-                )
-            } catch let error where Self.shouldRetryWithRemoteAnisette(error) {
-                // Apple 拒绝了本地 anisette（invalidAnisetteData / 认证端点返回非 plist
-                // 响应 / 坏服务器响应）：清除本地 provisioning（adi.pb）重新生成后再试一次。
-                // 代价：machineID 变化会使已登录账号的会话失效（1100），
-                // 但本地指纹被 Apple 拉黑时这是恢复添加账号的唯一路径。
-                await self.anisetteProvider.resetProvisioning()
-                return try await self.authenticateOnce(
-                    email: email,
-                    password: password,
-                    verificationCode: verificationCode
-                )
-            }
+            try await self.authenticateOnce(
+                email: email,
+                password: password,
+                verificationCode: verificationCode
+            )
         }
     }
 
@@ -222,10 +213,17 @@ final class AppleAccountClient {
         } catch let failure as ImportFailure {
             throw failure
         } catch {
-            // 认证端点返回 HTML/空响应导致 plist 解析失败(3840)、或坏服务器响应：
-            // 这类错误可通过清除本地指纹、换远程 Anisette 通道恢复，原样上抛交给 authenticate 自动重试一次
+            // Apple 判 anisette 无效 / 认证端点返回 HTML(3840) / 坏服务器响应：
+            // 不做任何自动重置（machineID 变化会让已登录账号全部掉线），
+            // 以明确的错误呈现，由用户决定是否手动重置签名环境。
             if Self.shouldRetryWithRemoteAnisette(error) {
-                throw error
+                let underlying = (error as NSError).localizedDescription
+                throw ImportFailure(
+                    title: "无法添加账号",
+                    reason: "Apple 拒绝了本次认证使用的设备环境数据（Anisette）。\n底层错误：\(underlying)",
+                    recovery: "重试；如持续失败，到「我的」页面手动重置签名环境（会导致已登录 ID 需重新验证）",
+                    code: "SEAL-AUTH-107a"
+                )
             }
             // Apple 拒绝认证握手，通常与 Anisette 设备环境数据无效有关，
             // 而不是用户网络问题，必须与“验证失败/网络”区分开。
