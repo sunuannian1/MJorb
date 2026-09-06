@@ -46,7 +46,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             Vendor/Minimuxer/RustBridge/target
-          key: rustbridge-${{ runner.os }}-${{ hashFiles('Vendor/Minimuxer/RustBridge/Cargo.lock') }}
+          # key 必须随 Rust 源码变化：actions/cache 只在 key 变化（miss）时保存
+          # 新缓存，否则 target/ 里的增量产物永远停留在第一次保存的快照
+          key: rustbridge-${{ runner.os }}-${{ hashFiles('Vendor/Minimuxer/RustBridge/Cargo.lock', 'Vendor/Minimuxer/RustBridge/Cargo.toml', 'Vendor/Minimuxer/RustBridge/Makefile', 'Vendor/Minimuxer/RustBridge/src/**') }}
           restore-keys: |
             rustbridge-${{ runner.os }}-
 
@@ -54,7 +56,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/DerivedData
-          key: deriveddata-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          # 同上：Swift 源码变化时刷新缓存，让 Xcode 跨运行增量编译
+          key: deriveddata-${{ runner.os }}-${{ hashFiles('project.yml', 'Seal/**/*.swift', 'SealTunnel/**/*.swift', 'Vendor/Minimuxer/Sources/**/*.swift', 'Vendor/Minimuxer/RustBridge/MinimuxerBridge*.swift') }}
           restore-keys: |
             deriveddata-${{ runner.os }}-
 
