@@ -182,13 +182,57 @@ pub async fn install_via_core_tunnel(bundle_id: String) -> Result<(), IdeviceErr
         .map(|apps| apps.contains_key(&bundle_id))
         .unwrap_or(false);
 
-    run_install_chain(
+    let result = run_install_chain(
         &mut inst_client,
         already_installed,
         &bundle_id,
         IPA_STAGING_NAME,
     )
-    .await
+    .await;
+    if result.is_ok() {
+        return Ok(());
+    }
+
+    // 隧道（软件 TCP 叠加 LocalDevVPN 再叠加 WiFi）在安装进行中可能断连——
+    // 但安装命令已发出，installd 在设备本地继续执行，不依赖我们的连接。
+    // 等 3 秒后用全新连接查证：App 若已装上即视为成功。
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let verify = verify_app_installed(&bundle_id).await;
+    match verify {
+        Ok(true) => Ok(()),
+        Ok(false) => result,
+        Err(_) => result,
+    }
+}
+
+/// 用全新隧道连接查证 App 是否已安装（installd 可能在连接断开后仍完成了安装）
+async fn verify_app_installed(bundle_id: &str) -> Result<bool, IdeviceError> {
+    let (handle, mut handshake) = core_tunnel_context().await?;
+    let mut provider = TunnelRsdProvider {
+        handle,
+        label: "Seal-verify".to_string(),
+    };
+
+    let installed = match RealInstProxy::connect_rsd(&mut provider, &mut handshake).await {
+        Ok(r) => {
+            let mut inst = r.0;
+            inst.get_apps(None, Some(vec![bundle_id.to_string()]))
+                .await
+                .map(|apps| apps.contains_key(bundle_id))
+                .unwrap_or(false)
+        }
+        Err(_) => match ShimInstProxy::connect_rsd(&mut provider, &mut handshake).await {
+            Ok(r) => {
+                let mut inst = r.0;
+                inst.get_apps(None, Some(vec![bundle_id.to_string()]))
+                    .await
+                    .map(|apps| apps.contains_key(bundle_id))
+                    .unwrap_or(false)
+            }
+            Err(_) => false,
+        },
+    };
+    Ok(installed)
 }
 
 /// 隧道：上传 + 安装合并调用
