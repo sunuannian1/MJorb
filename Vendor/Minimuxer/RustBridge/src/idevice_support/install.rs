@@ -15,26 +15,32 @@ use tokio::io::AsyncWriteExt;
 use crate::idevice_support::rsd::connect_to_rsd_services;
 
 /// AFC 暂存根目录（相对 AFC jail 根）。逐行对齐 jas（同 idevice crate 作者、
-/// 真机可用）的 RSD sideload：`PublicStaging/<Name>.ipa` 单文件，不建子目录。
+/// 真机可用）的 RSD sideload：`PublicStaging/` 下单文件，不建子目录。
 const STAGING_DIR: &str = "PublicStaging";
 
-/// yeet / install 两次独立 FFI 之间传递 `.ipa` 文件名的进程内缓存。
+/// 暂存文件统一用固定 ASCII 名。
+/// jas 按包内 `<Name>.app` 派生文件名，中文 App 会得到非 ASCII 路径，经
+/// AFC / installd 任一环节编码不一致就会让 installd 找不到包（MissingPackagePath）。
+/// installd 只按 PackagePath 读包、不依赖文件名，故固定名等价且更稳。
+const IPA_STAGING_NAME: &str = "app.ipa";
+
+/// yeet / install 两次独立 FFI 之间传递暂存信息（文件名+字节数）的进程内缓存。
 ///
 /// 背景：jas 的 `install_ipa` 在同一个函数内完成签名→打包→AFC 上传→installd 安装，
 /// ipa_name 已知，install 从不做 AFC `list_dir` 回读。Seal 因 FFI 边界把 yeet（上传）
 /// 与 install（触发安装）拆成两次调用，install 只收 `bundle_id`，此前被迫 list_dir 回读
 /// ——而 RSD / CoreDevice 隧道下 AFC `list_dir` 在部分设备上不可靠。此处用进程内缓存
-/// 传递 ipa_name，list_dir 仅作 fallback。
-static IPA_NAME_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+/// 传递文件名与期望大小（install 阶段校验文件仍在且大小一致），list_dir 仅作 fallback。
+static IPA_NAME_CACHE: OnceLock<Mutex<HashMap<String, (String, usize)>>> = OnceLock::new();
 
-fn cache_ipa_name(bundle_id: &str, ipa_name: &str) {
+fn cache_ipa_name(bundle_id: &str, ipa_name: &str, size: usize) {
     let map = IPA_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Ok(mut guard) = map.lock() {
-        guard.insert(bundle_id.to_string(), ipa_name.to_string());
+        guard.insert(bundle_id.to_string(), (ipa_name.to_string(), size));
     }
 }
 
-fn cached_ipa_name(bundle_id: &str) -> Option<String> {
+fn cached_ipa(bundle_id: &str) -> Option<(String, usize)> {
     let map = IPA_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     map.lock().ok().and_then(|guard| guard.get(bundle_id).cloned())
 }
@@ -100,18 +106,17 @@ pub async fn yeet_app_afc_rppairing(
     bundle_id: String,
     ipa_bytes: &[u8],
 ) -> Result<(), IdeviceError> {
-    // 对齐 jas 第 614-619 行：app_name → ipa_name → afc_path
-    let application_name = detect_application_name(ipa_bytes)?;
-    let ipa_name = format!(
-        "{}.ipa",
-        application_name.trim_end_matches(".app")
-    );
-    let afc_path = format!("{STAGING_DIR}/{ipa_name}");
+    // 结构校验：IPA 内必须存在 Payload/*.app（上传前拦截损坏包）
+    let _application_name = detect_application_name(ipa_bytes)?;
+    let afc_path = format!("{STAGING_DIR}/{IPA_STAGING_NAME}");
 
     let mut afc = connect_to_rsd_services::<AfcClient>().await?;
 
     // 对齐 jas 第 636-638 行：mk_dir("PublicStaging")
     mkdir_idempotent(&mut afc, STAGING_DIR).await?;
+
+    // 覆盖前先删旧包，避免打开方式差异导致旧包尾部残留成损坏 zip
+    let _ = afc.remove(afc_path.clone()).await;
 
     // 对齐 jas 第 640-643 行：open(afc_path, WrOnly)
     let mut handle = afc
@@ -128,9 +133,20 @@ pub async fn yeet_app_afc_rppairing(
     // close 显式刷写；afc 在函数结束时自动 drop（释放服务连接，底层 RSD 隧道仍缓存）
     handle.close().await?;
 
-    // 把 .ipa 文件名存入进程内缓存，供 install 阶段使用（避免依赖 RSD 下不可靠的 list_dir）。
-    // 仅在上传成功后才写入；yeet 失败时不污染缓存。
-    cache_ipa_name(&bundle_id, &ipa_name);
+    // 上传后回读校验：文件必须存在且大小与源字节一致。
+    // 不一致时在这里报出精确错误，而不是等 installd 报含糊的 MissingPackagePath。
+    let info = afc.get_file_info(afc_path.clone()).await?;
+    if info.size != ipa_bytes.len() {
+        return Err(IdeviceError::UnexpectedResponse(format!(
+            "暂存包 {afc_path} 大小校验失败：设备上 {} 字节，期望 {} 字节",
+            info.size,
+            ipa_bytes.len()
+        )));
+    }
+
+    // 把暂存文件名与期望大小存入进程内缓存，供 install 阶段校验使用。
+    // 仅在上传成功且校验通过后写入；yeet 失败时不污染缓存。
+    cache_ipa_name(&bundle_id, IPA_STAGING_NAME, ipa_bytes.len());
 
     Ok(())
 }
@@ -145,15 +161,15 @@ pub async fn yeet_app_afc_rppairing(
 /// 对已存在记录发全新 Install 会被 installd 直接以 MissingPackagePath 拒绝。
 /// lookup 失败按未安装处理（不阻断首装），残留记录由下方 MissingPackagePath 兜底清理。
 pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
-    // 优先用 yeet 阶段缓存的 .ipa 文件名（jas 也不做回读，同一函数内已知 ipa_name）。
+    // 优先用 yeet 阶段缓存的暂存文件名与期望大小（jas 也不做回读，同一函数内已知）。
     // RSD / CoreDevice 隧道下 AFC list_dir 在部分设备上不可靠，cache 是主路径。
-    let ipa_name = match cached_ipa_name(&bundle_id) {
-        Some(name) => name,
+    let (ipa_name, expected_size) = match cached_ipa(&bundle_id) {
+        Some(cached) => cached,
         None => {
-            // fallback：列 PublicStaging 目录回读 .ipa 文件。
+            // fallback：列 PublicStaging 目录回读 .ipa 文件（此时无法校验大小）。
             let mut afc = connect_to_rsd_services::<AfcClient>().await?;
             let entries: Vec<String> = afc.list_dir(STAGING_DIR.to_string()).await?;
-            entries
+            let name = entries
                 .iter()
                 .map(|name| name.trim_end_matches('/').to_string())
                 .find(|name| name.ends_with(".ipa") && name != "." && name != "..")
@@ -162,10 +178,24 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
                         "暂存目录 {STAGING_DIR} 下未找到 .ipa 安装包（实际条目: {:?}）",
                         entries
                     ))
-                })?
+                })?;
+            (name, 0)
         }
     };
     let install_path = format!("{STAGING_DIR}/{ipa_name}");
+
+    // 安装前校验暂存包确实存在：把“installd 找不到包”从设备端含糊的
+    // MissingPackagePath 提前成本地精确错误（expected_size=0 表示大小未知，跳过比对）。
+    {
+        let mut afc = connect_to_rsd_services::<AfcClient>().await?;
+        let info = afc.get_file_info(install_path.clone()).await?;
+        if expected_size > 0 && info.size != expected_size {
+            return Err(IdeviceError::UnexpectedResponse(format!(
+                "暂存包 {install_path} 大小与上传时不一致：设备上 {} 字节，期望 {expected_size} 字节",
+                info.size
+            )));
+        }
+    }
 
     // 对齐 jas 第 670-673 行：InstallationProxyClient::connect_rsd
     let mut inst_client = connect_to_rsd_services::<InstallationProxyClient>().await?;
@@ -198,6 +228,12 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
             inst_client
                 .install(&install_path, Some(developer_client_options()))
                 .await
+                .map_err(|retry_error| {
+                    // 错误文案带上兜底标记：真机上看到它即说明新版逻辑已生效
+                    IdeviceError::UnexpectedResponse(format!(
+                        "卸载残留后重装仍失败（fallback-tried）: {retry_error:?}"
+                    ))
+                })
         }
     }
 }
