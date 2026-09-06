@@ -133,10 +133,9 @@ async fn stage_app_afc_rppairing(bundle_id: &str, ipa_bytes: &[u8]) -> Result<()
         .await
         .map_err(|e| ctx(e, "yeet/建暂存子目录"))?;
 
-    // 覆盖前先删旧包，避免打开方式差异导致旧包尾部残留成损坏 zip
-    let _ = afc.remove(afc_path.clone()).await;
-
-    // WrOnly=3（O_WRONLY|O_CREAT|O_TRUNC），文件不存在时创建
+    // WrOnly=3（O_WRONLY|O_CREAT|O_TRUNC），文件不存在时创建。
+    // 与原版 SideStore minimuxer 一致：不做预删除（TRUNC 已保证覆盖），
+    // 且 shim 通道上 remove 与 write 的提交顺序不可控，不做多余操作。
     let mut handle = afc
         .open(afc_path.clone(), AfcFopenMode::WrOnly)
         .await
@@ -176,15 +175,50 @@ async fn stage_app_afc_rppairing(bundle_id: &str, ipa_bytes: &[u8]) -> Result<()
     Ok(())
 }
 
+/// 原版 SideStore minimuxer 的 ClientOptions：只带 CFBundleIdentifier。
+/// RSD shim 的 instproxy 与经典 lockdown instproxy 行为一致，依赖它定位暂存包；
+/// 不带它（jas 式只传 PackageType=Developer）时 installd 报 MissingPackagePath。
+fn original_client_options(bundle_id: &str) -> Value {
+    let mut dict = Dictionary::new();
+    dict.insert("CFBundleIdentifier".into(), bundle_id.into());
+    Value::Dictionary(dict)
+}
+
+/// 安装命令候选（PackagePath, ClientOptions）：按已验证形态优先。
+/// 首选 = 原版 SideStore minimuxer 的精确形态（./ 前缀 + bundleId 子目录 + app.ipa
+/// + 仅 CFBundleIdentifier），SideStore 在 iOS 17/18 上以相同 rpp 配对方式大量验证过。
+fn install_candidates(bundle_id: &str, file_name: &str) -> Vec<(String, Value)> {
+    let original = original_client_options(bundle_id);
+    let developer = developer_client_options();
+    vec![
+        (
+            format!("./{STAGING_DIR}/{bundle_id}/{file_name}"),
+            original.clone(),
+        ),
+        (
+            format!("{STAGING_DIR}/{bundle_id}/{file_name}"),
+            original.clone(),
+        ),
+        (format!("./{STAGING_DIR}/{file_name}"), original.clone()),
+        (format!("{STAGING_DIR}/{file_name}"), original),
+        (format!("{STAGING_DIR}/{bundle_id}/{file_name}"), developer),
+        (
+            format!("/{STAGING_DIR}/{bundle_id}/{file_name}"),
+            original_client_options(bundle_id),
+        ),
+        (
+            format!("/var/mobile/Media/{STAGING_DIR}/{bundle_id}/{file_name}"),
+            original_client_options(bundle_id),
+        ),
+    ]
+}
+
 /// 触发 installd 安装已上传的 .ipa 文件（RSD / CoreDevice 通道）。
 ///
-/// ClientOptions 只带 PackageType=Developer；已存在同 Bundle ID 时用 Upgrade。
-///
-/// PackagePath 的解析基准随 iOS 版本/通道不同而不一致（相对 AFC 根、绝对路径、
-/// 相对 PublicStaging 等）。设备对「路径找不到」统一报 MissingPackagePath，
-/// 而对「路径找到但安装失败」报其他错误——利用这一点按候选链逐一尝试：
-/// 只要某个路径返回了非 MissingPackagePath 错误，说明 installd 已定位到包，
-/// 立即停止换路径并把真实错误抛出。
+/// PackagePath/ClientOptions 的组合随通道不同而不一致。设备对「路径/包定位不到」
+/// 统一报 MissingPackagePath，而对「包找到但安装失败」报其他错误——利用这一点
+/// 按候选链逐一尝试：只要某个组合返回了非 MissingPackagePath 错误，说明 installd
+/// 已定位到包，立即停止换路径并把真实错误抛出。
 pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
     // 优先用 yeet 阶段缓存的暂存文件名（同一进程内已知，无需回读）。
     let file_name = match cached_ipa(&bundle_id) {
@@ -226,7 +260,7 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
         .flatten()
         .is_some();
 
-    let candidates = package_path_candidates(&bundle_id, &file_name);
+    let candidates = install_candidates(&bundle_id, &file_name);
 
     // 预检快照（不阻断安装，只记录事实）：合并调用后上传刚完成、
     // 若此刻 afcd 侧仍看不到文件，说明写入未持久化；若看得到而 installd
@@ -256,8 +290,9 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
 
     // 第一轮：按候选链逐一尝试（lookup 失败按未安装处理，不阻断首装）
     let mut last_missing_path_error: Option<IdeviceError> = None;
-    for path in &candidates {
-        let result = issue_install_command(&mut inst_client, already_installed, path).await;
+    for (path, options) in &candidates {
+        let result =
+            issue_install_command(&mut inst_client, already_installed, path, options).await;
         match result {
             Ok(()) => return Ok(()),
             Err(e) if is_missing_package_path(&e) => {
@@ -267,7 +302,7 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
                 return Err(ctx(
                     e,
                     &format!(
-                        "install/路径 {path} 已被 installd 定位到（{}）,真实安装错误",
+                        "install/组合（{path}）已被 installd 定位到（{}）,真实安装错误",
                         if already_installed { "Upgrade" } else { "Install" }
                     ),
                 ))
@@ -277,44 +312,25 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
 
     // 第二轮：卸载 lookup 看不到的残留记录后再试一轮全新 Install
     let _ = inst_client.uninstall(bundle_id.clone(), None).await;
-    for path in &candidates {
-        let result = inst_client
-            .install(path, Some(developer_client_options()))
-            .await;
+    for (path, options) in &candidates {
+        let result = inst_client.install(path, Some(options.clone())).await;
         match result {
             Ok(()) => return Ok(()),
             Err(e) if is_missing_package_path(&e) => continue,
             Err(e) => {
                 return Err(ctx(
                     e,
-                    &format!("install/卸载残留后路径 {path}（fallback-tried）"),
+                    &format!("install/卸载残留后组合（{path}）（fallback-tried）"),
                 ))
             }
         }
     }
 
     Err(IdeviceError::UnexpectedResponse(format!(
-        "install/installd 在所有候选路径均未找到暂存包（候选: {candidates:?}）；最后错误: {:?}；{afcd_snapshot}",
+        "install/installd 在所有候选组合均未找到暂存包（候选: {:?}）；最后错误: {:?}；{afcd_snapshot}",
+        candidates.iter().map(|(p, _)| p).collect::<Vec<_>>(),
         last_missing_path_error
     )))
-}
-
-/// 生成 PackagePath 候选：不同 iOS 版本的 installd 解析基准不同，按可能性排序。
-fn package_path_candidates(bundle_id: &str, file_name: &str) -> Vec<String> {
-    vec![
-        // 历史 lockdown 通道布局（本设备 PublicStaging 遗留目录证明其存在过）
-        format!("{STAGING_DIR}/{bundle_id}/{file_name}"),
-        // jas 单文件布局（同一 idevice crate 作者的 RSD 参考实现）
-        format!("{STAGING_DIR}/{file_name}"),
-        // 绝对路径形态
-        format!("/{STAGING_DIR}/{bundle_id}/{file_name}"),
-        format!("/{STAGING_DIR}/{file_name}"),
-        // 相对 PublicStaging 自身的形态
-        format!("{bundle_id}/{file_name}"),
-        file_name.to_string(),
-        // 完整绝对路径
-        format!("/var/mobile/Media/{STAGING_DIR}/{bundle_id}/{file_name}"),
-    ]
 }
 
 fn is_missing_package_path(error: &IdeviceError) -> bool {
@@ -325,14 +341,15 @@ async fn issue_install_command(
     client: &mut InstallationProxyClient,
     upgrade: bool,
     path: &str,
+    options: &Value,
 ) -> Result<(), IdeviceError> {
     if upgrade {
         client
-            .upgrade(path, Some(developer_client_options()))
+            .upgrade(path, Some(options.clone()))
             .await
     } else {
         client
-            .install(path, Some(developer_client_options()))
+            .install(path, Some(options.clone()))
             .await
     }
 }
