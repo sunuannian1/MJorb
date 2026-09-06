@@ -163,13 +163,13 @@ pub async fn yeet_app_afc_rppairing(
 
 /// 触发 installd 安装已上传的 .ipa 文件（RSD / CoreDevice 通道）。
 ///
-/// 对齐 jas `install_ipa`（第 670-700 行）：安装路径是 `PublicStaging/<Name>.ipa`
-/// **单文件**（不是 .app 目录）；`.ipa` 名由 yeet 阶段缓存，list_dir 仅作 fallback。
-/// ClientOptions 只带 PackageType=Developer。
+/// ClientOptions 只带 PackageType=Developer；已存在同 Bundle ID 时用 Upgrade。
 ///
-/// 已存在同 Bundle ID 的记录（上次失败残留占位、续签覆盖）必须走 Upgrade：
-/// 对已存在记录发全新 Install 会被 installd 直接以 MissingPackagePath 拒绝。
-/// lookup 失败按未安装处理（不阻断首装），残留记录由下方 MissingPackagePath 兜底清理。
+/// PackagePath 的解析基准随 iOS 版本/通道不同而不一致（相对 AFC 根、绝对路径、
+/// 相对 PublicStaging 等）。设备对「路径找不到」统一报 MissingPackagePath，
+/// 而对「路径找到但安装失败」报其他错误——利用这一点按候选链逐一尝试：
+/// 只要某个路径返回了非 MissingPackagePath 错误，说明 installd 已定位到包，
+/// 立即停止换路径并把真实错误抛出。
 pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError> {
     // 优先用 yeet 阶段缓存的暂存文件名（同一进程内已知，无需回读）。
     let file_name = match cached_ipa(&bundle_id) {
@@ -180,12 +180,10 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
             let mut afc = connect_to_rsd_services::<AfcClient>()
                 .await
                 .map_err(|e| ctx(e, "install/连接AFC"))?;
-            let entries: Vec<String> = afc.list_dir(staged_dir.clone()).await.map_err(|e| {
-                ctx(
-                    e,
-                    &format!("install/回读暂存目录（{staged_dir}）"),
-                )
-            })?;
+            let entries: Vec<String> = afc
+                .list_dir(staged_dir.clone())
+                .await
+                .map_err(|e| ctx(e, &format!("install/回读暂存目录（{staged_dir}）")))?;
             let name = entries
                 .iter()
                 .map(|name| name.trim_end_matches('/').to_string())
@@ -199,8 +197,6 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
             name
         }
     };
-    // 布局与经典 lockdown 通道一致：PublicStaging/<bundleId>/<file>.ipa
-    let install_path = format!("{STAGING_DIR}/{bundle_id}/{file_name}");
 
     // 对齐 jas 第 670-673 行：InstallationProxyClient::connect_rsd
     // （不做安装前 AFC 预校验：隧道抖动时预校验自身的 socket 错误会把安装
@@ -215,42 +211,88 @@ pub async fn install_ipa_rppairing(bundle_id: String) -> Result<(), IdeviceError
         .flatten()
         .is_some();
 
-    let first_result = if already_installed {
-        inst_client
-            .upgrade(&install_path, Some(developer_client_options()))
+    let candidates = package_path_candidates(&bundle_id, &file_name);
+
+    // 第一轮：按候选链逐一尝试（lookup 失败按未安装处理，不阻断首装）
+    let mut last_missing_path_error: Option<IdeviceError> = None;
+    for path in &candidates {
+        let result = issue_install_command(&mut inst_client, already_installed, path).await;
+        match result {
+            Ok(()) => return Ok(()),
+            Err(e) if is_missing_package_path(&e) => {
+                last_missing_path_error = Some(e);
+            }
+            Err(e) => {
+                return Err(ctx(
+                    e,
+                    &format!(
+                        "install/路径 {path} 已被 installd 定位到（{}）,真实安装错误",
+                        if already_installed { "Upgrade" } else { "Install" }
+                    ),
+                ))
+            }
+        }
+    }
+
+    // 第二轮：卸载 lookup 看不到的残留记录后再试一轮全新 Install
+    let _ = inst_client.uninstall(bundle_id.clone(), None).await;
+    for path in &candidates {
+        let result = inst_client
+            .install(path, Some(developer_client_options()))
+            .await;
+        match result {
+            Ok(()) => return Ok(()),
+            Err(e) if is_missing_package_path(&e) => continue,
+            Err(e) => {
+                return Err(ctx(
+                    e,
+                    &format!("install/卸载残留后路径 {path}（fallback-tried）"),
+                ))
+            }
+        }
+    }
+
+    Err(IdeviceError::UnexpectedResponse(format!(
+        "install/installd 在所有候选路径均未找到暂存包（候选: {candidates:?}）；最后错误: {:?}",
+        last_missing_path_error
+    )))
+}
+
+/// 生成 PackagePath 候选：不同 iOS 版本的 installd 解析基准不同，按可能性排序。
+fn package_path_candidates(bundle_id: &str, file_name: &str) -> Vec<String> {
+    vec![
+        // 历史 lockdown 通道布局（本设备 PublicStaging 遗留目录证明其存在过）
+        format!("{STAGING_DIR}/{bundle_id}/{file_name}"),
+        // jas 单文件布局（同一 idevice crate 作者的 RSD 参考实现）
+        format!("{STAGING_DIR}/{file_name}"),
+        // 绝对路径形态
+        format!("/{STAGING_DIR}/{bundle_id}/{file_name}"),
+        format!("/{STAGING_DIR}/{file_name}"),
+        // 相对 PublicStaging 自身的形态
+        format!("{bundle_id}/{file_name}"),
+        file_name.to_string(),
+        // 完整绝对路径
+        format!("/var/mobile/Media/{STAGING_DIR}/{bundle_id}/{file_name}"),
+    ]
+}
+
+fn is_missing_package_path(error: &IdeviceError) -> bool {
+    format!("{error:?}").contains("MissingPackagePath")
+}
+
+async fn issue_install_command(
+    client: &mut InstallationProxyClient,
+    upgrade: bool,
+    path: &str,
+) -> Result<(), IdeviceError> {
+    if upgrade {
+        client
+            .upgrade(path, Some(developer_client_options()))
             .await
     } else {
-        inst_client
-            .install(&install_path, Some(developer_client_options()))
+        client
+            .install(path, Some(developer_client_options()))
             .await
-    };
-
-    match first_result {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            // 兜底：lookup 看不到的残留安装记录会让 Install 报 MissingPackagePath。
-            // 卸载（清掉残留记录；不动 AFC 媒体区 PublicStaging 里的暂存包）后全新安装。
-            if !format!("{error:?}").contains("MissingPackagePath") {
-                return Err(ctx(
-                    error,
-                    if already_installed {
-                        "install/Upgrade已存在应用"
-                    } else {
-                        "install/Install全新应用"
-                    },
-                ));
-            }
-            let _ = inst_client.uninstall(bundle_id.clone(), None).await;
-            inst_client
-                .install(&install_path, Some(developer_client_options()))
-                .await
-                .map_err(|retry_error| {
-                    // 错误文案带上兜底标记：真机上看到它即说明新版逻辑已生效
-                    IdeviceError::UnexpectedResponse(format!(
-                        "install/卸载残留后重装仍失败（fallback-tried）: {retry_error:?}"
-                    ))
-                })
-        }
     }
 }
 
