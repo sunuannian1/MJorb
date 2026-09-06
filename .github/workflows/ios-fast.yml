@@ -119,7 +119,11 @@ jobs:
           grep -q "packet-tunnel-provider" Seal/Resources/Seal.entitlements
 
       - name: Refresh local SPM binary artifacts (避免缓存旧版 RustBridge 静态库)
-        run: rm -rf build/DerivedData/SourcePackages
+        run: |
+          rm -rf build/DerivedData/SourcePackages
+          # DerivedData 缓存里存有旧版 librust_bridge.a 副本（链接器实际用的就是它），
+          # 必须删除让构建系统从刷新后的 xcframework 重新拷贝
+          rm -f build/DerivedData/Build/Products/*/librust_bridge.a
       - name: Build fast unsigned IPA
         run: SEAL_IPA_CONFIGURATION=Debug SEAL_SKIP_XCODEGEN=1 bash Scripts/build-unsigned-ipa.sh
 
