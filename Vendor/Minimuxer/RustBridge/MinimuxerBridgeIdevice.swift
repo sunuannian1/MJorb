@@ -77,12 +77,12 @@ internal func _rust_bridge_ota_configure(
 	_ caProfilePath: UnsafePointer<CChar>?,
 	_ manifestPath: UnsafePointer<CChar>?,
 	_ ipaPath: UnsafePointer<CChar>?
-) -> UnsafeMutablePointer<IdeviceFfiError>?
+) -> UnsafeMutablePointer<RustIdeviceFfiError>?
 
 @_silgen_name("rust_bridge_ota_serve")
 internal func _rust_bridge_ota_serve(
 	_ portOut: UnsafeMutablePointer<UInt16>?
-) -> UnsafeMutablePointer<IdeviceFfiError>?
+) -> UnsafeMutablePointer<RustIdeviceFfiError>?
 
 @_silgen_name("rust_bridge_idevice_remove_app")
 internal func _rust_bridge_idevice_remove_app(
