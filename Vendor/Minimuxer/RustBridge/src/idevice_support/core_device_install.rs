@@ -127,7 +127,6 @@ pub async fn core_tunnel_provider() -> Result<TunnelProvider, IdeviceError> {
         .ok_or_else(|| IdeviceError::UnexpectedResponse("rpp 配对文件未加载".into()))?;
 
     // 2. 独占 RSD 连接 + 连接 CoreDeviceProxy（ConnectionReset 时重试一次）
-    let mut last_err: Option<IdeviceError> = None;
     let proxy = {
         let mut attempt = 0;
         loop {
@@ -149,14 +148,9 @@ pub async fn core_tunnel_provider() -> Result<TunnelProvider, IdeviceError> {
                         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
                         continue;
                     }
-                    last_err = Some(e);
-                    break;
+                    return Err(ctx_err(e, "tunnel/连接CoreDeviceProxy"));
                 }
             }
-        }
-        match last_err {
-            Some(e) => return Err(ctx_err(e, "tunnel/连接CoreDeviceProxy")),
-            None => unreachable!("连接成功时必有 proxy"),
         }
     };
 
