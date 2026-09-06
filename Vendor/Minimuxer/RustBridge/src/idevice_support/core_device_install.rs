@@ -113,7 +113,7 @@ pub async fn stage_and_install_via_core_tunnel(
         .map_err(|e| ctx_err(e, "tunnel/解析rpp配对文件为lockdown格式"))?;
 
     let provider = TunnelProvider {
-        handle,
+        handle: std::sync::Arc::new(tokio::sync::Mutex::new(handle)),
         pairing_file,
         label: "Seal".to_string(),
     };

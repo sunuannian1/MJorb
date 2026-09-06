@@ -22,7 +22,7 @@ plist = "1.7.1"
 # IPA 本质是该 .app 的 zip，这里在内存流式解包（纯 Rust deflate，无 C 依赖，可交叉编译 iOS）。
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # Async runtime: block_on for iOS 17+ JIT and DDI mount
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "net"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "sync"] }
 # Lazy static RUNTIME
 once_cell = "1"
 # Logging
