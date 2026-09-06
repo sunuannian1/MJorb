@@ -118,7 +118,7 @@ pub async fn serve() -> Result<u16, String> {
                 manifest_path: a.manifest_path.clone(),
                 ipa_path: a.ipa_path.clone(),
                 cert_der: a.cert_der.clone(),
-                key_der_bytes: a.key_der_bytes.clone(),/
+                key_der_bytes: a.key_der_bytes.clone(),
             },
             None => return Err("OTA 服务尚未配置".into()),
         }
