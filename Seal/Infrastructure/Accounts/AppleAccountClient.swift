@@ -93,6 +93,32 @@ final class AppleAccountClient {
         return false
     }
 
+    /// Apple 对认证/团队请求返回 503（国内直连 gsa.apple.com 的线路时通时断）时
+    /// 自动间隔重试：隔几秒重发往往就能通过，避免用户必须挂梯子。
+    private nonisolated static func retryOnApple503<T: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        // 3 次尝试：立即 / +3s / +8s
+        let backoffs: [UInt64] = [0, 3_000_000_000, 8_000_000_000]
+        var lastError: Error?
+        for delay in backoffs {
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            do {
+                return try await operation()
+            } catch {
+                lastError = error
+                let message = (error as NSError).localizedDescription
+                if message.contains("503") || message.contains("Service Temporarily Unavailable") {
+                    continue
+                }
+                throw error
+            }
+        }
+        throw lastError ?? URLError(.badServerResponse)
+    }
+
     /// 给异步操作加超时，超时后抛出超时错误。
     /// 认证可能卡在无法协作取消的调用里（本地 ADI 模拟、AltSign 内部回调），
     /// 因此必须用可遗弃竞速：超时先到就抛错，未完成的认证在后台自行结束后被丢弃。
@@ -143,18 +169,22 @@ final class AppleAccountClient {
         do {
             try Task.checkCancellation()
             let anisetteData = try await anisetteProvider.fetchForAuthentication()
-            let auth = try await authenticate(
-                email: email,
-                password: password,
-                anisetteData: anisetteData,
-                verificationCode: verificationCode
-            ).value
+            let auth = try await Self.retryOnApple503 {
+                try await self.authenticate(
+                    email: email,
+                    password: password,
+                    anisetteData: anisetteData,
+                    verificationCode: verificationCode
+                ).value
+            }
             try Task.checkCancellation()
             stage = .teamLookup
-            let teams = try await fetchTeams(
-                account: auth.account,
-                session: auth.session
-            )
+            let teams = try await Self.retryOnApple503 {
+                try await self.fetchTeams(
+                    account: auth.account,
+                    session: auth.session
+                )
+            }
             try Task.checkCancellation()
             let availableTeams = teams
                 .filter { $0.type != .unknown }
