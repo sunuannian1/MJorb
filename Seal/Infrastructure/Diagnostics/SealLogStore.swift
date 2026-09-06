@@ -72,6 +72,21 @@ actor SealLogStore {
         )
     }
 
+    /// 把最近日志镜像到 Documents（文件 App → 我的 iPhone → Seal → Seal-log.txt），
+    /// 用户无需界面入口即可查看/分享完整诊断信息
+    private func mirrorToDocuments() {
+        guard let documents = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        ).first else { return }
+        let text = (try? exportText()) ?? ""
+        try? text.write(
+            to: documents.appendingPathComponent("Seal-log.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
     private func read() throws -> [SealLogEntry] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
         return try decoder.decode(
