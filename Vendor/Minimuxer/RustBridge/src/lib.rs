@@ -8,6 +8,7 @@
 pub use errors::IdeviceFfiError;
 
 pub mod bridge;
+pub mod ota_server;
 pub mod bridge_idevice;
 pub(crate) mod errors;
 mod idevice_support;

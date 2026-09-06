@@ -22,6 +22,9 @@ packages:
   Crypto:
     url: https://github.com/apple/swift-crypto
     exactVersion: 4.5.2
+  MachOKit:
+    url: https://github.com/p-x9/MachOKit
+    branch: main
   Minimuxer:
     path: Vendor/Minimuxer
   RorkSign:
@@ -32,7 +35,6 @@ targets:
     platform: iOS
     deploymentTarget: "16.0"
     sources:
-      - path: Seal
         excludes:
           - "Resources/Anisette/*.so"
     resources:
@@ -43,6 +45,7 @@ targets:
         product: AltSign-Static
       - package: AnisetteKit
       - package: Minimuxer
+      - package: MachOKit
       - package: RorkSign
         product: RorkSign
       - package: Crypto

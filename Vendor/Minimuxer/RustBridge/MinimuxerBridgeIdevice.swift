@@ -66,6 +66,24 @@ internal func _rust_bridge_idevice_install_via_core_tunnel(
 	_ bundleId: UnsafePointer<Int8>?
 ) -> UnsafeMutablePointer<RustIdeviceFfiError>?
 
+@_silgen_name("rust_bridge_ota_identity_generate")
+internal func _rust_bridge_ota_identity_generate() -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("rust_bridge_ota_configure")
+internal func _rust_bridge_ota_configure(
+	_ caPem: UnsafePointer<CChar>?,
+	_ certPem: UnsafePointer<CChar>?,
+	_ keyPem: UnsafePointer<CChar>?,
+	_ caProfilePath: UnsafePointer<CChar>?,
+	_ manifestPath: UnsafePointer<CChar>?,
+	_ ipaPath: UnsafePointer<CChar>?
+) -> UnsafeMutablePointer<IdeviceFfiError>?
+
+@_silgen_name("rust_bridge_ota_serve")
+internal func _rust_bridge_ota_serve(
+	_ portOut: UnsafeMutablePointer<UInt16>?
+) -> UnsafeMutablePointer<IdeviceFfiError>?
+
 @_silgen_name("rust_bridge_idevice_remove_app")
 internal func _rust_bridge_idevice_remove_app(
 	_ bundleId: UnsafePointer<Int8>?
@@ -262,6 +280,35 @@ public class RustIdevice {
 	/// CoreDevice 隧道：仅触发安装
 	public static func installViaCoreTunnel(bundleId: String) throws {
 		try rustIdeviceThrowIfNeeded(_rust_bridge_idevice_install_via_core_tunnel(bundleId))
+	}
+
+	/// OTA：生成本地 HTTPS 证书（自签根 + 服务器叶子），返回 JSON（ca_pem/cert_pem/key_pem）
+	public static func otaIdentityGenerate() throws -> String {
+		guard let ptr = _rust_bridge_ota_identity_generate() else {
+			throw NSError(domain: "minimuxer", code: -910, userInfo: [NSLocalizedDescriptionKey: "OTA 证书生成失败"])
+		}
+		let json = String(cString: ptr)
+		_rust_bridge_idevice_free_string(ptr)
+		return json
+	}
+
+	/// OTA：配置服务器资源（证书/清单/IPA 路径）
+	public static func otaConfigure(
+		caPem: String, certPem: String, keyPem: String,
+		caProfilePath: String, manifestPath: String, ipaPath: String
+	) throws {
+		let err = _rust_bridge_ota_configure(caPem, certPem, keyPem, caProfilePath, manifestPath, ipaPath)
+		try rustIdeviceThrowIfNeeded(err)
+	}
+
+	/// OTA：启动 HTTPS 服务器，返回端口
+	public static func otaServe() throws -> UInt16 {
+		var port: UInt16 = 0
+		try withUnsafeMutablePointer(to: &port) { portPtr in
+			let err = _rust_bridge_ota_serve(portPtr)
+			try rustIdeviceThrowIfNeeded(err)
+		}
+		return port
 	}
 
 	public static func removeApp(bundleId: String) throws {

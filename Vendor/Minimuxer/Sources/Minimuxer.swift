@@ -217,6 +217,27 @@ public struct Minimuxer {
         try RustIdevice.installViaCoreTunnel(bundleId: bundleId)
     }
 
+    /// OTA：生成本地 HTTPS 证书，返回 JSON（ca_pem/cert_pem/key_pem）
+    public static func otaIdentityGenerate() throws -> String {
+        try RustIdevice.otaIdentityGenerate()
+    }
+
+    /// OTA：配置服务器资源
+    public static func otaConfigure(
+        caPem: String, certPem: String, keyPem: String,
+        caProfilePath: String, manifestPath: String, ipaPath: String
+    ) throws {
+        try RustIdevice.otaConfigure(
+            caPem: caPem, certPem: certPem, keyPem: keyPem,
+            caProfilePath: caProfilePath, manifestPath: manifestPath, ipaPath: ipaPath
+        )
+    }
+
+    /// OTA：启动 HTTPS 服务器，返回端口
+    public static func otaServe() throws -> UInt16 {
+        try RustIdevice.otaServe()
+    }
+
     /// shim 通道：上传+安装候选链（回退路径）
     public static func stageAndInstall(bundleId: String, ipaBytes: Data) throws {
         try RustIdevice.stageAndInstall(bundleId: bundleId, ipaBytes: ipaBytes)

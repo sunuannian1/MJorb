@@ -234,6 +234,84 @@ pub extern "C" fn rust_bridge_idevice_install_via_core_tunnel(
     })
 }
 
+/// 生成 OTA 本地 HTTPS 证书（自签根 + 服务器叶子），返回 JSON：
+/// { "ca_pem": ..., "cert_pem": ..., "key_pem": ... }
+/// 失败返回 null。调用方负责用 rust_bridge_idevice_free_string 释放。
+#[no_mangle]
+pub extern "C" fn rust_bridge_ota_identity_generate() -> *mut c_char {
+    match crate::ota_server::generate_identity() {
+        Ok(identity) => {
+            let json = serde_json::json!({
+                "ca_pem": identity.ca_pem,
+                "cert_pem": identity.cert_pem,
+                "key_pem": identity.key_pem,
+            });
+            match serde_json::to_string(&json) {
+                Ok(s) => match std::ffi::CString::new(s) {
+                    Ok(c) => c.into_raw(),
+                    Err(_) => std::ptr::null_mut(),
+                },
+                Err(_) => std::ptr::null_mut(),
+            }
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// 配置 OTA 服务器资源（PEM 证书/密钥、清单、IPA 路径、CA 描述文件路径）
+#[no_mangle]
+pub extern "C" fn rust_bridge_ota_configure(
+    ca_pem: *const c_char,
+    cert_pem: *const c_char,
+    key_pem: *const c_char,
+    ca_profile_path: *const c_char,
+    manifest_path: *const c_char,
+    ipa_path: *const c_char,
+) -> *mut IdeviceFfiError {
+    let (Some(ca_pem), Some(cert_pem), Some(key_pem), Some(ca_profile_path), Some(manifest_path), Some(ipa_path)) = (
+        c_string_arg(ca_pem),
+        c_string_arg(cert_pem),
+        c_string_arg(key_pem),
+        c_string_arg(ca_profile_path),
+        c_string_arg(manifest_path),
+        c_string_arg(ipa_path),
+    ) else {
+        return invalid_argument_error();
+    };
+
+    match crate::ota_server::configure(
+        &ca_pem,
+        &cert_pem,
+        &key_pem,
+        std::fs::read(&ca_profile_path).unwrap_or_default(),
+        manifest_path.clone(),
+        ipa_path,
+    ) {
+        Ok(()) => std::ptr::null_mut(),
+        Err(e) => crate::errors::internal_ffi_error(e),
+    }
+}
+
+/// 启动 OTA HTTPS 服务器（127.0.0.1 随机端口，后台常驻），端口写入 port_out
+#[no_mangle]
+pub extern "C" fn rust_bridge_ota_serve(port_out: *mut u16) -> *mut IdeviceFfiError {
+    if port_out.is_null() {
+        return invalid_argument_error();
+    }
+    let Some(runtime) = shared_runtime() else {
+        return runtime_error();
+    };
+
+    let result = runtime.block_on(async move { crate::ota_server::serve().await });
+    match result {
+        Ok(port) => {
+            unsafe { *port_out = port };
+            std::ptr::null_mut()
+        }
+        Err(e) => crate::errors::internal_ffi_error(e),
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn rust_bridge_idevice_remove_app(bundle_id: *const c_char) -> *mut IdeviceFfiError {
     let Some(bundle_id) = c_string_arg(bundle_id) else {
