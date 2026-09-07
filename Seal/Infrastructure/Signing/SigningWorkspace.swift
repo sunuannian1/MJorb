@@ -97,6 +97,14 @@ struct SigningWorkspace: Sendable {
             // 后续统一由 RorkSigner 重签。
             try stripArm64eArchitecture(in: appURL)
 
+            // ESign 布局归一化：把散落在 .app 根的 .framework/.dylib 移入 Frameworks/，
+            // 并将 Mach-O 中对应的 @executable_path/<name> 引用就地改写为 @rpath/<name>。
+            // 真机日志闭环：这种非标准布局在 iOS 18 installd 的 bundle discovery
+            // （MIBundle bundlesInParentBundle:subDirectory:"Frameworks"）上必败：
+            // APIInternalError("Failed to discover bundles in directory .../Frameworks")。
+            // 归一化后与标准 Xcode/LiveContainer 布局完全一致。
+            try normalizeRootFrameworksIntoFrameworksDirectory(in: appURL)
+
             let extensionURLs = try appExtensionURLs(in: appURL)
             for extensionURL in extensionURLs {
                 try Task.checkCancellation()
@@ -645,6 +653,143 @@ struct SigningWorkspace: Sendable {
                 try? fileManager.removeItem(at: dirURL)
             }
         }
+    }
+
+    /// ESign 布局归一化：.app 根目录的 .framework/.dylib → Frameworks/，
+    /// 全树 Mach-O 中 `@executable_path/<name>` 引用 → `@rpath/<name>`。
+    ///
+    /// 安全性：`@rpath/`（7 字节）恒短于 `@executable_path/`（17 字节），
+    /// 改写为就地覆写 + null 填充——不移动任何字节，不触发 chained-fixups/
+    /// 符号表偏移类问题（与 ad-hoc 预处理时代的事故根本不同）。
+    /// 前置条件：stripArm64eArchitecture 已执行（全树 thin arm64）。
+    private func normalizeRootFrameworksIntoFrameworksDirectory(in appURL: URL) throws {
+        let fileManager = FileManager.default
+        let rootEntries = try fileManager.contentsOfDirectory(
+            at: appURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        )
+        let movedNames: Set<String> = Set(rootEntries.compactMap { url -> String? in
+            let name = url.lastPathComponent
+            guard name.hasSuffix(".framework") || name.hasSuffix(".dylib") else { return nil }
+            return name
+        })
+        guard movedNames.isEmpty == false else { return }
+
+        let frameworksURL = appURL.appendingPathComponent("Frameworks", isDirectory: true)
+        try fileManager.createDirectory(at: frameworksURL, withIntermediateDirectories: true)
+        for name in movedNames {
+            let source = appURL.appendingPathComponent(name)
+            let destination = frameworksURL.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+            if fileManager.fileExists(atPath: destination.path) {
+                // Frameworks/ 内已有同名条目（防御性，正常不会发生）：保留既有条目，删除根副本
+                try? fileManager.removeItem(at: source)
+                continue
+            }
+            try fileManager.moveItem(at: source, to: destination)
+        }
+
+        // 全树改写（主二进制 + 移入的 framework 二进制 + 其他 dylib 内部引用）
+        guard let enumerator = fileManager.enumerator(
+            at: appURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        ) else { return }
+        for case let url as URL in enumerator {
+            guard url.pathExtension.isEmpty || url.pathExtension == "dylib" else { continue }
+            try? rewriteExecutablePathLoadCommands(machOURL: url, movedNames: movedNames)
+        }
+    }
+
+    /// 把 Mach-O 内 `@executable_path/<movedName>` 形式的 dylib 引用改写为
+    /// `@rpath/<movedName>`（就地覆写，null 填充）。仅 thin arm64（MH_MAGIC_64）；
+    /// 仅当该二进制自身声明了指向 Frameworks 的 LC_RPATH 时才改写——否则 @rpath
+    /// 无解析路径，宁可保持原样。
+    private func rewriteExecutablePathLoadCommands(
+        machOURL: URL,
+        movedNames: Set<String>
+    ) throws {
+        let fileManager = FileManager.default
+        guard var data = try? Data(contentsOf: machOURL) else { return }
+        guard data.count >= 32 else { return }
+        func u32(_ offset: Int) -> UInt32 {
+            data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: UInt32.self) }
+        }
+        // MH_MAGIC_64 = 0xfeedfacf（strip 后全树 thin arm64）
+        guard u32(0) == 0xfeedfacf else { return }
+
+        let ncmds = Int(u32(16))
+        var offset = 32
+        var hasFrameworksRpath = false
+        var rewriteRanges: [(range: Range<Int>, replacement: [UInt8])] = []
+
+        for _ in 0..<ncmds {
+            guard offset + 8 <= data.count else { break }
+            let cmd = u32(offset)
+            let cmdSize = Int(u32(offset + 4))
+            guard cmdSize >= 8, offset + cmdSize <= data.count else { break }
+
+            // LC_RPATH = LC_REQ_DYLD | 0x1c
+            if cmd == 0x8000_001c, cmdSize > 12 {
+                let nameOffset = Int(u32(offset + 8))
+                let path = machOLoadCommandPath(data: data, commandStart: offset, nameOffset: nameOffset)
+                if path?.hasSuffix("Frameworks") == true {
+                    hasFrameworksRpath = true
+                }
+            }
+
+            // LC_LOAD_DYLIB(0xc) / LC_LOAD_WEAK_DYLIB(0xd) / LC_REEXPORT_DYLIB(0x8000001f)
+            let isDylibCommand = cmd == 0x0c || cmd == 0x0d || cmd == 0x8000_001f
+            if isDylibCommand, cmdSize > 12 {
+                let nameOffset = Int(u32(offset + 8))
+                if nameOffset > 0, nameOffset < cmdSize {
+                    let pathStart = offset + nameOffset
+                    let pathMaxLen = offset + cmdSize - pathStart
+                    let raw = data.subdata(in: pathStart..<(pathStart + pathMaxLen))
+                    let path = String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self)
+                    if let rewritten = rewrittenRpathPath(path, movedNames: movedNames) {
+                        var replacement = Array(rewritten.utf8)
+                        replacement.append(
+                            contentsOf: repeatElement(0, count: raw.count - replacement.count)
+                        )
+                        rewriteRanges.append(
+                            (range: pathStart..<(pathStart + raw.count), replacement: replacement)
+                        )
+                    }
+                }
+            }
+            offset += cmdSize
+        }
+        guard hasFrameworksRpath, rewriteRanges.isEmpty == false else { return }
+
+        // 从后往前替换，避免偏移失效
+        for item in rewriteRanges.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
+            data.replaceSubrange(item.range, with: item.replacement)
+        }
+        try data.write(to: machOURL)
+    }
+
+    /// 读取 load command 内的路径 C 字符串（nameOffset 相对命令起始）。
+    private func machOLoadCommandPath(data: Data, commandStart: Int, nameOffset: Int) -> String? {
+        guard nameOffset > 0, nameOffset < data.count else { return nil }
+        let start = commandStart + nameOffset
+        guard start < data.count else { return nil }
+        let bytes = data.subdata(in: start..<data.count).prefix(while: { $0 != 0 })
+        guard bytes.isEmpty == false else { return nil }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// `@executable_path/<movedName>[/...]` → `@rpath/<movedName>[/...]`。
+    /// 仅当首组件是被移动的 bundle 且新串不长于旧串时改写。
+    private func rewrittenRpathPath(_ path: String, movedNames: Set<String>) -> String? {
+        let prefix = "@executable_path/"
+        guard path.hasPrefix(prefix) else { return nil }
+        let remainder = String(path.dropFirst(prefix.count))
+        let firstComponent = remainder.split(separator: "/", maxSplits: 1).first.map(String.init) ?? remainder
+        guard movedNames.contains(firstComponent) else { return nil }
+        let rewritten = "@rpath/" + remainder
+        return rewritten.utf8.count <= path.utf8.count ? rewritten : nil
     }
 
     private func stripArm64eArchitecture(in appURL: URL) throws {
