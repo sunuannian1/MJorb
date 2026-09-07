@@ -52,11 +52,23 @@ Seal 此前失败的两条自研路径都违反了这一不变量：
 3. 续签场景：已安装 App 到期前刷新，确认覆盖安装且沙盒数据保留；
 4. 断连恢复：安装中途开关 LocalDevVPN，确认重试能自愈（MissingPackagePath → 整体重跑）。
 
-## 二期（待做）：签名加固（zsign 核心 + IPA 结构处理）
+## 二期（进行中）：签名加固（zsign 核心 + IPA 结构处理）
+
+### 已落地（2026-09-08）：空 Frameworks/PlugIns 目录清理
+
+真机日志闭环：黄豆短剧类 ESign 打包样本（空 Frameworks/ + framework 散落 .app 根 +
+二进制声明 LC_RPATH @executable_path/Frameworks）在安装阶段被 installd 报
+`APIInternalError("Failed to discover bundles in directory .../Frameworks")`。
+iOS 18 installd 的 bundle discovery 枚举空的 Frameworks 目录即抛错；
+两个目录均为可选目录，不存在时直接跳过。已实现：签名前移除空的
+Frameworks/PlugIns（非空目录原样保留），同批次 LiveContainer 验证整链路通畅。
+
+### 待做
 
 现状：签名走 rork-sign（纯 Swift 流式），本身稳定；问题是**兼容性长尾**
 （特殊 entitlements/插件/二进制形态的 App 偶发失败；另见已归档的《全链路排查报告》
-P1–P5：ad-hoc 预处理层污染、symtab adjacency 修正、单/双 CodeDirectory）。
+P1–P5：ad-hoc 预处理层污染、symtab adjacency 修正、单/双 CodeDirectory——
+P1–P5 均已修复落地）。
 
 计划：
 1. **进程内引入 zsign 核心**（C++ → 静态库，OpenSSL 复用 AltSign 的

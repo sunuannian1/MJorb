@@ -83,6 +83,15 @@ struct SigningWorkspace: Sendable {
             // 清理 ESign 等其它签名工具留下的注入脚本/标记残留（容错，不阻断签名）。
             removeThirdPartyInjectionArtifacts(in: appURL)
 
+            // 移除空的 Frameworks/PlugIns 目录。
+            // installd 的 bundle discovery 会按主二进制声明的 LC_RPATH 扫描这些目录；
+            // 源包（ESign 类工具）常保留"空 Frameworks/"目录条目（framework 散落在
+            // .app 根、经 @executable_path 加载），iOS 18 installd 枚举空目录时抛
+            // APIInternalError("Failed to discover bundles in directory .../Frameworks")。
+            // 两个目录均为可选目录：不存在时 installd 直接跳过（与标准 Xcode 产物一致），
+            // 有真实内容的目录原样保留。
+            try removeEmptyOptionalDirectories(in: appURL)
+
             // 大 IPA 优化：剥离 arm64e 架构，只保留 arm64（iOS 设备均为 arm64）。
             // 按 offset/size 字节级切出 arm64 slice，副本内部签名偏移依然有效，
             // 后续统一由 RorkSigner 重签。
@@ -614,6 +623,27 @@ struct SigningWorkspace: Sendable {
         // 先收集再删除，避免边遍历边改目录导致枚举失效；残留清理失败不阻断签名主流程。
         for url in matches {
             try? fileManager.removeItem(at: url)
+        }
+    }
+
+    /// 移除 .app 下空的 Frameworks/PlugIns 目录（真机日志：iOS 18 installd 对空
+    /// Frameworks 的 bundle discovery 抛 APIInternalError，参见 prepare 内注释）。
+    /// 只删"存在且为目录且无任何条目"的；非空目录与不存在的情况一律不动。
+    private func removeEmptyOptionalDirectories(in appURL: URL) {
+        let fileManager = FileManager.default
+        for name in ["Frameworks", "PlugIns"] {
+            let dirURL = appURL.appendingPathComponent(name, isDirectory: true)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: dirURL.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else { continue }
+            let contents = (try? fileManager.contentsOfDirectory(
+                at: dirURL,
+                includingPropertiesForKeys: nil,
+                options: []
+            )) ?? []
+            if contents.isEmpty {
+                try? fileManager.removeItem(at: dirURL)
+            }
         }
     }
 
