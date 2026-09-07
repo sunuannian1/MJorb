@@ -32,6 +32,7 @@ targets:
     platform: iOS
     deploymentTarget: "16.0"
     sources:
+      - path: Seal
         excludes:
           - "Resources/Anisette/*.so"
     resources:
@@ -101,6 +102,9 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: Seal/Resources/Seal.entitlements
+        # Xcode 16+ Debug 构建默认把代码拆进 <Name>.debug.dylib（预览调试用）。
+        # 侧载分发场景第三方签名工具常漏签根目录 dylib → 白图标+秒闪退。关闭之。
+        ENABLE_DEBUG_DYLIB: NO
   SealTunnel:
     type: app-extension
     platform: iOS
@@ -131,6 +135,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: SealTunnel/SealTunnel.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
+        ENABLE_DEBUG_DYLIB: NO
   DeviceSupport:
     type: library.static
     platform: iOS
