@@ -1,0 +1,2354 @@
+可以。这次按真正的开发实施文档来写，不再只列架构。
+先明确一个边界：目前我没有 Seal 当前源码、实际签名引擎和安装引擎的完整代码，因此下面是“可交给豆包执行的完整实现规格”，不是声称已经对现有项目完成逐文件补丁。其中签名和安装部分必须接入 Seal 现有的真实实现，不能虚构不存在的 Apple API。
+另外，2026 年的技术要求不能只写“支持 iOS 16–27”。需要同时满足：
+	•	Seal 本体最低支持 iOS 16.0；
+	•	iOS 17、18、26、27 使用条件编译；
+	•	IPA 的最低系统版本单独判断；
+	•	签名材料、Entitlements、嵌套代码签名必须真实处理；
+	•	安装必须返回真实系统错误；
+	•	iOS 15 以后涉及 DER Entitlements 的签名兼容问题，不能忽略。Apple 明确要求某些场景使用新的签名格式，并且嵌套代码必须从最深层开始签名，主 App 最后签名。
+下面这份可以直接复制给豆包。
+Seal iOS 16–27 全链路技术实现与验收文档
+文档用途：交给开发 AI 或开发人员执行 Seal 项目改造。
+目标：从用户打开 Seal 开始，完整走通 IPA 导入、解析、签名、验证、安装、应用管理、历史记录、续签提醒、错误处理和数据恢复。
+目标系统：iOS 16.0–iOS 27。
+重要约束：不得伪造签名成功、不得伪造安装成功、不得使用不存在的 Apple API。所有签名和安装结果必须来自真实后端。
+ 
+⸻
+ 
+一、项目最终目标
+Seal 是一款原生 iOS IPA 自签工具。
+完整业务链路：
+打开 Seal
+    ↓
+读取本地数据
+    ↓
+恢复应用状态
+    ↓
+显示首页
+    ↓
+导入 IPA
+    ↓
+解析 IPA
+    ↓
+检查 IPA 合法性
+    ↓
+检查当前设备兼容性
+    ↓
+显示应用信息
+    ↓
+用户点击签名
+    ↓
+检查 Apple ID / 签名材料
+    ↓
+准备签名任务
+    ↓
+解包 IPA
+    ↓
+读取原始签名信息
+    ↓
+准备新的签名材料
+    ↓
+处理 Entitlements
+    ↓
+签名 Framework
+    ↓
+签名 Extension
+    ↓
+签名主 App
+    ↓
+验证签名
+    ↓
+重新打包 IPA
+    ↓
+调用真实安装后端
+    ↓
+接收安装状态
+    ↓
+验证安装结果
+    ↓
+保存应用记录
+    ↓
+更新首页、应用页、历史页
+    ↓
+生成续签记录
+    ↓
+到期前提醒
+    ↓
+用户点击续签
+    ↓
+重新签名
+    ↓
+重新安装
+    ↓
+更新有效期
+ 
+⸻
+ 
+二、2026 年技术基线
+2.1 工程配置
+Platform: iOS
+Deployment Target: iOS 16.0
+Language: Swift 6
+UI: SwiftUI
+Concurrency: Swift Concurrency
+Architecture: arm64
+最低部署版本必须是：
+iOS 16.0
+不能设置成：
+iOS 17.0
+iOS 18.0
+iOS 26.0
+ 
+⸻
+ 
+2.2 兼容原则
+Seal 本体支持：
+iOS 16
+iOS 17
+iOS 18
+iOS 26
+iOS 27
+但 IPA 是否能安装，必须单独判断。
+例如：
+Seal 支持 iOS 16
+IPA 要求 iOS 17
+当前设备 iOS 16
+结果必须是：
+Seal 可以运行
+但该 IPA 不支持当前设备
+ 
+⸻
+ 
+2.3 高版本 API
+所有高版本 API 必须使用：
+if #available(iOS 26.0, *) {
+    // 高版本实现
+} else {
+    // iOS 16 兼容实现
+}
+不得让核心业务依赖 iOS 18、26 或 27 专属 API。
+核心业务必须能够在 iOS 16 执行：
+IPA 导入
+IPA 解析
+文件存储
+签名任务
+状态管理
+历史记录
+续签提醒
+ 
+⸻
+ 
+三、项目架构
+Seal/
+├── App/
+│   ├── SealApp.swift
+│   └── AppEnvironment.swift
+│
+├── UI/
+│   ├── Root/
+│   │   ├── RootView.swift
+│   │   └── RootTab.swift
+│   │
+│   ├── Home/
+│   │   ├── HomeView.swift
+│   │   ├── HomeViewModel.swift
+│   │   └── HomeState.swift
+│   │
+│   ├── Apps/
+│   │   ├── AppsView.swift
+│   │   ├── AppDetailView.swift
+│   │   ├── AppViewModel.swift
+│   │   └── AppRow.swift
+│   │
+│   ├── History/
+│   │   ├── HistoryView.swift
+│   │   ├── HistoryViewModel.swift
+│   │   └── HistoryRow.swift
+│   │
+│   ├── Signing/
+│   │   ├── SigningView.swift
+│   │   ├── SigningViewModel.swift
+│   │   └── SigningProgressView.swift
+│   │
+│   ├── Settings/
+│   │   ├── SettingsView.swift
+│   │   └── AppearanceSheet.swift
+│   │
+│   └── Components/
+│       ├── AppIconView.swift
+│       ├── StatusBadge.swift
+│       ├── EmptyStateView.swift
+│       └── ErrorAlert.swift
+│
+├── Core/
+│   ├── IPA/
+│   │   ├── IPAImportService.swift
+│   │   ├── IPAExtractor.swift
+│   │   ├── IPAParser.swift
+│   │   ├── IPAValidator.swift
+│   │   ├── IPACompatibilityChecker.swift
+│   │   └── IPAModels.swift
+│   │
+│   ├── Signing/
+│   │   ├── SigningTaskManager.swift
+│   │   ├── SigningStrategy.swift
+│   │   ├── SigningMaterialProvider.swift
+│   │   ├── EntitlementsProcessor.swift
+│   │   ├── SignatureInspector.swift
+│   │   ├── SignatureVerifier.swift
+│   │   └── SigningModels.swift
+│   │
+│   ├── Installation/
+│   │   ├── InstallationService.swift
+│   │   ├── DeviceConnectionService.swift
+│   │   ├── InstallationVerifier.swift
+│   │   └── InstallationModels.swift
+│   │
+│   ├── Renewal/
+│   │   ├── RenewalService.swift
+│   │   ├── RenewalScheduler.swift
+│   │   └── RenewalModels.swift
+│   │
+│   └── Diagnostics/
+│       ├── DiagnosticLogger.swift
+│       ├── ErrorMapper.swift
+│       └── DiagnosticReport.swift
+│
+├── Services/
+│   ├── Apple/
+│   │   ├── AppleAccountService.swift
+│   │   └── AppleSigningProvider.swift
+│   │
+│   └── Storage/
+│       ├── IPAStore.swift
+│       ├── AppStore.swift
+│       ├── SigningStore.swift
+│       ├── HistoryStore.swift
+│       └── SettingsStore.swift
+│
+└── Resources/
+ 
+⸻
+ 
+四、启动流程
+4.1 SealApp
+@main
+struct SealApp: App {
+
+    @StateObject private var environment =
+        AppEnvironment()
+
+    var body: some Scene {
+        WindowGroup {
+            RootView()
+                .environmentObject(environment)
+        }
+    }
+}
+ 
+⸻
+ 
+4.2 AppEnvironment
+负责创建所有依赖。
+@MainActor
+final class AppEnvironment: ObservableObject {
+
+    let ipaStore: IPAStore
+    let appStore: AppStore
+    let historyStore: HistoryStore
+    let signingStore: SigningStore
+
+    let ipaImportService: IPAImportService
+    let signingTaskManager: SigningTaskManager
+    let installationService: InstallationService
+    let renewalService: RenewalService
+
+    init() {
+        // 创建存储
+        // 创建解析器
+        // 创建签名后端
+        // 创建安装后端
+        // 创建任务管理器
+    }
+}
+不得在 View 中直接创建签名引擎、文件存储或安装服务。
+ 
+⸻
+ 
+4.3 启动顺序
+SealApp 初始化
+    ↓
+AppEnvironment 初始化
+    ↓
+创建 Application Support 目录
+    ↓
+读取本地应用记录
+    ↓
+读取历史记录
+    ↓
+读取签名记录
+    ↓
+检查未完成任务
+    ↓
+恢复任务状态
+    ↓
+检查即将过期应用
+    ↓
+初始化首页
+ 
+⸻
+ 
+4.4 启动时处理未完成任务
+例如上次签名过程中 App 被关闭：
+任务状态：signing
+重新打开 Seal 后不能继续显示：
+正在签名 100%
+必须判断任务是否仍然有效。
+enum TaskRecoveryResult {
+    case resumed
+    case markedFailed
+    case completed
+    case removed
+}
+建议：
+signing / installing
+    ↓
+检查临时文件
+    ↓
+检查签名输出
+    ↓
+检查安装状态
+    ↓
+恢复或标记失败
+ 
+⸻
+ 
+五、RootView 与底部导航
+5.1 页面结构
+RootView
+├── 首页
+├── 应用
+├── 历史
+└── 我的
+ 
+⸻
+ 
+5.2 RootTab
+enum RootTab: Hashable {
+    case home
+    case apps
+    case history
+    case settings
+}
+ 
+⸻
+ 
+5.3 页面职责
+首页
+显示：
+	•	已安装应用数量；
+	•	即将过期数量；
+	•	最近签名记录；
+	•	快速导入 IPA；
+	•	快速续签；
+	•	当前任务状态。
+应用
+显示：
+	•	所有已导入应用；
+	•	已安装状态；
+	•	签名有效期；
+	•	续签按钮；
+	•	删除按钮；
+	•	应用详情。
+历史
+显示：
+	•	导入记录；
+	•	签名记录；
+	•	安装记录；
+	•	失败记录；
+	•	续签记录。
+我的
+显示：
+	•	Apple ID / 签名状态；
+	•	外观与主题；
+	•	通知设置；
+	•	存储管理；
+	•	日志与诊断；
+	•	关于 Seal。
+ 
+⸻
+ 
+六、IPA 导入完整流程
+6.1 用户操作
+用户打开首页
+    ↓
+点击“导入 IPA”
+    ↓
+系统文件选择器
+    ↓
+用户选择 .ipa
+    ↓
+Seal 获得文件 URL
+    ↓
+开始导入任务
+ 
+⸻
+ 
+6.2 文件类型
+import UniformTypeIdentifiers
+
+let ipaType =
+    UTType(filenameExtension: "ipa")
+如果系统无法识别扩展名，应使用文件扩展名作为备用判断。
+ 
+⸻
+ 
+6.3 导入接口
+protocol IPAImportServiceProtocol {
+    func importIPA(from url: URL) async throws -> IPAInfo
+}
+ 
+⸻
+ 
+6.4 导入步骤
+检查 URL
+    ↓
+获取安全访问权限
+    ↓
+检查文件存在
+    ↓
+检查扩展名
+    ↓
+检查文件大小
+    ↓
+复制到 Seal 存储目录
+    ↓
+解包
+    ↓
+解析 Info.plist
+    ↓
+检查 IPA 结构
+    ↓
+检查系统兼容性
+    ↓
+保存 IPAInfo
+    ↓
+返回结果
+ 
+⸻
+ 
+6.5 安全访问文件
+let hasAccess = url.startAccessingSecurityScopedResource()
+
+defer {
+    if hasAccess {
+        url.stopAccessingSecurityScopedResource()
+    }
+}
+不得在停止安全访问后继续依赖外部 URL。
+必须将文件复制到 Seal 自己的持久化目录。
+ 
+⸻
+ 
+6.6 存储目录
+Application Support/
+└── Seal/
+    ├── ImportedIPA/
+    ├── Extracted/
+    ├── SignedIPA/
+    ├── Apps/
+    ├── History/
+    ├── Signing/
+    ├── Logs/
+    └── Temporary/
+ 
+⸻
+ 
+6.7 IPAStore
+protocol IPAStore {
+    func saveImportedIPA(
+        from url: URL,
+        id: UUID
+    ) throws -> URL
+
+    func createExtractionDirectory(
+        for id: UUID
+    ) throws -> URL
+
+    func deleteIPA(
+        id: UUID
+    ) throws
+}
+ 
+⸻
+ 
+七、IPA 解包
+7.1 解包接口
+protocol IPAExtractor {
+    func extract(
+        ipaURL: URL,
+        to directory: URL
+    ) async throws -> URL
+}
+ 
+⸻
+ 
+7.2 解包后的标准结构
+Extracted/
+└── UUID/
+    └── Payload/
+        └── Example.app/
+            ├── Info.plist
+            ├── Example
+            ├── Frameworks/
+            ├── PlugIns/
+            ├── embedded.mobileprovision
+            └── _CodeSignature/
+ 
+⸻
+ 
+7.3 必须检查
+Payload 是否存在
+    ↓
+Payload 中是否存在 .app
+    ↓
+是否存在多个主 App
+    ↓
+Info.plist 是否存在
+    ↓
+CFBundleIdentifier 是否存在
+    ↓
+CFBundleExecutable 是否存在
+    ↓
+可执行文件是否存在
+ 
+⸻
+ 
+7.4 错误
+enum IPAError: Error {
+    case fileNotFound
+    case unsupportedFileType
+    case invalidArchive
+    case missingPayload
+    case missingApp
+    case multipleApps
+    case invalidInfoPlist
+    case missingBundleIdentifier
+    case missingExecutable
+    case fileTooLarge
+}
+ 
+⸻
+ 
+八、IPA 解析
+8.1 模型
+struct IPAInfo: Codable, Identifiable {
+
+    let id: UUID
+
+    let fileName: String
+    let fileURL: URL
+
+    let bundleIdentifier: String
+    let displayName: String?
+    let version: String?
+    let buildNumber: String?
+
+    let minimumOSVersion: String?
+    let supportedPlatforms: [String]
+
+    let hasFrameworks: Bool
+    let hasExtensions: Bool
+
+    let importedAt: Date
+}
+ 
+⸻
+ 
+8.2 解析字段
+必须读取：
+CFBundleIdentifier
+CFBundleDisplayName
+CFBundleName
+CFBundleShortVersionString
+CFBundleVersion
+CFBundleExecutable
+MinimumOSVersion
+CFBundleSupportedPlatforms
+UIDeviceFamily
+UIRequiredDeviceCapabilities
+ 
+⸻
+ 
+8.3 解析逻辑
+读取 Info.plist
+    ↓
+转换为 [String: Any]
+    ↓
+读取 Bundle ID
+    ↓
+读取可执行文件名
+    ↓
+读取版本信息
+    ↓
+读取最低系统版本
+    ↓
+读取支持平台
+    ↓
+检查 Frameworks
+    ↓
+检查 PlugIns
+    ↓
+生成 IPAInfo
+ 
+⸻
+ 
+8.4 Bundle ID 校验
+必须满足：
+非空
+长度合法
+格式合法
+不能允许：
+空字符串
+只有空格
+包含非法字符
+ 
+⸻
+ 
+九、IPA 与设备兼容性检查
+9.1 检查模型
+struct IPACompatibilityResult {
+    let isCompatible: Bool
+    let minimumOSVersion: String?
+    let currentOSVersion: String
+    let reasons: [String]
+}
+ 
+⸻
+ 
+9.2 检查流程
+读取 IPA MinimumOSVersion
+    ↓
+读取当前设备系统版本
+    ↓
+比较版本
+    ↓
+检查设备类型
+    ↓
+检查架构
+    ↓
+检查必要系统能力
+    ↓
+返回结果
+ 
+⸻
+ 
+9.3 版本比较
+不能使用字符串直接比较：
+"17.10" > "17.9"
+必须使用版本组件比较。
+func isVersion(
+    _ current: String,
+    atLeast minimum: String
+) -> Bool {
+    let currentVersion = current
+        .split(separator: ".")
+        .compactMap { Int($0) }
+
+    let minimumVersion = minimum
+        .split(separator: ".")
+        .compactMap { Int($0) }
+
+    for index in 0..<max(
+        currentVersion.count,
+        minimumVersion.count
+    ) {
+        let currentValue =
+            index < currentVersion.count
+            ? currentVersion[index]
+            : 0
+
+        let minimumValue =
+            index < minimumVersion.count
+            ? minimumVersion[index]
+            : 0
+
+        if currentValue != minimumValue {
+            return currentValue > minimumValue
+        }
+    }
+
+    return true
+}
+ 
+⸻
+ 
+9.4 不兼容时的处理
+不得继续签名。
+显示：
+此应用最低支持 iOS X.X，
+当前设备为 iOS X.X，无法安装。
+任务状态：
+failed
+错误类型：
+case unsupportedOSVersion
+ 
+⸻
+ 
+十、应用数据模型
+10.1 AppRecord
+struct AppRecord: Codable, Identifiable {
+
+    let id: UUID
+
+    var bundleIdentifier: String
+    var displayName: String
+    var version: String?
+    var buildNumber: String?
+
+    var originalIPAURL: URL?
+    var signedIPAURL: URL?
+
+    var iconURL: URL?
+
+    var installationState: InstallationState
+    var signingState: SigningState
+
+    var teamIdentifier: String?
+    var expirationDate: Date?
+
+    var importedAt: Date
+    var signedAt: Date?
+    var installedAt: Date?
+    var updatedAt: Date
+}
+ 
+⸻
+ 
+10.2 安装状态
+enum InstallationState: String, Codable {
+    case notInstalled
+    case installing
+    case installed
+    case failed
+    case unknown
+}
+ 
+⸻
+ 
+10.3 签名状态
+enum SigningState: String, Codable {
+    case notSigned
+    case preparing
+    case signing
+    case verifying
+    case signed
+    case failed
+}
+ 
+⸻
+ 
+十一、应用详情页
+11.1 页面进入流程
+用户点击应用
+    ↓
+读取 AppRecord
+    ↓
+读取本地图标
+    ↓
+读取签名状态
+    ↓
+读取安装状态
+    ↓
+读取有效期
+    ↓
+显示详情页
+ 
+⸻
+ 
+11.2 页面显示
+应用图标
+应用名称
+Bundle ID
+版本
+签名状态
+安装状态
+有效期
+最近签名时间
+ 
+⸻
+ 
+11.3 操作按钮
+根据状态显示：
+未签名 → 签名
+已签名未安装 → 安装
+已安装 → 重新签名 / 续签
+签名过期 → 续签
+安装失败 → 重新安装
+ 
+⸻
+ 
+十二、签名系统总设计
+12.1 核心原则
+Seal 必须把签名功能抽象成后端。
+protocol SigningStrategy {
+    func sign(
+        ipaURL: URL,
+        options: SigningOptions
+    ) async throws -> SignedIPA
+}
+ 
+⸻
+ 
+12.2 签名策略
+enum SigningStrategyType {
+    case local
+    case remote
+    case external
+}
+实际使用哪一种，必须根据 Seal 当前真实代码确定。
+不得为了让流程“看起来完成”，创建假的 LocalSigningProvider。
+ 
+⸻
+ 
+12.3 SigningOptions
+struct SigningOptions {
+    let bundleIdentifier: String
+    let strategy: SigningStrategyType
+    let installAfterSigning: Bool
+    let forceRenewal: Bool
+}
+ 
+⸻
+ 
+12.4 SignedIPA
+struct SignedIPA {
+    let fileURL: URL
+    let bundleIdentifier: String
+    let teamIdentifier: String?
+    let expirationDate: Date?
+}
+ 
+⸻
+ 
+十三、Apple 账户与签名材料
+13.1 账户接口
+protocol AppleAccountService {
+    func authenticate() async throws -> AppleAccount
+}
+struct AppleAccount {
+    let teamIdentifier: String
+    let displayName: String?
+}
+ 
+⸻
+ 
+13.2 签名材料接口
+protocol SigningMaterialProvider {
+    func prepareSigningContext(
+        for bundleIdentifier: String
+    ) async throws -> SigningContext
+}
+ 
+⸻
+ 
+13.3 SigningContext
+struct SigningContext {
+    let certificate: Data
+    let privateKey: Data
+    let provisioningProfile: Data
+
+    let teamIdentifier: String
+    let bundleIdentifier: String
+    let expirationDate: Date
+}
+ 
+⸻
+ 
+13.4 必须处理
+Apple 认证
+    ↓
+Team ID
+    ↓
+Certificate
+    ↓
+Private Key
+    ↓
+Provisioning Profile
+    ↓
+有效期
+    ↓
+设备范围
+    ↓
+Entitlements
+Provisioning Profile 会绑定 App ID、证书、设备和有效期。开发 Profile 的创建流程也要求选择 App ID、开发证书和已注册设备。(Apple Developer⁠)
+ 
+⸻
+ 
+13.5 不允许
+不得：
+把 Apple ID 密码写入普通日志
+把私钥写入普通文本文件
+把签名材料硬编码到 App
+把假的 Profile 当成真实 Profile
+签名材料必须使用安全存储。
+ 
+⸻
+ 
+十四、原始签名信息读取
+14.1 模型
+struct OriginalSignatureInfo {
+    let bundleIdentifier: String
+    let teamIdentifier: String?
+    let entitlements: [String: Any]
+    let hasEmbeddedProvisioningProfile: Bool
+}
+ 
+⸻
+ 
+14.2 接口
+protocol SignatureInspector {
+    func inspect(
+        appURL: URL
+    ) async throws -> OriginalSignatureInfo
+}
+ 
+⸻
+ 
+14.3 必须读取
+原始 Bundle ID
+原始 Team ID
+原始 Entitlements
+原始 Profile
+原始签名状态
+ 
+⸻
+ 
+十五、Provisioning Profile 处理
+15.1 Profile 需要验证
+Profile 是否存在
+    ↓
+Profile 是否可解析
+    ↓
+Profile 是否过期
+    ↓
+Profile 的 App ID 是否匹配
+    ↓
+Profile 的 Team ID 是否匹配
+    ↓
+Profile 是否允许当前设备
+    ↓
+Profile 是否允许所需 Entitlements
+ 
+⸻
+ 
+15.2 不允许只检查文件存在
+错误：
+if profileURL.exists {
+    return true
+}
+正确：
+文件存在
+    ↓
+读取内容
+    ↓
+验证结构
+    ↓
+验证有效期
+    ↓
+验证 App ID
+    ↓
+验证证书
+    ↓
+验证设备
+ 
+⸻
+ 
+15.3 Profile 过期
+必须返回：
+case profileExpired
+UI 显示：
+签名材料已过期，请重新获取签名材料。
+ 
+⸻
+ 
+十六、Entitlements 处理
+16.1 接口
+protocol EntitlementsProcessor {
+    func makeEntitlements(
+        original: [String: Any],
+        profile: ProvisioningProfileInfo,
+        bundleIdentifier: String
+    ) throws -> [String: Any]
+}
+ 
+⸻
+ 
+16.2 处理原则
+不能：
+entitlements.removeAll()
+也不能：
+完全保留原始 Entitlements
+必须根据新的 Profile 生成允许的 Entitlements。
+ 
+⸻
+ 
+16.3 重点字段
+application-identifier
+com.apple.developer.team-identifier
+keychain-access-groups
+aps-environment
+com.apple.security.application-groups
+ 
+⸻
+ 
+16.4 Team ID 变化
+例如：
+原始 Team ID：TEAM_A
+当前 Team ID：TEAM_B
+则必须根据新的签名材料重新生成相关字段。
+ 
+⸻
+ 
+十七、真正的重签名流程
+17.1 接口
+protocol CodeSigningProvider {
+    func sign(
+        appURL: URL,
+        context: SigningContext
+    ) async throws -> URL
+}
+ 
+⸻
+ 
+17.2 完整流程
+接收 IPA
+    ↓
+创建临时目录
+    ↓
+解包 IPA
+    ↓
+定位主 App
+    ↓
+读取原始签名
+    ↓
+准备新的 Profile
+    ↓
+生成新的 Entitlements
+    ↓
+处理 Framework
+    ↓
+处理动态库
+    ↓
+处理 Extension
+    ↓
+签名主 App
+    ↓
+验证签名
+    ↓
+重新打包
+    ↓
+返回 SignedIPA
+ 
+⸻
+ 
+17.3 嵌套代码签名顺序
+必须从最深层开始：
+Framework
+    ↓
+动态库
+    ↓
+App Extension
+    ↓
+主 App
+Apple 对嵌套代码的要求是先签名最深层的可执行文件，再向外签名主 App；Framework 不应携带 App 的 Entitlements 或 Profile。(Apple Developer⁠)
+ 
+⸻
+ 
+17.4 不允许
+不能只签主 App：
+Example.app
+    ↓
+签名成功
+如果 Framework 或 Extension 未签名，必须判定任务失败。
+ 
+⸻
+ 
+十八、签名验证
+18.1 接口
+protocol SignatureVerifier {
+    func verify(
+        appURL: URL
+    ) async throws -> SignatureVerificationResult
+}
+ 
+⸻
+ 
+18.2 结果模型
+struct SignatureVerificationResult {
+    let isValid: Bool
+    let bundleIdentifier: String
+    let teamIdentifier: String?
+    let expirationDate: Date?
+    let errors: [String]
+}
+ 
+⸻
+ 
+18.3 验证内容
+签名是否存在
+    ↓
+主 App 是否有效
+    ↓
+Framework 是否有效
+    ↓
+Extension 是否有效
+    ↓
+Bundle ID 是否匹配
+    ↓
+Team ID 是否匹配
+    ↓
+Profile 是否有效
+    ↓
+Entitlements 是否匹配
+ 
+⸻
+ 
+18.4 验证失败
+不得返回：
+签名成功
+必须返回：
+签名验证失败
+并保存详细错误。
+ 
+⸻
+ 
+十九、重新打包 IPA
+19.1 标准结构
+Payload/
+└── Example.app/
+ 
+⸻
+ 
+19.2 打包前检查
+Payload 存在
+    ↓
+主 App 存在
+    ↓
+Info.plist 存在
+    ↓
+可执行文件存在
+    ↓
+签名文件存在
+    ↓
+Framework 完整
+    ↓
+Extension 完整
+ 
+⸻
+ 
+19.3 打包后检查
+重新生成：
+Example-signed.ipa
+然后再次：
+解包
+    ↓
+检查 Payload
+    ↓
+检查主 App
+    ↓
+检查签名
+ 
+⸻
+ 
+二十、签名任务状态机
+20.1 状态
+enum SigningTaskState: String, Codable {
+    case pending
+    case preparing
+    case extracting
+    case signingFrameworks
+    case signingExtensions
+    case signingApp
+    case verifying
+    case packaging
+    case installing
+    case completed
+    case failed
+    case cancelled
+}
+ 
+⸻
+ 
+20.2 状态流转
+pending
+    ↓
+preparing
+    ↓
+extracting
+    ↓
+signingFrameworks
+    ↓
+signingExtensions
+    ↓
+signingApp
+    ↓
+verifying
+    ↓
+packaging
+    ↓
+installing
+    ↓
+completed
+失败可以发生在任意阶段：
+任意状态
+    ↓
+failed
+ 
+⸻
+ 
+20.3 不允许跳跃
+不能：
+pending
+    ↓
+completed
+不能：
+signingApp
+    ↓
+completed
+必须经过验证和安装结果确认。
+ 
+⸻
+ 
+二十一、SigningTaskManager
+21.1 接口
+protocol SigningTaskManaging {
+    func start(
+        ipaID: UUID,
+        installAfterSigning: Bool
+    ) async throws -> SigningTask
+}
+ 
+⸻
+ 
+21.2 主流程
+func start(
+    ipaID: UUID,
+    installAfterSigning: Bool
+) async throws -> SigningTask {
+
+    let task = try createTask(ipaID: ipaID)
+
+    try updateState(.preparing)
+
+    let ipa = try appStore.loadIPA(id: ipaID)
+
+    try updateState(.extracting)
+
+    let context = try await materialProvider
+        .prepareSigningContext(
+            for: ipa.bundleIdentifier
+        )
+
+    let signedURL = try await signingProvider.sign(
+        appURL: ipa.appURL,
+        context: context
+    )
+
+    try updateState(.verifying)
+
+    try await verifier.verify(
+        appURL: signedURL
+    )
+
+    try updateState(.packaging)
+
+    let packagedURL = try package(signedURL)
+
+    if installAfterSigning {
+        try updateState(.installing)
+
+        try await installationService.install(
+            ipaURL: packagedURL
+        )
+    }
+
+    try updateState(.completed)
+
+    return try finishTask(
+        signedURL: packagedURL
+    )
+}
+实际项目中必须根据真实后端调整，不得直接复制后假设可以运行。
+ 
+⸻
+ 
+二十二、安装系统
+22.1 安装接口
+protocol InstallationService {
+    func install(
+        ipaURL: URL
+    ) async throws -> InstallationResult
+}
+ 
+⸻
+ 
+22.2 设备信息
+struct DeviceInfo {
+    let identifier: String
+    let productType: String
+    let systemVersion: String
+    let isConnected: Bool
+    let isPaired: Bool
+    let isTrusted: Bool
+}
+ 
+⸻
+ 
+22.3 安装前检查
+设备是否连接
+    ↓
+设备是否配对
+    ↓
+设备是否信任
+    ↓
+设备系统版本
+    ↓
+IPA 最低系统版本
+    ↓
+签名是否有效
+    ↓
+Profile 是否允许设备
+    ↓
+调用真实安装服务
+ 
+⸻
+ 
+22.4 安装结果
+enum InstallationResult {
+    case success
+    case failed(InstallationError)
+}
+ 
+⸻
+ 
+22.5 安装错误
+enum InstallationError: Error {
+    case deviceNotConnected
+    case deviceNotPaired
+    case deviceNotTrusted
+    case unsupportedOS
+    case invalidSignature
+    case invalidProvisioningProfile
+    case bundleIdentifierMismatch
+    case installationRejected
+    case installationFailed
+    case verificationFailed
+}
+ 
+⸻
+ 
+二十三、安装成功与签名成功必须分开
+错误逻辑：
+签名成功
+    ↓
+直接显示安装成功
+正确逻辑：
+签名成功
+    ↓
+签名验证成功
+    ↓
+安装请求发送
+    ↓
+安装服务返回结果
+    ↓
+验证应用是否真的安装
+    ↓
+更新 AppRecord
+ 
+⸻
+ 
+23.1 安装成功条件
+只有满足以下条件才可以显示：
+安装成功
+安装服务返回成功
+    +
+设备端确认安装
+    +
+应用记录更新成功
+ 
+⸻
+ 
+二十四、针对“签名成功但无法安装”的诊断流程
+24.1 必须保存以下信息
+IPA 文件名
+Bundle ID
+IPA 最低系统版本
+当前设备系统版本
+Team ID
+Profile 名称
+Profile 有效期
+签名阶段
+安装阶段
+安装服务错误码
+原始错误信息
+ 
+⸻
+ 
+24.2 诊断顺序
+签名输出 IPA
+    ↓
+检查 Payload
+    ↓
+检查主 App
+    ↓
+检查主 App 签名
+    ↓
+检查 Framework
+    ↓
+检查 Extension
+    ↓
+检查 Profile
+    ↓
+检查 Entitlements
+    ↓
+检查 Bundle ID
+    ↓
+检查设备配对
+    ↓
+检查安装服务
+    ↓
+读取系统错误
+ 
+⸻
+ 
+24.3 重点问题
+Bundle ID 不匹配
+Info.plist Bundle ID
+必须与：
+Profile App ID
+匹配。
+Team ID 不匹配
+签名证书 Team
+必须与：
+Profile Team
+匹配。
+Profile 不允许当前设备
+开发或 Ad Hoc Profile 需要包含允许运行该 App 的设备。Ad Hoc Profile 的创建流程包括选择 App ID、分发证书和设备。(Apple Developer⁠)
+Entitlements 不匹配
+新的签名材料和原始 Entitlements 必须重新计算。
+Framework 未签名
+主 App 签名成功不代表嵌套代码签名成功。
+签名格式不兼容
+iOS 15 及以上涉及新的代码签名格式和 DER Entitlements。签名后必须验证，不得只检查 _CodeSignature 文件是否存在。(Apple Developer⁠)
+ 
+⸻
+ 
+二十五、应用安装后的记录
+25.1 安装成功后
+更新 AppRecord
+    ↓
+installationState = installed
+    ↓
+signedAt = 当前时间
+    ↓
+installedAt = 当前时间
+    ↓
+expirationDate = Profile 实际有效期
+    ↓
+保存 signedIPAURL
+    ↓
+保存历史记录
+    ↓
+刷新首页
+    ↓
+刷新应用页
+    ↓
+刷新历史页
+ 
+⸻
+ 
+25.2 所有页面必须同步
+导入、签名、安装、删除、续签任何操作，都必须同步更新：
+首页
+应用页
+历史页
+应用详情页
+统计数量
+过期提醒
+不得出现：
+应用页已经删除
+首页数量仍然保留
+或者：
+安装失败
+首页仍然显示已安装
+ 
+⸻
+ 
+二十六、应用列表
+26.1 数据来源
+应用列表只能来自：
+AppStore
+不能分别在各个 View 中维护不同数组。
+ 
+⸻
+ 
+26.2 AppStore
+@MainActor
+final class AppStore: ObservableObject {
+
+    @Published private(set) var apps: [AppRecord] = []
+
+    func load() throws
+    func add(_ app: AppRecord) throws
+    func update(_ app: AppRecord) throws
+    func delete(_ app: AppRecord) throws
+}
+ 
+⸻
+ 
+26.3 所有页面读取同一个 AppStore
+HomeView
+    ↓
+AppStore.apps
+AppsView
+    ↓
+AppStore.apps
+HistoryView
+    ↓
+HistoryStore.records
+ 
+⸻
+ 
+二十七、历史记录
+27.1 历史模型
+struct HistoryRecord: Codable, Identifiable {
+
+    let id: UUID
+    let appID: UUID
+    let bundleIdentifier: String
+    let displayName: String
+
+    let action: HistoryAction
+    let result: HistoryResult
+
+    let message: String?
+    let createdAt: Date
+}
+ 
+⸻
+ 
+27.2 操作类型
+enum HistoryAction: String, Codable {
+    case imported
+    case signed
+    case installed
+    case renewed
+    case deleted
+}
+ 
+⸻
+ 
+27.3 结果类型
+enum HistoryResult: String, Codable {
+    case success
+    case failed
+}
+ 
+⸻
+ 
+27.4 必须记录
+导入成功
+导入失败
+签名成功
+签名失败
+安装成功
+安装失败
+续签成功
+续签失败
+删除应用
+ 
+⸻
+ 
+二十八、续签系统
+28.1 续签不是简单修改日期
+错误：
+expirationDate = Date().addingTimeInterval(7 * 86400)
+正确：
+重新获取签名材料
+    ↓
+读取新的 Profile 有效期
+    ↓
+重新签名
+    ↓
+重新安装
+    ↓
+读取实际有效期
+    ↓
+保存实际日期
+ 
+⸻
+ 
+28.2 续签模型
+struct RenewalRecord: Codable {
+
+    let bundleIdentifier: String
+    let teamIdentifier: String
+
+    let signedAt: Date
+    let expirationDate: Date
+
+    var isExpired: Bool {
+        Date() >= expirationDate
+    }
+}
+ 
+⸻
+ 
+28.3 续签流程
+用户点击续签
+    ↓
+读取 AppRecord
+    ↓
+检查原始 IPA 是否存在
+    ↓
+检查当前签名材料
+    ↓
+准备新的签名材料
+    ↓
+重新签名
+    ↓
+验证签名
+    ↓
+重新安装
+    ↓
+读取实际有效期
+    ↓
+更新 AppRecord
+    ↓
+写入历史记录
+ 
+⸻
+ 
+28.4 续签前提醒
+建议在实际有效期前提醒：
+7 天
+3 天
+1 天
+但提醒时间必须根据实际 Profile 有效期计算。
+不能固定认为所有签名都是 7 天。
+ 
+⸻
+ 
+28.5 续签失败
+必须保留原有记录：
+原应用仍然显示
+原有效期仍然保留
+新增一条续签失败历史
+不能因为续签失败就直接删除已安装应用记录。
+ 
+⸻
+ 
+二十九、通知系统
+29.1 通知内容
+应用即将到期
+应用已过期
+续签成功
+续签失败
+安装失败
+ 
+⸻
+ 
+29.2 通知时间
+根据：
+expirationDate
+计算通知时间。
+ 
+⸻
+ 
+29.3 App 被关闭时
+通知调度必须在本地完成。
+不能依赖 App 一直运行。
+ 
+⸻
+ 
+三十、删除功能
+30.1 删除应用
+用户点击删除
+    ↓
+弹出确认
+    ↓
+删除 AppRecord
+    ↓
+删除 IPA 文件
+    ↓
+删除签名输出
+    ↓
+删除临时目录
+    ↓
+删除续签记录
+    ↓
+删除相关历史以外的运行数据
+    ↓
+刷新所有页面
+ 
+⸻
+ 
+30.2 历史记录处理
+建议：
+删除应用
+    ↓
+保留历史记录
+这样用户仍然可以看到过去的签名和安装结果。
+ 
+⸻
+ 
+三十一、存储一致性
+31.1 所有写入必须统一
+不得在不同 View 中直接写文件。
+统一使用：
+AppStore
+HistoryStore
+IPAStore
+SigningStore
+SettingsStore
+ 
+⸻
+ 
+31.2 写入失败处理
+更新内存
+    ↓
+写入磁盘
+    ↓
+写入失败
+    ↓
+回滚内存
+    ↓
+显示错误
+ 
+⸻
+ 
+31.3 数据损坏
+如果 JSON 或数据库损坏：
+读取失败
+    ↓
+记录诊断日志
+    ↓
+尝试恢复备份
+    ↓
+无法恢复则显示错误
+不得静默清空所有应用数据。
+ 
+⸻
+ 
+三十二、错误处理规范
+32.1 错误结构
+struct SealError: Error {
+    let code: String
+    let title: String
+    let message: String
+    let recoverySuggestion: String?
+}
+ 
+⸻
+ 
+32.2 用户错误信息
+错误必须包含：
+发生了什么
+为什么失败
+下一步怎么处理
+例如：
+签名验证失败
+
+新的签名材料与应用的 Bundle ID 不匹配。
+
+请重新获取签名材料后重试。
+ 
+⸻
+ 
+32.3 不允许
+不能只显示：
+Error
+不能只显示：
+安装失败
+不能把内部异常直接显示给用户。
+ 
+⸻
+ 
+三十三、日志系统
+33.1 使用 OSLog
+import OSLog
+
+let logger = Logger(
+    subsystem: "com.seal.app",
+    category: "Signing"
+)
+ 
+⸻
+ 
+33.2 日志阶段
+AppLaunch
+IPAImport
+IPAParse
+Compatibility
+Signing
+Profile
+Entitlements
+Verification
+Installation
+Renewal
+Storage
+ 
+⸻
+ 
+33.3 日志内容
+必须记录：
+任务 ID
+应用 Bundle ID
+当前阶段
+开始时间
+结束时间
+耗时
+成功或失败
+错误代码
+不得记录：
+Apple ID 密码
+私钥
+完整认证令牌
+敏感凭据
+ 
+⸻
+ 
+三十四、任务取消
+34.1 用户点击取消
+用户点击取消
+    ↓
+确认取消
+    ↓
+取消当前 Task
+    ↓
+停止后续步骤
+    ↓
+清理临时文件
+    ↓
+保存 cancelled 状态
+    ↓
+刷新 UI
+ 
+⸻
+ 
+34.2 不允许
+任务取消后不能继续：
+取消
+    ↓
+仍然安装
+ 
+⸻
+ 
+三十五、并发控制
+35.1 同一个应用不能同时签名两次
+应用 A 正在签名
+    ↓
+再次点击签名
+    ↓
+提示任务正在进行
+ 
+⸻
+ 
+35.2 全局任务限制
+建议：
+同一时间只执行一个签名任务
+避免：
+多个任务同时修改同一个临时目录
+ 
+⸻
+ 
+三十六、UI 状态映射
+36.1 状态与按钮
+状态	显示	操作
+未导入	空状态	导入 IPA
+已导入	待签名	签名
+签名中	进度	取消
+签名成功	待安装	安装
+安装中	进度	等待
+已安装	已安装	续签 / 重新安装
+即将过期	即将到期	续签
+已过期	已过期	续签
+失败	失败原因	重试
+ 
+⸻
+ 
+三十七、首页逻辑
+37.1 首页数据
+已导入应用数量
+已安装应用数量
+即将过期数量
+正在执行任务数量
+最近一次操作
+ 
+⸻
+ 
+37.2 首页刷新
+以下操作完成后必须刷新：
+导入
+签名
+安装
+续签
+删除
+任务失败
+ 
+⸻
+ 
+37.3 首页不能使用静态假数据
+不得写：
+let installedCount = 3
+必须从 AppStore 计算：
+let installedCount = apps.filter {
+    $0.installationState == .installed
+}.count
+ 
+⸻
+ 
+三十八、应用页逻辑
+38.1 列表来源
+AppStore.apps
+ 
+⸻
+ 
+38.2 排序
+建议：
+正在处理
+    ↓
+即将过期
+    ↓
+已安装
+    ↓
+未安装
+    ↓
+最近导入
+ 
+⸻
+ 
+38.3 空状态
+没有应用时显示：
+还没有应用
+导入一个 IPA，开始使用 Seal。
+ 
+⸻
+ 
+三十九、历史页逻辑
+39.1 数据来源
+HistoryStore.records
+ 
+⸻
+ 
+39.2 排序
+createdAt 降序
+ 
+⸻
+ 
+39.3 历史详情
+点击历史记录显示：
+应用名称
+Bundle ID
+操作类型
+操作结果
+时间
+错误信息
+任务 ID
+ 
+⸻
+ 
+四十、我的页逻辑
+40.1 显示内容
+Apple ID / 签名状态
+外观与主题
+通知设置
+存储管理
+日志与诊断
+关于 Seal
+ 
+⸻
+ 
+40.2 外观与主题
+必须支持：
+跟随系统
+浅色
+深色
+iOS 16–27 都必须有兼容实现。
+ 
+⸻
+ 
+四十一、存储管理
+41.1 显示
+IPA 文件占用
+签名文件占用
+临时文件占用
+日志占用
+总占用
+ 
+⸻
+ 
+41.2 清理
+可以清理：
+临时解包目录
+已完成任务的临时文件
+无关联的签名输出
+不能清理：
+仍在使用的原始 IPA
+当前已安装应用的续签所需文件
+正在执行任务的文件
+ 
+⸻
+ 
+四十二、完整用户流程一：首次打开
+用户打开 Seal
+    ↓
+初始化环境
+    ↓
+读取本地数据
+    ↓
+检查任务恢复
+    ↓
+检查过期记录
+    ↓
+显示首页
+    ↓
+首页显示“导入 IPA”
+ 
+⸻
+ 
+四十三、完整用户流程二：导入 IPA
+点击导入 IPA
+    ↓
+打开系统文件选择器
+    ↓
+选择 IPA
+    ↓
+复制到 Seal 存储目录
+    ↓
+解包
+    ↓
+读取 Info.plist
+    ↓
+检查 Bundle ID
+    ↓
+检查最低系统版本
+    ↓
+检查文件结构
+    ↓
+保存 AppRecord
+    ↓
+跳转应用详情页
+ 
+⸻
+ 
+四十四、完整用户流程三：签名并安装
+应用详情页
+    ↓
+点击签名并安装
+    ↓
+创建 SigningTask
+    ↓
+检查设备
+    ↓
+检查 Apple ID / 签名材料
+    ↓
+读取 IPA
+    ↓
+解包
+    ↓
+处理 Profile
+    ↓
+处理 Entitlements
+    ↓
+签名 Framework
+    ↓
+签名 Extension
+    ↓
+签名主 App
+    ↓
+验证签名
+    ↓
+重新打包
+    ↓
+调用安装服务
+    ↓
+接收安装结果
+    ↓
+验证安装
+    ↓
+更新 AppRecord
+    ↓
+写入 HistoryRecord
+    ↓
+刷新首页
+    ↓
+刷新应用页
+    ↓
+刷新历史页
+ 
+⸻
+ 
+四十五、完整用户流程四：续签
+首页显示即将过期
+    ↓
+用户点击续签
+    ↓
+读取原始 IPA
+    ↓
+检查当前签名材料
+    ↓
+获取新的 Profile
+    ↓
+重新生成 Entitlements
+    ↓
+重新签名
+    ↓
+验证签名
+    ↓
+重新安装
+    ↓
+读取实际有效期
+    ↓
+更新 AppRecord
+    ↓
+更新 RenewalRecord
+    ↓
+写入历史记录
+    ↓
+刷新所有页面
+ 
+⸻
+ 
+四十六、完整用户流程五：安装失败
+用户点击签名并安装
+    ↓
+签名成功
+    ↓
+签名验证成功
+    ↓
+安装服务返回失败
+    ↓
+保存真实错误
+    ↓
+任务状态改为 failed
+    ↓
+AppRecord 保留
+    ↓
+HistoryRecord 写入失败记录
+    ↓
+首页显示失败状态
+    ↓
+用户进入详情页查看原因
+    ↓
+用户点击重试
+ 
+⸻
+ 
+四十七、完整用户流程六：续签失败
+用户点击续签
+    ↓
+签名材料获取失败
+    ↓
+任务状态 failed
+    ↓
+保留原有 AppRecord
+    ↓
+保留原有效期
+    ↓
+写入续签失败历史
+    ↓
+显示失败原因
+ 
+⸻
+ 
+四十八、iOS 16–27 验收矩阵
+必须至少验证：
+iOS 16
+iOS 17
+iOS 18
+iOS 26
+iOS 27
+每个系统版本验证：
+Seal 启动
+首页显示
+IPA 导入
+IPA 解析
+应用详情
+签名
+签名验证
+安装
+安装失败提示
+应用列表
+历史记录
+续签
+删除
+深色模式
+浅色模式
+通知
+数据恢复
+ 
+⸻
+ 
+四十九、最终验收标准
+49.1 启动
+	•	App 可以正常启动；
+	•	本地数据可以恢复；
+	•	不显示假数据；
+	•	不出现空白页面；
+	•	不出现重复任务。
+49.2 导入
+	•	可以选择 IPA；
+	•	可以解析 Info.plist；
+	•	可以识别 Bundle ID；
+	•	可以识别版本；
+	•	可以识别最低系统版本；
+	•	非法 IPA 有明确错误。
+49.3 签名
+	•	使用真实签名后端；
+	•	使用真实证书和私钥；
+	•	使用真实 Profile；
+	•	正确处理 Entitlements；
+	•	正确处理 Framework；
+	•	正确处理 Extension；
+	•	主 App 最后签名；
+	•	签名后进行验证。
+49.4 安装
+	•	使用真实安装后端；
+	•	不把签名成功当作安装成功；
+	•	保存真实错误；
+	•	安装成功后更新状态；
+	•	安装失败后保留诊断信息。
+49.5 续签
+	•	使用实际有效期；
+	•	不硬编码 7 天；
+	•	重新获取签名材料；
+	•	重新签名；
+	•	重新安装；
+	•	更新有效期；
+	•	失败时保留原记录。
+49.6 数据一致性
+所有增删改查必须同步更新：
+首页
+应用页
+历史页
+应用详情页
+统计数量
+续签提醒
+ 
+⸻
+ 
+五十、开发执行顺序
+必须按照以下顺序开发，不得先做假签名流程：
+第 1 步：检查现有项目结构
+    ↓
+第 2 步：确认真实签名后端
+    ↓
+第 3 步：确认真实安装后端
+    ↓
+第 4 步：设置 iOS 16.0
+    ↓
+第 5 步：统一 AppEnvironment
+    ↓
+第 6 步：完成 IPAStore
+    ↓
+第 7 步：完成 IPAImportService
+    ↓
+第 8 步：完成 IPAExtractor
+    ↓
+第 9 步：完成 IPAParser
+    ↓
+第 10 步：完成 IPAValidator
+    ↓
+第 11 步：完成 IPACompatibilityChecker
+    ↓
+第 12 步：完成 AppStore
+    ↓
+第 13 步：完成 HistoryStore
+    ↓
+第 14 步：完成首页
+    ↓
+第 15 步：完成应用页
+    ↓
+第 16 步：完成应用详情页
+    ↓
+第 17 步：完成签名任务状态机
+    ↓
+第 18 步：接入真实签名材料
+    ↓
+第 19 步：接入真实签名后端
+    ↓
+第 20 步：完成签名验证
+    ↓
+第 21 步：完成重新打包
+    ↓
+第 22 步：接入真实安装后端
+    ↓
+第 23 步：完成安装验证
+    ↓
+第 24 步：完成续签
+    ↓
+第 25 步：完成通知
+    ↓
+第 26 步：完成错误诊断
+    ↓
+第 27 步：完成数据恢复
+    ↓
+第 28 步：完成 iOS 16–27 测试
+ 
+⸻
+ 
+五十一、给开发 AI 的最终要求
+不要只修改 UI。
+不要只增加几个按钮。
+不要创建假的：
+signIPA()
+installIPA()
+不要把：
+签名成功
+直接当成：
+安装成功
+不要把：
+7 天
+写死成所有应用的有效期。
+不要把所有 Entitlements 删除。
+不要只签主 App。
+不要忽略 Framework 和 Extension。
+不要让首页、应用页、历史页各自维护独立数据。
+不要在没有真实源码依据的情况下声称“已经修复安装失败”。
+必须先检查现有代码，找到：
+签名入口
+签名引擎
+签名材料获取
+Profile 处理
+Entitlements 处理
+IPA 打包
+安装入口
+设备配对
+Lockdown / 安装服务
+安装错误映射
+然后逐文件改造。
+最终验收标准：
+用户打开 Seal
+    ↓
+导入 IPA
+    ↓
+读取应用信息
+    ↓
+检查兼容性
+    ↓
+真实签名
+    ↓
+真实验证
+    ↓
+真实安装
+    ↓
+真实记录
+    ↓
+真实续签
+    ↓
+所有页面同步更新
+只有这条链路全部走通，才算 Seal 完成。
+这份文档已经覆盖了产品流程、数据流、状态机、接口、存储、错误处理和验收。但要继续做到你说的“精确到现有项目每一个文件、每一个函数”，下一步必须对照 Seal 当前源码，尤其是 签名入口、安装入口、Lockdown/配对代码和失败日志。否则继续写具体函数名，只会再次变成看起来完整、实际接不上的空架构。

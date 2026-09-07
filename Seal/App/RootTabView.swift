@@ -1,126 +1,94 @@
 import SwiftUI
 
 struct RootTabView: View {
-    @ObservedObject var appsViewModel: AppsViewModel
-    @ObservedObject var settingsViewModel: SettingsViewModel
-    let certificateExportHandler: CertificateExportHandler
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var selection: AppSection = .apps
-    @State private var launchCheckInProgress = false
-    @State private var lastLaunchCheckAt: Date?
-    @AppStorage("appearance.mode") private var appearanceRawValue = SealAppearance.system.rawValue
-    @AppStorage("appearance.accent") private var accentRawValue = SealAccentTheme.system.rawValue
-    @State private var updateNotice: UpdateNotice?
+    @Binding var selection: AppSection
+    let appsViewModel: AppsViewModel
+    let settingsViewModel: SettingsViewModel
+    let homeViewModel: HomeViewModel
+    let historyViewModel: HistoryViewModel
+
+    @State private var previousSelection: AppSection = .home
+
+    init(
+        selection: Binding<AppSection>,
+        appsViewModel: AppsViewModel,
+        settingsViewModel: SettingsViewModel,
+        homeViewModel: HomeViewModel,
+        historyViewModel: HistoryViewModel
+    ) {
+        self._selection = selection
+        self.appsViewModel = appsViewModel
+        self.settingsViewModel = settingsViewModel
+        self.homeViewModel = homeViewModel
+        self.historyViewModel = historyViewModel
+    }
 
     var body: some View {
-        TabView(selection: $selection) {
-            AppsRootView(
-                viewModel: appsViewModel,
-                settingsViewModel: settingsViewModel
-            )
-            .tabItem {
-                Label(AppSection.apps.title, systemImage: AppSection.apps.systemImage)
-                    .accessibilityIdentifier("root-tab-apps")
-            }
-            .tag(AppSection.apps)
+        TabView(selection: tabSelection) {
+            HomeRootView(viewModel: homeViewModel, settingsViewModel: settingsViewModel)
+                .tabItem {
+                    Label(AppSection.home.title, systemImage: AppSection.home.systemImage)
+                }
+                .tag(AppSection.home)
+
+            AppsRootView(viewModel: appsViewModel, settingsViewModel: settingsViewModel)
+                .tabItem {
+                    Label(AppSection.apps.title, systemImage: AppSection.apps.systemImage)
+                }
+                .tag(AppSection.apps)
+
+            HistoryRootView(viewModel: historyViewModel)
+                .tabItem {
+                    Label(AppSection.history.title, systemImage: AppSection.history.systemImage)
+                }
+                .tag(AppSection.history)
 
             SettingsRootView(
                 viewModel: settingsViewModel,
-                relatedApps: appsViewModel.apps,
-                certificateExportHandler: certificateExportHandler
+                relatedApps: appsViewModel.installedApps,
+                certificateExportHandler: CertificateExportHandler(
+                    keychain: KeychainVault(),
+                    signingPreferenceStore: SigningPreferenceStore()
+                )
             )
-            .tabItem {
-                Label(AppSection.settings.title, systemImage: AppSection.settings.systemImage)
-                    .accessibilityIdentifier("root-tab-settings")
-            }
-            .tag(AppSection.settings)
-        }
-        .tint(.sealAccent)
-        .preferredColorScheme(SealAppearance(rawValue: appearanceRawValue)?.colorScheme)
-        .id(accentRawValue)
-        .sealScreenBackground()
-        .task {
-            await LocalNetworkPermissionPrimer.requestIfNeeded()
-            await performLaunchCheck(force: true)
-            if let notice = await UpdateChecker.shared.check() {
-                updateNotice = notice
-            }
-        }
-        .onChange(of: appsViewModel.shouldOpenSettings) { shouldOpen in
-            guard shouldOpen else { return }
-            selection = .settings
-            settingsViewModel.requestedRoute = appsViewModel.requestedSettingsRoute
-                ?? settingsViewModel.environment.nextSetupStep.map(SettingsRoute.init)
-                ?? .account
-            appsViewModel.requestedSettingsRoute = nil
-            appsViewModel.shouldOpenSettings = false
-        }
-        .onChange(of: scenePhase) { phase in
-            guard phase == .active else { return }
-            Task { await performLaunchCheck() }
-        }
-        .onOpenURL { url in
-            if LocalDevVPNLink.isCallback(url) {
-                if appsViewModel.hasPendingVPNRecovery {
-                    selection = .apps
+                .tabItem {
+                    Label(AppSection.settings.title, systemImage: AppSection.settings.systemImage)
                 }
-                Task {
-                    await settingsViewModel.testLocalDevVPN()
-                    await appsViewModel.resumePendingVPNAction()
-                    await performLaunchCheck(force: true)
-            if let notice = await UpdateChecker.shared.check() {
-                updateNotice = notice
-            }
-                }
-                return
-            }
-
-            // LiveContainer 等外部应用请求导出签名证书
-            if certificateExportHandler.canHandle(url) {
-                certificateExportHandler.handle(url)
-                return
-            }
-
-            guard url.isFileURL else { return }
-            selection = .apps
-            Task { await appsViewModel.importSelectedFile(url) }
+                .tag(AppSection.settings)
         }
-        .overlay {
-            if let notice = updateNotice {
-                UpdateNoticeView(notice: notice) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        updateNotice = nil
-                    }
-                }
-            }
-        }
+        .tint(Color.sealAccent)
     }
 
-    @MainActor
-    private func performLaunchCheck(force: Bool = false) async {
-        guard launchCheckInProgress == false else { return }
-        if force == false,
-           let lastLaunchCheckAt,
-           Date().timeIntervalSince(lastLaunchCheckAt) < 60 {
-            return
-        }
-        launchCheckInProgress = true
-        lastLaunchCheckAt = Date()
-        defer { launchCheckInProgress = false }
-
-        // 并行执行两个 ViewModel 的启动检查，避免串行等待
-        async let settingsCheck: Void = settingsViewModel.performLightweightLaunchCheck()
-        async let appsCheck: Void = appsViewModel.performLightweightLaunchCheck()
-        _ = await (settingsCheck, appsCheck)
+    private var tabSelection: Binding<AppSection> {
+        Binding(
+            get: { selection },
+            set: { newValue in
+                if newValue == previousSelection {
+                    handleReselection(newValue)
+                }
+                previousSelection = newValue
+                selection = newValue
+            }
+        )
     }
 
+    private func handleReselection(_ section: AppSection) {
+        switch section {
+        case .home:
+            NotificationCenter.default.post(name: .homeTabReselected, object: nil)
+        case .apps:
+            NotificationCenter.default.post(name: .appsTabReselected, object: nil)
+        case .history:
+            NotificationCenter.default.post(name: .historyTabReselected, object: nil)
+        case .settings:
+            NotificationCenter.default.post(name: .settingsTabReselected, object: nil)
+        }
+    }
 }
 
-extension SettingsRoute {
-    init(_ step: EnvironmentSetupStep) {
-        switch step {
-        case .account: self = .addAccount
-        case .pairing: self = .pairing
-        }
-    }
+extension Notification.Name {
+    static let homeTabReselected = Notification.Name("seal.homeTabReselected")
+    static let appsTabReselected = Notification.Name("seal.appsTabReselected")
+    static let historyTabReselected = Notification.Name("seal.historyTabReselected")
+    static let settingsTabReselected = Notification.Name("seal.settingsTabReselected")
 }

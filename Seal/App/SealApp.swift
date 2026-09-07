@@ -5,6 +5,7 @@ import SwiftUI
 struct SealApp: App {
     private let container: AppContainer
     private let notificationPresenter: SealNotificationPresenter
+    @State private var selectedTab: AppSection = .home
 
     init() {
         let notificationPresenter = SealNotificationPresenter()
@@ -16,9 +17,11 @@ struct SealApp: App {
     var body: some Scene {
         WindowGroup {
             RootTabView(
+                selection: $selectedTab,
                 appsViewModel: container.appsViewModel,
                 settingsViewModel: container.settingsViewModel,
-                certificateExportHandler: container.certificateExportHandler
+                homeViewModel: container.homeViewModel,
+                historyViewModel: container.historyViewModel
             )
         }
     }
