@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import ZIPFoundation
 
 /// OTA 本地安装服务（itms-services）：
 /// 内嵌 HTTPS 服务器（127.0.0.1）托管签名包与安装清单，
@@ -13,6 +14,7 @@ final class OtaInstallService {
 
     private var serverPort: UInt16?
     private var identity: (ca: String, cert: String, key: String)?
+    private var otaBackgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
     private var identityFileURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -137,6 +139,62 @@ final class OtaInstallService {
         }
     }
 
+    // MARK: - 版本号读取（从签名后 IPA 的 Info.plist）
+
+    private static func readVersion(from ipaData: Data) -> String {
+        guard let archive = Archive(data: ipaData, accessMode: .read) else { return "1.0" }
+        for entry in archive {
+            let path = entry.path
+            // 只匹配 Payload/<Name>.app/Info.plist（恰好三段）
+            let parts = path.split(separator: "/")
+            guard parts.count == 3,
+                  parts[0] == "Payload",
+                  parts[1].hasSuffix(".app"),
+                  parts[2] == "Info.plist"
+            else { continue }
+            var infoData = Data()
+            do {
+                _ = try archive.extract(entry) { data in infoData.append(data) }
+            } catch { continue }
+            guard let info = try? PropertyListSerialization.propertyList(
+                from: infoData, format: nil
+            ) as? [String: Any],
+                  let version = info["CFBundleShortVersionString"] as? String,
+                  !version.isEmpty
+            else { continue }
+            return version
+        }
+        return "1.0"
+    }
+
+    // MARK: - 后台保活（itms-services 触发后系统下载期间保持服务器响应）
+
+    private func keepAliveForOTADownload() {
+        if otaBackgroundTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(otaBackgroundTaskID)
+            otaBackgroundTaskID = .invalid
+        }
+        otaBackgroundTaskID = UIApplication.shared.beginBackgroundTask(
+            withName: "Seal OTA Install"
+        ) { [weak self] in
+            guard let self else { return }
+            if self.otaBackgroundTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(self.otaBackgroundTaskID)
+                self.otaBackgroundTaskID = .invalid
+            }
+        }
+        // 90 秒后自动结束（足够系统下载并安装绝大多数 IPA）
+        Task {
+            try? await Task.sleep(nanoseconds: 90_000_000_000)
+            if self.otaBackgroundTaskID != .invalid {
+                await MainActor.run {
+                    UIApplication.shared.endBackgroundTask(self.otaBackgroundTaskID)
+                    self.otaBackgroundTaskID = .invalid
+                }
+            }
+        }
+    }
+
     // MARK: - 安装入口
 
     /// 通过 itms-services 触发系统安装。
@@ -150,6 +208,9 @@ final class OtaInstallService {
         try ensureIdentity()
         try ipaData.write(to: ipaFileURL, options: .atomic)
 
+        // 优先从签名后成品包读取真实版本号，外部传入仅作兜底
+        let effectiveVersion = Self.readVersion(from: ipaData)
+
         let manifest: [String: Any] = [
             "items": [[
                 "assets": [[
@@ -158,7 +219,7 @@ final class OtaInstallService {
                 ]],
                 "metadata": [
                     "bundle-identifier": bundleID,
-                    "bundle-version": version,
+                    "bundle-version": effectiveVersion,
                     "kind": "software",
                     "title": displayName
                 ]
@@ -200,6 +261,8 @@ final class OtaInstallService {
         await MainActor.run {
             UIApplication.shared.open(itms)
         }
+        // 系统安装器接管后，保持后台任务 90 秒，确保下载期间 HTTPS 服务器不被挂起
+        keepAliveForOTADownload()
     }
 }
 
