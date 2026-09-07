@@ -581,44 +581,8 @@ actor SigningCoordinator {
             )
         }
 
-        // OTA 安装（首选）：本地 HTTPS + itms-services，iOS 系统安装器接管。
-        // 不依赖配对通道/隧道/installd 暂存链路。Seal 自身更新仍走隧道通道。
-        if OtaInstallService.shared.isEnabled && !app.isSeal {
-            do {
-                try await updateState(appID: app.id, stage: .pushing)
-                await progress(.pushing)
-                try await OtaInstallService.shared.installViaOTA(
-                    ipaData: signedData,
-                    bundleID: effectiveBundleID,
-                    displayName: app.displayName,
-                    version: "1.0"
-                )
-                // 系统安装器接管后视为安装完成
-                updated.state = .installed
-                updated.signedArtifactStatus = .installed
-                updated.lastInstallFailureCode = nil
-                updated.lastInstallFailureReason = nil
-                updated.expiryDate = expirationDate
-                updated.lastInstalledAt = Date()
-                try await appStore.save(updated)
-                return updated
-            } catch let otaError as NSError where otaError.isOtaCASetupNeeded {
-                // 一次性 CA 信任引导：直接呈现给用户，不回退隧道
-                updated.signedArtifactStatus = .installFailed
-                updated.lastInstallFailureCode = "SEAL-INSTALL-730"
-                updated.lastInstallFailureReason = otaError.localizedDescription
-                try await persistAppState(updated)
-                throw ImportFailure(
-                    title: "需要信任本地证书（一次性）",
-                    reason: otaError.localizedDescription,
-                    recovery: "文件 App 安装描述文件 → 证书信任设置开启完全信任 → 回到 Seal 再点安装",
-                    code: "SEAL-INSTALL-730"
-                )
-            } catch {
-                // 其他 OTA 错误：回退隧道通道继续尝试（最终失败由上层记录）
-            }
-        }
-
+        // 安装统一走本地通道（LocalDevVPN + Minimuxer + installation_proxy）。
+        // OTA（itms-services）路线已按决策下线：安装一律经设备安装服务完成。
         if app.isSeal {
             // Persist the real signed-profile expiry before iOS replaces this running app.
             updated.state = .installed

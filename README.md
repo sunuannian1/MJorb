@@ -28,10 +28,10 @@ Seal 是个人使用的 iOS IPA 管理、自签、安装与续签工具，最低
 
 ## 构建
 
-Windows 可运行基础检查：
+Windows 可运行 Rust 层类型检查（Swift/Xcode 构建在 CI 的 macOS 上完成）：
 
-```powershell
-.\Scripts\Tests\Test-Foundation.ps1
+```bash
+cd Vendor/Minimuxer/RustBridge && cargo check
 ```
 
 推送到 `feature/**` 或 `main` 后，GitHub Actions 会在 macOS 上生成 Xcode 工程、运行测试并打包未签名 IPA。构建产物同时包含 SHA-256 校验文件、Info.plist 和 UI 测试截图。

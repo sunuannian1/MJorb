@@ -107,9 +107,14 @@ pub async fn yeet_app_afc_rppairing(
     stage_via_afc(&mut afc, &bundle_id, ipa_bytes).await
 }
 
-/// 上传 + 安装合并调用：jas 的 install_ipa 在同一函数内完成上传与安装，
-/// Seal 因 FFI 边界拆成两段后，真机实测暂存文件会在两段调用之间消失
-/// （yeet 同连接回读成功、下一段调用 afcd 侧已看不到）。合并后消除该窗口。
+/// 上传 + 安装合并调用：**安装主链路（唯一路径）**。
+///
+/// 会话不变量（真机验证的官方形态，jas install_ipa 与 SideStore IdeviceGateway 一致）：
+/// 上传与安装必须发生在同一条缓存的 RemotePairing 隧道会话上
+/// （connect_to_rsd_services 的进程内缓存）。隧道 RSD 只暴露 *.shim.remote 服务，
+/// shim afcd 的暂存视图绑定在该会话上——跨会话（每次新建隧道）暂存包对 installd
+/// 完全不可见，正是历史 MissingPackagePath 的根因。因此禁止把上传与安装拆到
+/// 各自新建的隧道；上传后 drop AFC 客户端是安全的（jas 同样如此）。
 pub async fn stage_and_install_rppairing(
     bundle_id: String,
     ipa_bytes: &[u8],

@@ -265,40 +265,24 @@ actor MinimuxerInstallChannel: InstallChannel {
         }
     }
 
+    /// 仅上传暂存（两阶段诊断路径；主链路走 install() 的合并调用）。
+    /// 走缓存隧道会话，含同连接回读校验（大小不一致立即抛错，不把截断包留给 installd）。
     func pushIpa(ipaData: Data, bundleID: String) async throws {
         #if !targetEnvironment(simulator)
         guard await isReady() else { throw Self.channelNotReadyFailure }
         let ipaMB = Double(ipaData.count) / 1_000_000
-        // yeet 现包含「上传 + 全新 AFC 通道全量回读校验」两段传输，总量约为单向上传的 2 倍，
-        // 超时预算相应放宽（封顶 30 分钟），避免大文件（如 400MB+）在无线隧道下被误判超时。
+        // 上传含全量回读校验，总量约为单向上传的 2 倍（封顶 30 分钟）
         let pushTimeout = min(1800.0, 180.0 + ipaMB * 5.0)
         let maxAttempts = ipaMB > 100 ? 2 : 4
         var lastError: Error?
         for attempt in 1...maxAttempts {
             do {
-                // 首选 CoreDevice 隧道上传：shim AFC 的暂存在 iOS 18.7 上
-                // installd 不可见（MissingPackagePath），且跨连接不持久
-                do {
-                    try Minimuxer.stageViaCoreTunnel(bundleId: bundleID, ipaBytes: ipaData)
-                    return
-                } catch {
-                    let tunnelStageError = error
-                    // 回退：shim 通道 yeet（含同连接回读校验）；两者都失败则合并抛出
-                    do {
-                        let pushOutcome = await offThread(seconds: pushTimeout) {
-                            try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
-                        }
-                        if case .some(.failure(let pushError)) = pushOutcome { throw pushError }
-                        guard pushOutcome != nil else { throw Self.installTimeoutFailure }
-                        return
-                    } catch {
-                        throw NSError(
-                            domain: "minimuxer",
-                            code: -901,
-                            userInfo: [NSLocalizedDescriptionKey: "隧道上传失败：\(tunnelStageError.localizedDescription)；shim 上传回退也失败：\(error.localizedDescription)"]
-                        )
-                    }
+                let pushOutcome = await offThread(seconds: pushTimeout) {
+                    try Minimuxer.yeetAppAfc(bundleId: bundleID, ipaBytes: ipaData)
                 }
+                if case .some(.failure(let pushError)) = pushOutcome { throw pushError }
+                guard pushOutcome != nil else { throw Self.installTimeoutFailure }
+                return
             } catch {
                 lastError = error
                 guard attempt < maxAttempts else { break }
@@ -321,6 +305,9 @@ actor MinimuxerInstallChannel: InstallChannel {
         #endif
     }
 
+    /// 仅触发安装（两阶段诊断路径；主链路走 install() 的合并调用）。
+    /// 与 pushIpa 共用缓存隧道会话；若会话在两段之间被重建，installd 报
+    /// MissingPackagePath，由 install() 的整体重跑恢复。
     func installPushedIpa(bundleID: String, isSelfReplacement: Bool) async throws {
         #if !targetEnvironment(simulator)
         guard await isReady() else { throw Self.channelNotReadyFailure }
@@ -331,39 +318,21 @@ actor MinimuxerInstallChannel: InstallChannel {
                 // 每次安装前重置Install提供者，避免使用已断开的RSD缓存连接
                 // 推送大文件后RSD连接可能超时断开，isReady()只检查TCP不检查RSD服务
                 Install.resetProvider()
-                // 首选 CoreDevice 隧道安装：shim instproxy 在 iOS 18.7 上
-                // 无法定位暂存包（MissingPackagePath）
-                var tunnelInstallError: Error?
-                do {
-                    try Minimuxer.installViaCoreTunnel(bundleId: bundleID)
-                    return
-                } catch {
-                    tunnelInstallError = error
-                }
-                // 隧道失败 → 旧路径；两者都失败时合并抛出（保留隧道错误供定位）
-                do {
-                    if isSelfReplacement {
-                        let installation = Task.detached(priority: .userInitiated) {
-                            try Minimuxer.installIpa(bundleId: bundleID)
-                        }
-                        try await Task.sleep(for: .milliseconds(250))
-                        await SelfReplacementController.returnToHomeScreen()
-                        try await installation.value
-                    } else {
-                        let installOutcome = await offThread(seconds: installTimeout) {
-                            try Minimuxer.installIpa(bundleId: bundleID)
-                        }
-                        if case .some(.failure(let installError)) = installOutcome { throw installError }
-                        guard installOutcome != nil else { throw Self.installTimeoutFailure }
+                if isSelfReplacement {
+                    let installation = Task.detached(priority: .userInitiated) {
+                        try Minimuxer.installIpa(bundleId: bundleID)
                     }
-                    return
-                } catch {
-                    throw NSError(
-                        domain: "minimuxer",
-                        code: -902,
-                        userInfo: [NSLocalizedDescriptionKey: "CoreDevice 隧道安装失败：\(tunnelInstallError!.localizedDescription)；shim 通道回退也失败：\(error.localizedDescription)"]
-                    )
+                    try await Task.sleep(for: .milliseconds(250))
+                    await SelfReplacementController.returnToHomeScreen()
+                    try await installation.value
+                } else {
+                    let installOutcome = await offThread(seconds: installTimeout) {
+                        try Minimuxer.installIpa(bundleId: bundleID)
+                    }
+                    if case .some(.failure(let installError)) = installOutcome { throw installError }
+                    guard installOutcome != nil else { throw Self.installTimeoutFailure }
                 }
+                return
             } catch {
                 lastError = error
                 guard attempt < 3 else { break }
@@ -377,25 +346,56 @@ actor MinimuxerInstallChannel: InstallChannel {
         #endif
     }
 
-    /// 完整安装：push + install，遇到 MissingPackagePath 时自动重新 push 再 install。
-    /// 根因：yeetAppAfc 的 afc.writeFile 可能写入不完整但返回 true，导致 installd 找不到包。
-    /// 原 installPushedIpa 只重试 install 不重试 push，所以一直失败。
+    /// 完整安装：**合并调用主链路** —— 上传 + 安装在同一条缓存隧道会话内完成。
+    ///
+    /// 会话不变量（官方 jas / SideStore IdeviceGateway 真机验证的形态）：
+    /// shim afcd 的暂存视图绑定隧道会话，上传与安装跨会话时暂存包对 installd
+    /// 不可见 → MissingPackagePath。合并调用把窗口归零；若两段之间会话因
+    /// socket 错误被重建，整体重跑（重新上传）即恢复，不做局部补丁。
     func install(ipaData: Data, bundleID: String, isSelfReplacement: Bool) async throws {
-        try await pushIpa(ipaData: ipaData, bundleID: bundleID)
-        do {
-            try await installPushedIpa(bundleID: bundleID, isSelfReplacement: isSelfReplacement)
-        } catch {
-            // ImportFailure.errorDescription 返回 title（"安装失败"），reason 才包含原始设备错误。
-            // 必须检查 reason，否则 MissingPackagePath 重试永远不触发。
-            let detail = (error as? ImportFailure)?.reason ?? error.localizedDescription
-            if detail.contains("MissingPackagePath") || detail.contains("missing package path") {
-                NSLog("[Seal] MissingPackagePath detected, re-pushing IPA and retrying install")
-                try await pushIpa(ipaData: ipaData, bundleID: bundleID)
-                try await installPushedIpa(bundleID: bundleID, isSelfReplacement: isSelfReplacement)
-            } else {
-                throw error
+        #if !targetEnvironment(simulator)
+        guard await isReady() else { throw Self.channelNotReadyFailure }
+        let ipaMB = Double(ipaData.count) / 1_000_000
+        // 合并调用 = 上传（对齐原 push 预算，封顶 30 分钟）+ 安装（600 秒）
+        let mergedTimeout = min(1800.0, 180.0 + ipaMB * 5.0) + 600.0
+        let maxAttempts = 3
+        var lastError: Error?
+        for attempt in 1...maxAttempts {
+            do {
+                if isSelfReplacement {
+                    // Seal 自更新：安装命令发出后尽快回主屏，避免被替换时残留崩溃界面
+                    let installation = Task.detached(priority: .userInitiated) {
+                        try Minimuxer.stageAndInstall(bundleId: bundleID, ipaBytes: ipaData)
+                    }
+                    try await Task.sleep(for: .milliseconds(250))
+                    await SelfReplacementController.returnToHomeScreen()
+                    try await installation.value
+                } else {
+                    let outcome = await offThread(seconds: mergedTimeout) {
+                        try Minimuxer.stageAndInstall(bundleId: bundleID, ipaBytes: ipaData)
+                    }
+                    if case .some(.failure(let installError)) = outcome { throw installError }
+                    guard outcome != nil else { throw Self.installTimeoutFailure }
+                }
+                return
+            } catch {
+                lastError = error
+                guard attempt < maxAttempts else { break }
+                let detail = Self.errorDetail(error)
+                if detail.contains("MissingPackagePath") == false {
+                    // 非 MissingPackagePath（多为 socket/超时）：重建会话后重试
+                    Minimuxer.reset()
+                    await waitForNetworkRefresh(rounds: 2, delay: .milliseconds(600))
+                }
+                var readyWait = 0
+                while await isReady() == false && readyWait < 15 {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    readyWait += 1
+                }
             }
         }
+        throw Self.installationFailure(lastError!)
+        #endif
     }
 
     func verifyInstalled(bundleID: String) async throws {
@@ -530,6 +530,17 @@ actor MinimuxerInstallChannel: InstallChannel {
             return Minimuxer.describeError(minimuxerError)
         }
         return "\(nsError.domain) (\(nsError.code)): \(nsError.localizedDescription)"
+    }
+
+    /// 从 Rust FFI NSError / ImportFailure 提取底层错误文本，用于设备错误分类。
+    /// ImportFailure.errorDescription 返回 title（如"安装失败"），原始设备错误在 reason 里。
+    private static func errorDetail(_ error: Error) -> String {
+        if let failure = error as? ImportFailure {
+            return failure.reason
+        }
+        let nsError = error as NSError
+        return nsError.userInfo[NSLocalizedDescriptionKey] as? String
+            ?? nsError.localizedDescription
     }
     #endif
 

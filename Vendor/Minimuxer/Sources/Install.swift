@@ -159,47 +159,17 @@ public class LockDownInstall: InstallProvider {
 }
 
 public class RPInstall: InstallProvider {
-    /// yeet 与 install 之间暂存 IPA 字节：合并调用要求两步共享同一隧道会话窗口
-    private static let pendingLock = NSLock()
-    private static var pendingIPAs: [String: Data] = [:]
-
     public func yeetAppAfc(bundleId: String, ipaBytes: Data) throws {
-        // 保存字节，installIpa 时走合并调用（Rust 侧重新上传并立即安装）
-        RPInstall.pendingLock.lock()
-        RPInstall.pendingIPAs[bundleId] = ipaBytes
-        RPInstall.pendingLock.unlock()
+        // 仅暂存：走 connect_to_rsd_services 的缓存隧道会话（含同连接回读校验）。
+        // shim afcd 的暂存视图绑定该会话，同会话内后续 installIpa 可见；跨会话不可见。
         try RustIdevice.yeetAppAfc(bundleId: bundleId, ipaBytes: ipaBytes)
     }
 
     public func installIpa(bundleId: String) throws {
-        RPInstall.pendingLock.lock()
-        let pendingBytes = RPInstall.pendingIPAs.removeValue(forKey: bundleId)
-        RPInstall.pendingLock.unlock()
-
-        guard let pendingBytes else {
-            try RustIdevice.installIpa(bundleId: bundleId)
-            return
-        }
-
-        do {
-            // 首选：CoreDevice 隧道 → lockdown → 经典 AFC/instproxy。
-            // shim 通道的 instproxy 在 iOS 18.7 上无法定位暂存包（MissingPackagePath）
-            try RustIdevice.stageAndInstallViaCoreTunnel(bundleId: bundleId, ipaBytes: pendingBytes)
-        } catch {
-            let tunnelError = error
-            do {
-                // 回退：shim 通道候选链（保留诊断价值）
-                try RustIdevice.stageAndInstall(bundleId: bundleId, ipaBytes: pendingBytes)
-            } catch {
-                throw NSError(
-                    domain: "minimuxer",
-                    code: -900,
-                    userInfo: [
-                        NSLocalizedDescriptionKey: "CoreDevice 隧道安装失败：\(tunnelError.localizedDescription)；shim 通道回退也失败：\(error.localizedDescription)"
-                    ]
-                )
-            }
-        }
+        // 仅安装：与 yeetAppAfc 共用同一条缓存会话（暂存文件名由 Rust 侧 IPA_NAME_CACHE 传递）。
+        // 若两段之间会话因 socket 错误被重建，installd 将报 MissingPackagePath，
+        // 由上层编排（MinimuxerInstallChannel.install）整体重跑合并调用恢复。
+        try RustIdevice.installIpa(bundleId: bundleId)
     }
 
     public func removeApp(bundleId: String) throws {
