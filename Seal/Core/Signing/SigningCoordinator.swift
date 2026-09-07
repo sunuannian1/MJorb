@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import ZIPFoundation
 @preconcurrency import AltSign
 
 actor SigningCoordinator {
@@ -650,16 +651,64 @@ actor SigningCoordinator {
             // installd 安装失败（签名/描述文件问题）和连接断开是不同原因，
             // 统一提示会误导用户排查方向。
             if let importFailure = error as? ImportFailure {
-                throw importFailure
+                throw installDiagnosticsAppended(importFailure, signedPath: signedPath)
             }
             let nsError = error as NSError
-            throw ImportFailure(
+            let base = ImportFailure(
                 title: "安装失败",
                 reason: "安装未完成：\(nsError.localizedDescription)。如桌面已出现云下载图标但点击无法安装，通常是签名或描述文件问题，请检查 Apple ID 证书状态后重试。",
                 recovery: "重新安装",
                 code: "SEAL-INSTALL-702b"
             )
+            throw installDiagnosticsAppended(base, signedPath: signedPath)
         }
+    }
+
+    /// 安装失败时把自诊断信息（Seal 构建号 + 签名包结构摘要）附加到失败原因，
+    /// 使日志导出无需传输 IPA 即可还原安装时的包结构（Frameworks 目录、
+    /// 根目录 framework 等），用于远程定位 installd discovery 类错误。
+    private func installDiagnosticsAppended(
+        _ failure: ImportFailure,
+        signedPath: String
+    ) -> ImportFailure {
+        var parts: [String] = []
+        if let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
+            parts.append("Seal构建\(build)")
+        }
+        guard let url = try? fileStore.fileURL(relativePath: signedPath),
+              let archive = try? Archive(url: url, accessMode: .read) else {
+            parts.append("签名包不可读")
+            return ImportFailure(
+                title: failure.title,
+                reason: failure.reason + "【诊断】" + parts.joined(separator: "；"),
+                recovery: failure.recovery,
+                code: failure.code
+            )
+        }
+        var entryCount = 0
+        var hasFrameworksEntry = false
+        var rootFrameworkNames: Set<String> = []
+        for entry in archive {
+            entryCount += 1
+            let path = entry.path
+            if path.contains("/Frameworks") { hasFrameworksEntry = true }
+            let components = path.split(separator: "/")
+            if components.count == 3, components.first == "Payload",
+               components[2].hasSuffix(".framework") {
+                rootFrameworkNames.insert(String(components[2]))
+            }
+        }
+        parts.append("IPA条目\(entryCount)")
+        parts.append("Frameworks条目:\(hasFrameworksEntry ? "有" : "无")")
+        if rootFrameworkNames.isEmpty == false {
+            parts.append("根framework:\(rootFrameworkNames.joined(separator: ","))")
+        }
+        return ImportFailure(
+            title: failure.title,
+            reason: failure.reason + "【诊断】" + parts.joined(separator: "；"),
+            recovery: failure.recovery,
+            code: failure.code
+        )
     }
 
     private func validateAccountSession(

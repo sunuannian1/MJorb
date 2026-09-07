@@ -690,23 +690,29 @@ struct SigningWorkspace: Sendable {
             try fileManager.moveItem(at: source, to: destination)
         }
 
-        // 全树改写（主二进制 + 移入的 framework 二进制 + 其他 dylib 内部引用）
+        // 全树改写（主二进制 + 移入的 framework 二进制 + 其他 dylib 内部引用，
+        // 含 load command 与 __cstring 中的 dlopen 运行时字面量）
         guard let enumerator = fileManager.enumerator(
             at: appURL,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: []
         ) else { return }
         for case let url as URL in enumerator {
-            guard url.pathExtension.isEmpty || url.pathExtension == "dylib" else { continue }
-            try? rewriteExecutablePathLoadCommands(machOURL: url, movedNames: movedNames)
+            guard url.isFileURL else { continue }
+            try? rewriteExecutablePathReferences(machOURL: url, movedNames: movedNames)
         }
     }
 
-    /// 把 Mach-O 内 `@executable_path/<movedName>` 形式的 dylib 引用改写为
-    /// `@rpath/<movedName>`（就地覆写，null 填充）。仅 thin arm64（MH_MAGIC_64）；
-    /// 仅当该二进制自身声明了指向 Frameworks 的 LC_RPATH 时才改写——否则 @rpath
-    /// 无解析路径，宁可保持原样。
-    private func rewriteExecutablePathLoadCommands(
+    /// 把 Mach-O 内所有 `@executable_path/<movedName>` 字节序列就地改写为
+    /// `@rpath/<movedName>`（null 填充）。
+    ///
+    /// 全二进制字节级替换而非逐 load command 解析：ESign 注入器还可能在
+    /// __cstring 里保留 `dlopen("@executable_path/...")` 形式的运行时字面量，
+    /// 只改 load command 会漏。改写前提：二进制内存在指向 Frameworks 的
+    /// RPATH 声明（LC_RPATH 或字面量），否则 @rpath 无解析路径，保持原样。
+    /// 安全性：`@rpath/` 恒短于 `@executable_path/`，覆写 + null 填充零字节平移；
+    /// 仅当匹配串后紧跟 0x00（完整 C 字符串）时替换，不破坏更长的相邻串。
+    private func rewriteExecutablePathReferences(
         machOURL: URL,
         movedNames: Set<String>
     ) throws {
@@ -716,80 +722,35 @@ struct SigningWorkspace: Sendable {
         func u32(_ offset: Int) -> UInt32 {
             data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: UInt32.self) }
         }
-        // MH_MAGIC_64 = 0xfeedfacf（strip 后全树 thin arm64）
+        // MH_MAGIC_64 = 0xfeedfacf（strip arm64e 后全树 thin arm64）
         guard u32(0) == 0xfeedfacf else { return }
 
-        let ncmds = Int(u32(16))
-        var offset = 32
-        var hasFrameworksRpath = false
-        var rewriteRanges: [(range: Range<Int>, replacement: [UInt8])] = []
+        let rpathNeedle = Data("@executable_path/Frameworks".utf8)
+        guard data.firstRange(of: rpathNeedle) != nil else { return }
 
-        for _ in 0..<ncmds {
-            guard offset + 8 <= data.count else { break }
-            let cmd = u32(offset)
-            let cmdSize = Int(u32(offset + 4))
-            guard cmdSize >= 8, offset + cmdSize <= data.count else { break }
-
-            // LC_RPATH = LC_REQ_DYLD | 0x1c
-            if cmd == 0x8000_001c, cmdSize > 12 {
-                let nameOffset = Int(u32(offset + 8))
-                let path = machOLoadCommandPath(data: data, commandStart: offset, nameOffset: nameOffset)
-                if path?.hasSuffix("Frameworks") == true {
-                    hasFrameworksRpath = true
+        var didRewrite = false
+        for name in movedNames {
+            let old = Array("@executable_path/\(name)".utf8)
+            var replacement = Array("@rpath/\(name)".utf8)
+            replacement.append(contentsOf: repeatElement(0, count: old.count - replacement.count))
+            let needle = Data(old)
+            var searchStart = 0
+            while let match = data.firstRange(of: needle, in: searchStart..<data.count) {
+                // 只替换完整 C 字符串：匹配串之后必须紧跟 0x00（或已是文件末尾）
+                let terminatorIsZero = match.upperBound >= data.count
+                    || data[match.upperBound] == 0
+                guard terminatorIsZero else {
+                    searchStart = match.upperBound
+                    continue
                 }
+                data.replaceSubrange(match, with: replacement)
+                didRewrite = true
+                searchStart = match.lowerBound + replacement.count
             }
-
-            // LC_LOAD_DYLIB(0xc) / LC_LOAD_WEAK_DYLIB(0xd) / LC_REEXPORT_DYLIB(0x8000001f)
-            let isDylibCommand = cmd == 0x0c || cmd == 0x0d || cmd == 0x8000_001f
-            if isDylibCommand, cmdSize > 12 {
-                let nameOffset = Int(u32(offset + 8))
-                if nameOffset > 0, nameOffset < cmdSize {
-                    let pathStart = offset + nameOffset
-                    let pathMaxLen = offset + cmdSize - pathStart
-                    let raw = data.subdata(in: pathStart..<(pathStart + pathMaxLen))
-                    let path = String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self)
-                    if let rewritten = rewrittenRpathPath(path, movedNames: movedNames) {
-                        var replacement = Array(rewritten.utf8)
-                        replacement.append(
-                            contentsOf: repeatElement(0, count: raw.count - replacement.count)
-                        )
-                        rewriteRanges.append(
-                            (range: pathStart..<(pathStart + raw.count), replacement: replacement)
-                        )
-                    }
-                }
-            }
-            offset += cmdSize
         }
-        guard hasFrameworksRpath, rewriteRanges.isEmpty == false else { return }
-
-        // 从后往前替换，避免偏移失效
-        for item in rewriteRanges.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
-            data.replaceSubrange(item.range, with: item.replacement)
+        if didRewrite {
+            try data.write(to: machOURL)
         }
-        try data.write(to: machOURL)
-    }
-
-    /// 读取 load command 内的路径 C 字符串（nameOffset 相对命令起始）。
-    private func machOLoadCommandPath(data: Data, commandStart: Int, nameOffset: Int) -> String? {
-        guard nameOffset > 0, nameOffset < data.count else { return nil }
-        let start = commandStart + nameOffset
-        guard start < data.count else { return nil }
-        let bytes = data.subdata(in: start..<data.count).prefix(while: { $0 != 0 })
-        guard bytes.isEmpty == false else { return nil }
-        return String(decoding: bytes, as: UTF8.self)
-    }
-
-    /// `@executable_path/<movedName>[/...]` → `@rpath/<movedName>[/...]`。
-    /// 仅当首组件是被移动的 bundle 且新串不长于旧串时改写。
-    private func rewrittenRpathPath(_ path: String, movedNames: Set<String>) -> String? {
-        let prefix = "@executable_path/"
-        guard path.hasPrefix(prefix) else { return nil }
-        let remainder = String(path.dropFirst(prefix.count))
-        let firstComponent = remainder.split(separator: "/", maxSplits: 1).first.map(String.init) ?? remainder
-        guard movedNames.contains(firstComponent) else { return nil }
-        let rewritten = "@rpath/" + remainder
-        return rewritten.utf8.count <= path.utf8.count ? rewritten : nil
     }
 
     private func stripArm64eArchitecture(in appURL: URL) throws {
