@@ -651,7 +651,7 @@ actor SigningCoordinator {
             // installd 安装失败（签名/描述文件问题）和连接断开是不同原因，
             // 统一提示会误导用户排查方向。
             if let importFailure = error as? ImportFailure {
-                throw installDiagnosticsAppended(importFailure, signedPath: signedPath)
+                throw await installDiagnosticsAppended(importFailure, signedPath: signedPath)
             }
             let nsError = error as NSError
             let base = ImportFailure(
@@ -660,7 +660,7 @@ actor SigningCoordinator {
                 recovery: "重新安装",
                 code: "SEAL-INSTALL-702b"
             )
-            throw installDiagnosticsAppended(base, signedPath: signedPath)
+            throw await installDiagnosticsAppended(base, signedPath: signedPath)
         }
     }
 
@@ -670,12 +670,12 @@ actor SigningCoordinator {
     private func installDiagnosticsAppended(
         _ failure: ImportFailure,
         signedPath: String
-    ) -> ImportFailure {
+    ) async -> ImportFailure {
         var parts: [String] = []
         if let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
             parts.append("Seal构建\(build)")
         }
-        guard let url = try? fileStore.fileURL(relativePath: signedPath),
+        guard let url = try? await fileStore.fileURL(relativePath: signedPath),
               let archive = try? Archive(url: url, accessMode: .read) else {
             parts.append("签名包不可读")
             return ImportFailure(
