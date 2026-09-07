@@ -3,6 +3,13 @@ name = "rust_bridge"
 version = "1.0.0"
 edition = "2021"
 
+# staticlib：产出 librust_bridge.a 供 XCFramework 打包（Makefile 引用）。
+# 此段曾在整理依赖时被误删——没有它 cargo 只产出 .rlib，Makefile 会打包到
+# cargo 缓存里恢复的旧 .a，新 FFI 符号永远进不了库（CI 链接 undefined symbols）。
+[lib]
+crate-type = ["staticlib"]
+name = "rust_bridge"
+
 [dependencies]
 # <--- bridge.rs -->
 # Service wrappers: Device, Lockdown, AFC, InstProxy, Misagent, Mounter, Heartbeat, DebugServer
