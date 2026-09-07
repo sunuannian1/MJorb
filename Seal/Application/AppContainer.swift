@@ -4,8 +4,6 @@ import Foundation
 struct AppContainer {
     let appsViewModel: AppsViewModel
     let settingsViewModel: SettingsViewModel
-    let homeViewModel: HomeViewModel
-    let historyViewModel: HistoryViewModel
     let certificateExportHandler: CertificateExportHandler
 
     static func live(
@@ -15,21 +13,6 @@ struct AppContainer {
             return AppContainer(
                 appsViewModel: testModel,
                 settingsViewModel: .preview(),
-                homeViewModel: HomeViewModel(
-                    appStore: try! CoreDataAppStore(storeURL: URL(fileURLWithPath: "/dev/null")),
-                    accountRepository: ProtectedAccountRepository(
-                        fileURL: URL(fileURLWithPath: "/dev/null")
-                    ),
-                    notificationScheduler: ExpiryNotificationScheduler(),
-                    notificationPreferences: NotificationPreferences(),
-                    signingPreferenceStore: SigningPreferenceStore()
-                ),
-                historyViewModel: HistoryViewModel(
-                    signingHistoryStore: SigningHistoryStore(
-                        fileURL: URL(fileURLWithPath: "/dev/null")
-                    ),
-                    appStore: try! CoreDataAppStore(storeURL: URL(fileURLWithPath: "/dev/null"))
-                ),
                 certificateExportHandler: CertificateExportHandler(
                     keychain: KeychainVault(),
                     signingPreferenceStore: SigningPreferenceStore()
@@ -180,17 +163,6 @@ struct AppContainer {
                     signingPreferenceStore: signingPreferenceStore,
                     operationCoordinator: operationCoordinator
                 ),
-                homeViewModel: HomeViewModel(
-                    appStore: appStore,
-                    accountRepository: accountRepository,
-                    notificationScheduler: notificationScheduler,
-                    notificationPreferences: notificationPreferences,
-                    signingPreferenceStore: signingPreferenceStore
-                ),
-                historyViewModel: HistoryViewModel(
-                    signingHistoryStore: signingHistoryStore,
-                    appStore: appStore
-                ),
                 certificateExportHandler: certificateExportHandler
             )
         } catch {
@@ -200,33 +172,9 @@ struct AppContainer {
                 recovery: "知道了",
                 code: "SEAL-APP-001"
             )
-
-            let fallbackStore: (any AppStore)?
-            let tempDir = FileManager.default.temporaryDirectory.appending(path: "SealFallback-\(UUID().uuidString)")
-            if let store = try? Self.makeAppStore(in: tempDir) {
-                fallbackStore = store
-            } else {
-                fallbackStore = try? CoreDataAppStore(inMemory: true)
-            }
-
             return AppContainer(
                 appsViewModel: AppsViewModel(startupFailure: failure),
                 settingsViewModel: SettingsViewModel(startupFailure: failure),
-                homeViewModel: HomeViewModel(
-                    appStore: fallbackStore ?? FallbackAppStore(),
-                    accountRepository: ProtectedAccountRepository(
-                        fileURL: FileManager.default.temporaryDirectory.appending(path: "seal-accounts-\(UUID().uuidString).json")
-                    ),
-                    notificationScheduler: ExpiryNotificationScheduler(),
-                    notificationPreferences: NotificationPreferences(),
-                    signingPreferenceStore: SigningPreferenceStore()
-                ),
-                historyViewModel: HistoryViewModel(
-                    signingHistoryStore: SigningHistoryStore(
-                        fileURL: FileManager.default.temporaryDirectory.appending(path: "seal-history-\(UUID().uuidString).json")
-                    ),
-                    appStore: fallbackStore ?? FallbackAppStore()
-                ),
                 certificateExportHandler: CertificateExportHandler(
                     keychain: KeychainVault(),
                     signingPreferenceStore: SigningPreferenceStore()
