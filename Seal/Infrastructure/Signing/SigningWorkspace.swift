@@ -658,7 +658,7 @@ struct SigningWorkspace: Sendable {
         var pluginsIsDirectory: ObjCBool = false
         if fileManager.fileExists(atPath: pluginsURL.path, isDirectory: &pluginsIsDirectory),
            pluginsIsDirectory.boolValue == false {
-            let size = (fileManager.attributesOfItem(atPath: pluginsURL.path)[.size] as? Int) ?? Int.max
+            let size = ((try? fileManager.attributesOfItem(atPath: pluginsURL.path))?[.size] as? Int) ?? Int.max
             if size == 0 {
                 try? fileManager.removeItem(at: pluginsURL)
             }
