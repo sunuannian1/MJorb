@@ -653,6 +653,16 @@ struct SigningWorkspace: Sendable {
                 try? fileManager.removeItem(at: dirURL)
             }
         }
+        // ESign 假文件形态的 PlugIns 同样清理（Frameworks 在归一化中单独处理）
+        let pluginsURL = appURL.appendingPathComponent("PlugIns")
+        var pluginsIsDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: pluginsURL.path, isDirectory: &pluginsIsDirectory),
+           pluginsIsDirectory.boolValue == false {
+            let size = (fileManager.attributesOfItem(atPath: pluginsURL.path)[.size] as? Int) ?? Int.max
+            if size == 0 {
+                try? fileManager.removeItem(at: pluginsURL)
+            }
+        }
     }
 
     /// ESign 布局归一化：.app 根目录的 .framework/.dylib → Frameworks/，
@@ -677,6 +687,18 @@ struct SigningWorkspace: Sendable {
         guard movedNames.isEmpty == false else { return }
 
         let frameworksURL = appURL.appendingPathComponent("Frameworks", isDirectory: true)
+
+        // ESign 打包器把 "Frameworks/"、"PlugIns/" 等目录条目写成普通文件位
+        // （S_IFREG，zipinfo 显示 -rwxr-xr-x 而非 drwxr-xr-x）。ZIPFoundation 按
+        // 模式位判型，工作区会解出 0 字节【文件】。该假文件两宗罪：
+        // ① 签名 IPA 带同名文件 → installd discovery 枚举 ENOTDIR → 安装必败；
+        // ② 建目录时撞名 → NSCocoaErrorDomain 516。
+        // 真实子内容不可能存在于 0 字节条目中，直接删除。
+        var artifactIsDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: frameworksURL.path, isDirectory: &artifactIsDirectory),
+           artifactIsDirectory.boolValue == false {
+            try fileManager.removeItem(at: frameworksURL)
+        }
         try fileManager.createDirectory(at: frameworksURL, withIntermediateDirectories: true)
         for name in movedNames {
             let source = appURL.appendingPathComponent(name)
